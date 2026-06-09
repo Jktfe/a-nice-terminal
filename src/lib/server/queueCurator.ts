@@ -40,6 +40,16 @@ export type CurateOptions = {
   resolveSubjectThreshold?: number;
   /** Max curated_text length the default condenser will allow before trimming. Default 600. */
   maxLen?: number;
+  /**
+   * Curator mode — JWPK msg_5et17i7hkv: "or not parse! but it should be a
+   * choice". `'parse'` (default) runs the full dedupe/drop-resolved/condense
+   * pass; `'off'` makes curate a NO-OP so items flow through to the worker raw
+   * (one mention = one steer), via the normal `pullNext`. This is the
+   * granularity-agnostic core of the choice: WHERE the mode is stored
+   * (per-item, per-recipient, or per-room default) is wired at the call site;
+   * curate only needs to honour the resolved mode. Design credit @minisearch.
+   */
+  mode?: 'parse' | 'off';
 };
 
 export type CurateSummary = {
@@ -171,6 +181,17 @@ export function laterResolvesEarlier(
  * Returns count summary. All mutations go through the store.
  */
 export function curate(roomId: string, targetHandle: string, opts: CurateOptions = {}): CurateSummary {
+  // Mode 'off' = "don't parse": the curator is a no-op and every pending item
+  // reaches the worker raw. We still report the live pending count so callers
+  // and the poller see the queue depth unchanged. (JWPK msg_5et17i7hkv.)
+  if (opts.mode === 'off') {
+    return {
+      coalesced: 0,
+      condensed: 0,
+      dropped: 0,
+      remaining: listQueue(roomId, targetHandle, { status: 'pending' }).length
+    };
+  }
   const condenseFn = opts.condenseFn ?? ((t: string) => defaultCondense(t, opts.maxLen ?? 600));
   const dupThreshold = opts.dupThreshold ?? 0.9;
   const resolveSubjectThreshold = opts.resolveSubjectThreshold ?? 0.5;

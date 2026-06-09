@@ -212,3 +212,41 @@ describe('queueCurator.curate — summary counts', () => {
     expect(pending()).toHaveLength(3);
   });
 });
+
+describe("queueCurator — mode 'off' (JWPK \"or not parse, it's a choice\")", () => {
+  it('is a no-op: no coalesce/drop/condense, every item left raw', () => {
+    // A dup pair, a resolved pair, and a long item — all of which the
+    // default 'parse' mode would touch.
+    seed('refactor the auth gate', { now: 1000 });
+    seed('@chair refactor the auth gate!', { now: 1100 });
+    seed('can you bump the version number?', { sourceMessageId: 't', now: 2000 });
+    seed('done, bumped the version number', { sourceMessageId: 't', now: 2100 });
+    const long = 'x '.repeat(400);
+    seed(long, { now: 3000 });
+
+    const summary = curate(ROOM, CHAIR, { mode: 'off' });
+
+    expect(summary).toEqual({ coalesced: 0, condensed: 0, dropped: 0, remaining: 5 });
+    // all five survive untouched, including the long one (no condense)
+    const items = pending();
+    expect(items).toHaveLength(5);
+    expect(items.some((i) => i.curatedText === long)).toBe(true);
+  });
+
+  it("'parse' is the default and DOES curate the same seed (control)", () => {
+    seed('refactor the auth gate', { now: 1000 });
+    seed('@chair refactor the auth gate!', { now: 1100 });
+
+    // mode omitted → default parse → the near-dup pair coalesces.
+    const summary = curate(ROOM, CHAIR);
+    expect(summary.coalesced).toBe(1);
+    expect(pending()).toHaveLength(1);
+  });
+
+  it('mode off reports the true pending depth (does not hide the queue)', () => {
+    seed('one', { now: 1000 });
+    seed('two', { now: 2000 });
+    seed('three', { now: 3000 });
+    expect(curate(ROOM, CHAIR, { mode: 'off' }).remaining).toBe(3);
+  });
+});
