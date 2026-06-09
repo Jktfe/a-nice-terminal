@@ -45,6 +45,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Shared docs | v5 chat/room lane | CHANGE | Claude | Room-facing durable synthesis. |
 | Memory recall | v5 chat/room lane | CHANGE | Claude | Searchable context, not a dumping ground. |
 | Navigate to other chats | v5 chat/room lane | CHANGE | Claude | Command palette and room switcher. |
+| Dashboard direct-open aliases | JWPK Oldboys msg_vxuo1g7e9e, 2026-06-09 | CHANGE | Codex/Fast | `/dashboard` and `/dash` now server-redirect to `/`, so stale client links, context-menu new tabs, and copied dashboard URLs land on the canonical dashboard instead of the error page. |
 | Starred room persistence | JWPK Oldboys msg_irghgbdi0u, 2026-06-09 | CHANGE | Codex/Fast | Server table is the boot source of truth for starred rooms. localStorage remains only an offline/legacy cache; in-tab edits still win while a boot GET is in flight. |
 | Upload pictures and files | audit blockers | CHANGE | Claude | Include drag/drop, picker, errors, policy, and mobile. |
 | Break context | v5 chat/room lane | CHANGE | Claude | Breaks are first-class context boundaries. |
