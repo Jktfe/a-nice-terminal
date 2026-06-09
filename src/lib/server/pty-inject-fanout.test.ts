@@ -30,6 +30,7 @@ import { createSubagentSession, mintSubagentLease } from './subagentIdentity';
 import { enterFocus, resetFocusModeStoreForTests } from './focusModeStore';
 import { fireFocusTimerPrompts, deliverFocusExitDigest } from './pty-inject-fanout';
 import { addReactionToMessage } from './messageReactionStore';
+import { listQueue, resetMessageQueueForTests } from './messageQueueStore';
 
 let tmpDir: string;
 const previousDbPath = process.env.ANT_FRESH_DB_PATH;
@@ -45,6 +46,7 @@ beforeEach(() => {
   resetNoResponderRateLimitForTests();
   resetEntityClaimStoreForTests();
   resetFocusModeStoreForTests();
+  resetMessageQueueForTests();
 });
 
 afterEach(() => {
@@ -55,6 +57,7 @@ afterEach(() => {
   resetBridgeStateForTests();
   resetEntityClaimStoreForTests();
   resetFocusModeStoreForTests();
+  resetMessageQueueForTests();
   rmSync(tmpDir, { recursive: true, force: true });
   if (previousDbPath === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = previousDbPath;
@@ -743,6 +746,62 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
 
     expect(q.pendingCountForTests(`${room.id}::linked-focused`)).toBe(1);
     expect(q.pendingCountForTests(`${room.id}::linked-other`)).toBe(1);
+  });
+
+  it('queue_raw terminal mode diverts targeted messages into the durable queue instead of PTY injection', () => {
+    const room = createChatRoom({ name: 'queue-raw-room', whoCreatedIt: '@you' });
+    const terminal = upsertTerminal({
+      pid: 21,
+      pid_start: 'p21',
+      name: 'pi-raw-terminal',
+      meta: { deliveryMode: 'queue_raw' }
+    });
+    updatePaneTarget(terminal.id, '%pi-raw', 'pi');
+    addMembership({ room_id: room.id, handle: '@pi', terminal_id: terminal.id });
+
+    const message = postMessage({
+      roomId: room.id,
+      authorHandle: '@JWPK',
+      body: '@pi monitor these updates',
+      kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, message);
+
+    const q = getFanoutQueueForTests();
+    expect(q.pendingCountForTests(`${room.id}::${terminal.id}`)).toBe(0);
+    const durable = listQueue(room.id, '@pi', { status: 'pending' });
+    expect(durable).toHaveLength(1);
+    expect(durable[0]).toMatchObject({
+      roomId: room.id,
+      targetHandle: '@pi',
+      curatedText: '@pi monitor these updates',
+      kind: 'mention',
+      sourceMessageIds: [message.id]
+    });
+  });
+
+  it('queue_summarise terminal mode also diverts to the durable queue for later parse/summarise', () => {
+    const room = createChatRoom({ name: 'queue-summarise-room', whoCreatedIt: '@you' });
+    const terminal = upsertTerminal({
+      pid: 22,
+      pid_start: 'p22',
+      name: 'local-summarise-terminal',
+      meta: { deliveryMode: 'queue_summarise' }
+    });
+    updatePaneTarget(terminal.id, '%local-summarise', 'pi');
+    addMembership({ room_id: room.id, handle: '@local', terminal_id: terminal.id });
+
+    const message = postMessage({
+      roomId: room.id,
+      authorHandle: '@JWPK',
+      body: '@local capture this for summary',
+      kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, message);
+
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${terminal.id}`)).toBe(0);
+    expect(listQueue(room.id, '@local', { status: 'pending' }).map((item) => item.curatedText))
+      .toEqual(['@local capture this for summary']);
   });
 });
 

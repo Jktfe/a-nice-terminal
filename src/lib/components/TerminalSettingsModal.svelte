@@ -9,11 +9,13 @@
   type PersistenceChoice = '1h' | '24h' | '7d' | 'forever';
   type WriteGrant = { handle: string; grantedAtMs: number };
   type KillDefault = 'prompt' | 'archive' | 'delete' | 'just-kill';
+  type DeliveryMode = 'inject' | 'queue_raw' | 'queue_summarise';
   type Settings = {
     persistence: PersistenceChoice;
     onlyRespondTo: string[];
     writeGrants: WriteGrant[];
     killDefault: KillDefault;
+    deliveryMode: DeliveryMode;
   };
 
   type Props = {
@@ -40,7 +42,19 @@
     { value: 'delete' as KillDefault, label: 'Kill + Delete', description: 'Drop transcript + linked chat + terminal record entirely' }
   ];
 
-  const DEFAULT_SETTINGS: Settings = { persistence: 'forever', onlyRespondTo: [], writeGrants: [], killDefault: 'prompt' };
+  const DELIVERY_MODE_CHOICES = [
+    { value: 'inject' as DeliveryMode, label: 'Inject', description: 'Send matching room messages straight into the pane' },
+    { value: 'queue_raw' as DeliveryMode, label: 'Queue raw', description: 'Store messages only; do not parse or paste them' },
+    { value: 'queue_summarise' as DeliveryMode, label: 'Queue + summarise', description: 'Store messages for a parser or summariser before work starts' }
+  ];
+
+  const DEFAULT_SETTINGS: Settings = {
+    persistence: 'forever',
+    onlyRespondTo: [],
+    writeGrants: [],
+    killDefault: 'prompt',
+    deliveryMode: 'inject'
+  };
 
   let settings = $state<Settings>({ ...DEFAULT_SETTINGS });
   let loading = $state(false);
@@ -80,6 +94,10 @@
         && ['prompt', 'archive', 'delete', 'just-kill'].includes(incoming.killDefault)
         ? incoming.killDefault as KillDefault
         : 'prompt';
+      const incomingDeliveryMode = typeof incoming.deliveryMode === 'string'
+        && ['inject', 'queue_raw', 'queue_summarise'].includes(incoming.deliveryMode)
+        ? incoming.deliveryMode as DeliveryMode
+        : 'inject';
       settings = {
         persistence: (incoming.persistence as Settings['persistence']) ?? 'forever',
         onlyRespondTo: (incoming.onlyRespondTo as string[]) ?? [],
@@ -92,7 +110,8 @@
               };
             }).filter((g) => g.handle.length > 0)
           : [],
-        killDefault: incomingKillDefault
+        killDefault: incomingKillDefault,
+        deliveryMode: incomingDeliveryMode
       };
       dirtyFields.clear();
     } catch (cause) {
@@ -144,6 +163,12 @@
     settings.killDefault = next;
     markDirty('killDefault');
     await persistField('killDefault', next);
+  }
+
+  async function changeDeliveryMode(next: DeliveryMode) {
+    settings.deliveryMode = next;
+    markDirty('deliveryMode');
+    await persistField('deliveryMode', next);
   }
 
   async function grantWriteTo(handle: string) {
@@ -323,6 +348,25 @@
             class:active={settings.killDefault === choice.value}
             aria-checked={settings.killDefault === choice.value}
             onclick={() => void changeKillDefault(choice.value)}
+            disabled={saving}
+            title={choice.description}
+          >{choice.label}</button>
+        {/each}
+      </div>
+    </section>
+
+    <section class="settings-section" aria-labelledby="deliveryModeHeading">
+      <h3 id="deliveryModeHeading">Message delivery</h3>
+      <p class="section-help">Choose whether matched room messages are pasted into this pane or held in a durable queue for review.</p>
+      <div class="persistence-picker" role="radiogroup" aria-label="Message delivery mode">
+        {#each DELIVERY_MODE_CHOICES as choice (choice.value)}
+          <button
+            type="button"
+            role="radio"
+            class="persistence-choice"
+            class:active={settings.deliveryMode === choice.value}
+            aria-checked={settings.deliveryMode === choice.value}
+            onclick={() => void changeDeliveryMode(choice.value)}
             disabled={saving}
             title={choice.description}
           >{choice.label}</button>

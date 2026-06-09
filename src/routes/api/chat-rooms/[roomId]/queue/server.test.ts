@@ -14,8 +14,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { GET, POST } from './+server';
 import { PATCH, DELETE } from './[queueId]/+server';
 import { POST as PULL } from './pull/+server';
+import { POST as CURATE } from './curate/+server';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { resetMessageQueueForTests, type QueueItem } from '$lib/server/messageQueueStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { updatePaneTarget, upsertTerminal } from '$lib/server/terminalsStore';
 
 const ADMIN_TOKEN_FOR_TESTS = 'queue-route-test-admin-token';
 const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
@@ -96,6 +99,12 @@ const callPull = (roomId: string, body?: string, withAuth = true) =>
   runHandler(
     PULL as AnyHandler,
     eventFor('POST', `/api/chat-rooms/${roomId}/queue/pull`, { roomId, body, withAuth })
+  );
+
+const callCurate = (roomId: string, body?: string, withAuth = true) =>
+  runHandler(
+    CURATE as AnyHandler,
+    eventFor('POST', `/api/chat-rooms/${roomId}/queue/curate`, { roomId, body, withAuth })
   );
 
 async function enqueueItem(roomId: string, text: string, extra: Record<string, unknown> = {}) {
@@ -214,6 +223,45 @@ describe('/api/chat-rooms/:roomId/queue', () => {
       const room = createChatRoom({ name: 'pull-no-target', whoCreatedIt: '@you' });
       const response = await callPull(room.id, JSON.stringify({}));
       expect(response.status).toBe(400);
+    });
+  });
+
+  describe('curate parse/off mode', () => {
+    it("honours explicit mode='off' and leaves duplicate items untouched", async () => {
+      const room = createChatRoom({ name: 'curate-off', whoCreatedIt: '@you' });
+      await enqueueItem(room.id, 'refactor the auth gate', { priority: 1 });
+      await enqueueItem(room.id, '@localchair refactor the auth gate!', { priority: 2 });
+
+      const response = await callCurate(
+        room.id,
+        JSON.stringify({ targetHandle: CHAIR, mode: 'off' })
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json() as { summary: { coalesced: number; remaining: number } };
+      expect(body.summary).toMatchObject({ coalesced: 0, remaining: 2 });
+
+      const pending = await callGet(room.id);
+      const pendingBody = await pending.json() as { items: QueueItem[] };
+      expect(pendingBody.items).toHaveLength(2);
+    });
+
+    it('defaults to mode off for a queue_raw terminal target', async () => {
+      const room = createChatRoom({ name: 'curate-terminal-raw', whoCreatedIt: '@you' });
+      const terminal = upsertTerminal({
+        pid: 4545,
+        pid_start: 'p',
+        name: 'queue-raw-chair',
+        meta: { deliveryMode: 'queue_raw' }
+      });
+      updatePaneTarget(terminal.id, '%raw-chair', 'pi');
+      addMembership({ room_id: room.id, handle: CHAIR, terminal_id: terminal.id });
+      await enqueueItem(room.id, 'refactor the auth gate', { priority: 1 });
+      await enqueueItem(room.id, '@localchair refactor the auth gate!', { priority: 2 });
+
+      const response = await callCurate(room.id, JSON.stringify({ targetHandle: CHAIR }));
+      expect(response.status).toBe(200);
+      const body = await response.json() as { summary: { coalesced: number; remaining: number } };
+      expect(body.summary).toMatchObject({ coalesced: 0, remaining: 2 });
     });
   });
 

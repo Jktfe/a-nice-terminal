@@ -1,8 +1,8 @@
 /**
  * GET   /api/terminals/[id]/settings — read terminal settings from meta JSON.
- *   200 { persistence, onlyRespondTo, writeGrants, killDefault }
+ *   200 { persistence, onlyRespondTo, writeGrants, killDefault, deliveryMode }
  * PATCH /api/terminals/[id]/settings — patch a single field.
- *   Body: { field: 'persistence'|'onlyRespondTo'|'writeGrants'|'killDefault', value: ... }
+ *   Body: { field: 'persistence'|'onlyRespondTo'|'writeGrants'|'killDefault'|'deliveryMode', value: ... }
  *   200 { ok: true }
  *
  * JWPK msg_fdi280krd3 (2026-05-19) — TerminalSettingsModal UI was wired
@@ -24,6 +24,11 @@ import { requireAdminAuth } from '$lib/server/chatInviteAuth';
 import { resolveCallerHandleAnyRoom } from '$lib/server/authGate';
 import { getTerminalById, upsertTerminal } from '$lib/server/terminalsStore';
 import { getTerminalRecord } from '$lib/server/terminalRecordsStore';
+import {
+  isTerminalDeliveryMode,
+  TERMINAL_DELIVERY_MODES,
+  type TerminalDeliveryMode
+} from '$lib/server/terminalDeliveryMode';
 
 type KillDefault = 'prompt' | 'archive' | 'delete' | 'just-kill';
 
@@ -32,13 +37,15 @@ type Settings = {
   onlyRespondTo: string[];
   writeGrants: Array<{ handle: string; mode: 'read' | 'read_write' }>;
   killDefault: KillDefault;
+  deliveryMode: TerminalDeliveryMode;
 };
 
 const DEFAULT_SETTINGS: Settings = {
   persistence: 'forever',
   onlyRespondTo: [],
   writeGrants: [],
-  killDefault: 'prompt'
+  killDefault: 'prompt',
+  deliveryMode: 'inject'
 };
 
 const KILL_DEFAULT_VALUES: readonly KillDefault[] = ['prompt', 'archive', 'delete', 'just-kill'];
@@ -85,7 +92,10 @@ function settingsFromMeta(meta: Record<string, unknown>): Settings {
     && (KILL_DEFAULT_VALUES as readonly string[]).includes(meta.killDefault)
     ? meta.killDefault as KillDefault
     : DEFAULT_SETTINGS.killDefault;
-  return { persistence, onlyRespondTo, writeGrants, killDefault };
+  const deliveryMode = isTerminalDeliveryMode(meta.deliveryMode)
+    ? meta.deliveryMode
+    : DEFAULT_SETTINGS.deliveryMode;
+  return { persistence, onlyRespondTo, writeGrants, killDefault, deliveryMode };
 }
 
 export const GET: RequestHandler = ({ params }) => {
@@ -142,13 +152,17 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     && field !== 'onlyRespondTo'
     && field !== 'writeGrants'
     && field !== 'killDefault'
+    && field !== 'deliveryMode'
   ) {
-    throw error(400, 'field must be persistence | onlyRespondTo | writeGrants | killDefault.');
+    throw error(400, 'field must be persistence | onlyRespondTo | writeGrants | killDefault | deliveryMode.');
   }
   if (field === 'killDefault'
       && !(typeof body.value === 'string'
            && (KILL_DEFAULT_VALUES as readonly string[]).includes(body.value))) {
     throw error(400, 'killDefault must be one of prompt | archive | delete | just-kill.');
+  }
+  if (field === 'deliveryMode' && !isTerminalDeliveryMode(body.value)) {
+    throw error(400, `deliveryMode must be one of ${TERMINAL_DELIVERY_MODES.join(' | ')}.`);
   }
   const existingMeta = parseMeta(typeof terminal.meta === 'string' ? terminal.meta : undefined);
   // Trust the UI's shape — server-side validation in settingsFromMeta drops

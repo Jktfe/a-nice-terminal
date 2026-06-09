@@ -55,6 +55,8 @@ import { inboxRoomIdFor } from './humanInboxRoomStore';
 import { buildMessageDeliveryEnvelope } from './messageDeliveryEnvelope';
 import { getContextState, markContextSeen } from './roomSessionContextStore';
 import { resolveCurrentOwner } from './roomIdentityResolver';
+import { enqueue as enqueueDurableQueue } from './messageQueueStore';
+import { readTerminalDeliveryMode } from './terminalDeliveryMode';
 
 // (room × askee × messageId) → already opened; prevents double-file under
 // retried fanout. Bounded — entries age out after fanout for the message
@@ -208,6 +210,26 @@ function queueKeyFor(roomId: string, terminalId: string): string {
 }
 
 const queue = makeInjectQueue<QueuedItem>(onFlush);
+
+function routeQueuedRoomMessage(terminal: { id: string; meta?: string | null }, item: QueuedItem): void {
+  const deliveryMode = readTerminalDeliveryMode(terminal.meta);
+  if (deliveryMode !== 'inject') {
+    enqueueDurableQueue({
+      roomId: item.roomId,
+      targetHandle: item.recipientHandle,
+      sourceMessageId: item.messageId,
+      text: item.body,
+      kind: 'mention',
+      priority: item.postOrder
+    });
+    return;
+  }
+  queue.enqueue(queueKeyFor(item.roomId, terminal.id), item);
+  // M3.4a-v2 T3d Q5 touchpoint: bump last_pty_byte_at_ms on successful
+  // inject-queue enqueue. Durable queue modes deliberately do not claim PTY
+  // liveness because no bytes were sent to the pane.
+  touchLastPtyByteAt(terminal.id);
+}
 
 function recipientSessionIdFor(q: QueuedItem): string {
   return resolveCleanMember(q.roomId, q.recipientHandle)
@@ -708,7 +730,7 @@ export function fanoutMessageToRoomTerminals(
     const rk = routedKey(room.id, message.id, membership.handle);
     if (routedForMessage.has(rk)) continue;
     routedForMessage.add(rk);
-    queue.enqueue(queueKeyFor(room.id, terminal.id), {
+    routeQueuedRoomMessage(terminal, {
       roomId: room.id,
       roomName: room.name,
       messageId: message.id,
@@ -720,9 +742,6 @@ export function fanoutMessageToRoomTerminals(
       ...(message.discussion_id !== undefined && { discussion_id: message.discussion_id }),
       ...(replyParent !== null && { replyParent })
     });
-    // M3.4a-v2 T3d Q5 touchpoint: bump last_pty_byte_at_ms on successful
-    // enqueue. Best-effort — failures already swallowed inside the helper.
-    touchLastPtyByteAt(terminal.id);
   }
   // T2-LINKED-CHAT-T1c (2026-05-14, PATH A flowspec lift): linked-chat-room
   // direct path — terminal_records.linked_chat_room_id == room.id reaches

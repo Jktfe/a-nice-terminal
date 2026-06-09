@@ -8,6 +8,7 @@
 - **Worker (Gemma)** — `pullNext()` ONLY when `agentStateReader` says it's free (Waiting/Available); on done → `markDone` → pull next. One-in-flight.
 - **User + CLI** — `ant queue …` + UI: list/add/edit/reorder/drop.
 - **Cron** — when `countPending==0` AND worker idle → inject proactive work.
+- **Delivery mode** — per terminal: `inject` pastes into the pane; `queue_raw` writes durable queue rows and runs curator mode `off`; `queue_summarise` writes durable queue rows and leaves curator mode `parse` for a summariser/worker.
 
 ## Data model — table `room_message_queue`
 ```
@@ -36,11 +37,12 @@ Index: (room_id, target_handle, status, priority, created_at_ms).
 - `resetForTests()`
 
 ## Curator — `src/lib/server/queueCurator.ts`
-`curate(roomId, targetHandle)` over `pending` items:
+`curate(roomId, targetHandle, { mode })` over `pending` items:
 1. **dedupe/coalesce** — items with identical/near-identical curated_text or overlapping intent → coalesce.
 2. **condense** — v1 rule-based (trim, strip noise); seam `condenseFn` for a small model later.
 3. **drop-resolved** — heuristic: a later item that supersedes/answers an earlier one → mark earlier `dropped`. v1: same-source-thread + "done/resolved" markers; conservative.
 4. **sort** — stable FIFO by created, with priority override.
+5. **mode `off`** — no-op pass-through; reports the real pending depth without dedupe, condense, or drop-resolved.
 Pure functions where possible; model calls behind an injectable seam (NO model in tests).
 
 ## API — `src/routes/api/chat-rooms/[roomId]/queue/`
@@ -55,7 +57,7 @@ Pure functions where possible; model calls behind an injectable seam (NO model i
 `maybePullForWorker(roomId, targetHandle)` — if `agentStateReader` worker state ∈ {Waiting,Available} and nothing `working`, `pullNext` + deliver to the chair pane (reuse pty-inject). On worker→Waiting transition, pull next.
 
 ## Wire inbound — `pty-inject-fanout.ts`
-For a target with a queue enabled (the chair), the @-mention that passes `onlyRespondTo` → `enqueue()` to the durable queue INSTEAD of direct inject. The consumer/gate releases it when the worker's free.
+For a target with queue delivery enabled (`queue_raw` or `queue_summarise`), the @-mention that passes `onlyRespondTo` → `enqueue()` to the durable queue INSTEAD of direct inject. The consumer/gate releases it when the worker's free. `queue_raw` defaults `/queue/curate` to mode `off`; `queue_summarise` defaults to mode `parse`.
 
 ## Box-safety
 Store/curator/API/CLI/tests are MODEL-FREE (rule-based + injectable seams + mocks). Only a final capped demo touches a model (32K ctx). No 131K, ever.
