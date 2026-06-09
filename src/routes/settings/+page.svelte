@@ -12,6 +12,7 @@
   import QuickShortcutsBar from '$lib/components/QuickShortcutsBar.svelte';
   import CliVersionCard from '$lib/components/CliVersionCard.svelte';
   import DeckRootsCard from '$lib/components/DeckRootsCard.svelte';
+  import AssetFoldersCard from '$lib/components/AssetFoldersCard.svelte';
   import { firstCapabilityRows } from '$lib/domain/capabilityLedger';
   import { theme } from '$lib/stores/theme.svelte';
   import { agentKinds } from '$lib/stores/agentKinds.svelte';
@@ -283,6 +284,7 @@
     <h2>System</h2>
     <CliVersionCard />
     <DeckRootsCard />
+    <AssetFoldersCard />
     <p class="stub-note system-stub">Server status + certs widget lands in the server-status slice (claude2 NAV-POLISH followup).</p>
   </section>
 

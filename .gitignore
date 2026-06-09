@@ -81,3 +81,19 @@ POSITIONING.md
 _pending-slices/
 .claude/
 test-api.cjs
+
+# External asset policy (JWPK msg_7nqg8oaufo): served images must NOT live
+# in the repo (OSS-leak risk); they live in ~/.ant/asset-folders.json
+# pointed at an external folder, and a user can add files by hand.
+# Hard-blocks new commits of image binaries at the repo root + in
+# static/ (the static/ fallback chain's last layer is allowed; existing
+# files are fine, but new top-level/ root .jp[e]g/.png/.gif/.webp/.avif
+# commits are denied to stop accidental re-eviction).
+/*.jpeg
+/*.jpg
+/*.png
+/*.gif
+/*.webp
+/*.avif
+# Captures live in research-site / external, not the repo
+/static/captures/
