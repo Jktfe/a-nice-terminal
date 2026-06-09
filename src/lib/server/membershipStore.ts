@@ -23,7 +23,7 @@
 import { getIdentityDb } from './db';
 import { getSession } from './antSessionStore';
 import { syncMembershipTerminalBinding } from './roomMembershipsStore';
-import { claimHandle } from './roomHandleLeaseClean';
+import { claimHandle, retireActiveLeasesForHandle } from './roomHandleLeaseClean';
 import { getLiveAgentByHandle } from './v02AgentsStore';
 import { addMembership as addV02Membership } from './v02MembershipsStore';
 import { isOperatorHandle } from './operatorHandle';
@@ -249,12 +249,16 @@ export function rebindMemberSessionIfStale(
   return rowToMembership(next);
 }
 
-/** Remove a member — a hard DELETE of the row (no soft-revoke). Returns true
- *  if a row was removed. */
+/** Remove a member — a hard DELETE of the row (no soft-revoke).
+ *  Also retires the post-gate leases for that room handle so a kick/reinvite
+ *  cannot leave stale sessions active under the old handle. */
 export function removeMember(roomId: string, handle: string, db = getIdentityDb()): boolean {
   ensureTable(db);
+  const retiredLeases = isDurableMemberHandle(handle)
+    ? retireActiveLeasesForHandle(roomId, handle, db)
+    : 0;
   const res = db.prepare(`DELETE FROM room_membership WHERE room_id = ? AND handle = ?`).run(roomId, handle);
-  return res.changes > 0;
+  return res.changes > 0 || retiredLeases > 0;
 }
 
 /** All members of a room, oldest first. */

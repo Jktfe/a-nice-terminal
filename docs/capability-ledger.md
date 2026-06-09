@@ -36,6 +36,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Remote invite to room | v5 system lane | CHANGE | Codex | Keep security boundary explicit. |
 | Participants list | v5 chat/room lane | CHANGE | Claude | Participants talk; features serve. |
 | Change participant handle | v5 chat/room lane | CHANGE | Claude | Needs visible rename history. |
+| Room member kick/reinvite identity | JWPK Oldboys msg_ejb33vdks9 + msg_ll7pbiflt6, 2026-06-09 | CHANGE | Codex/Fast | v1 removal invariant: kicking a member now hard-removes the clean membership row and retires every active post-gate lease for that room handle, so reinvite starts from one fresh durable binding instead of inheriting stale v0.2-era handle/session drift. |
 | Focus mode | v5 chat/room lane | CHANGE | Claude | Must not hide accountability. |
 | Link discussions | v5 chat/room lane | DEDUPE | Claude | Discussion is a room facet, not a separate destination. |
 | Artefact rail | v5 chat/room lane | CHANGE | Claude | Decks, docs, sheets, files, and sites share the rail. |
