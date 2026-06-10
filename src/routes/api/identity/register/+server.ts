@@ -34,7 +34,6 @@ import {
   isCandidateStale
 } from '$lib/server/roomMembershipsStore';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
-import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle';
 import {
   findActiveTerminalRecordByHandle,
   lowestFreeTerminalHandle
@@ -160,17 +159,17 @@ export const POST: RequestHandler = async ({ request }) => {
   const callerSession = sessionTokenFromCaller ? getSession(sessionTokenFromCaller) : null;
   const callerOwnsExistingTerminal =
     existing !== null && callerSession?.terminal_id === existing.id;
-  if (handleValue && isOperatorHandle(handleValue)) {
-    const existingRecord = existing ? getTerminalRecord(existing.id) : null;
-    const idempotentOperatorReregister =
-      callerOwnsExistingTerminal &&
-      existingRecord?.handle !== null &&
-      existingRecord?.handle !== undefined &&
-      isOperatorHandle(existingRecord.handle);
-    if (!idempotentOperatorReregister) {
-      throw error(403, `${getOperatorHandle()} is the server handle and can only be re-registered by its existing terminal.`);
-    }
-  }
+  // NB: there is deliberately NO operator-handle re-register allow-block here.
+  // An earlier idempotent-operator-reregister branch lived at this point, but
+  // it was dead code: validateHandleForRegistration (above, ~line 138) already
+  // rejects the operator handle as `reserved` → 400 BEFORE handleValue is set,
+  // so this branch's `handleValue && isOperatorHandle(handleValue)` was never
+  // reachable. Dropped on review (@c4 / @speedy 2026-06-10). This is the
+  // tightest reading of JWPK's "no-one but me changes the server handle"
+  // (msg_1iff57erwg): the OPEN self-register endpoint can NEVER mint the
+  // operator handle — the operator acquires @JWPK via operator-authed
+  // bind/config + room leases, not this route. The complementary write-side
+  // guard is requireOperatorForOperatorHandle on /api/terminals.
   // Phase A2 (JWPK A Team msg_7uvr35x0xr 2026-05-29, design Q2 default B —
   // helpful error w/ exact recovery command). Two 409 rejections layered
   // over the existing upsert path:
