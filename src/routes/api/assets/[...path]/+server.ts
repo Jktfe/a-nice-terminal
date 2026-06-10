@@ -230,6 +230,8 @@ export const GET: RequestHandler = async ({ params, request, setHeaders }) => {
     'Accept-Ranges': 'bytes',
     ...(contentRange !== null && { 'Content-Range': contentRange })
   });
-  // Uint8Array view (zero-copy) — Buffer itself isn't assignable to BodyInit.
-  return new Response(new Uint8Array(slice.buffer, slice.byteOffset, slice.byteLength), { status });
+  // Fresh Uint8Array copy: a view over Buffer's ArrayBufferLike isn't a
+  // BodyInit under TS 5.7 generic typed arrays; the copy types as
+  // Uint8Array<ArrayBuffer>. Bounded by MAX_FILE_BYTES.
+  return new Response(new Uint8Array(slice), { status });
 };
