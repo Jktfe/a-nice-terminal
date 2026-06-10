@@ -18,7 +18,8 @@ export type IdentityLedgerKind =
   | 'handle.claim-refused'
   | 'owner.added'
   | 'owner.removed'
-  | 'room.assigned';
+  | 'room.assigned'
+  | 'resolver.disagreement';
 
 export type IdentityLedgerRow = {
   id: number;

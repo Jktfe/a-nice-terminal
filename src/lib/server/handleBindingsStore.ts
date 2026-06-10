@@ -72,6 +72,20 @@ export function getLiveBinding(rawHandle: string): HandleBindingRow | null {
   return row ?? null;
 }
 
+/**
+ * Witness read: the live binding sitting on a pane, if any. This is the
+ * clean-core answer to "who is this pane?" — the read the Step 2 resolver
+ * uses. Returns null when nothing is witnessed on the pane.
+ */
+export function getLiveBindingByPane(pane: string): HandleBindingRow | null {
+  const db = getIdentityDb();
+  const row = db.prepare(
+    `SELECT * FROM handle_bindings WHERE pane = ? AND tombstoned_at_ms IS NULL
+     ORDER BY bound_at_ms DESC LIMIT 1`
+  ).get(pane) as HandleBindingRow | undefined;
+  return row ?? null;
+}
+
 export function listLiveBindings(): HandleBindingRow[] {
   const db = getIdentityDb();
   return db.prepare(
