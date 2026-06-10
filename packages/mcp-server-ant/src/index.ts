@@ -3,8 +3,8 @@
  * `@jktfe/mcp-server-ant` — stdio MCP server entrypoint.
  *
  * Bridges Claude Desktop / Claude Code / any MCP client to the local
- * ANT OSS daemon (default `http://127.0.0.1:6174`) via three tools
- * registered in `./tools.ts`.
+ * ANT OSS daemon (default `http://127.0.0.1:6174`) via the tools
+ * registered in `./tools.ts` (see that file's header for the full list).
  *
  * Run directly via `npx @jktfe/mcp-server-ant` or wire into a client's
  * config file (see README.md for sample Claude Desktop config).

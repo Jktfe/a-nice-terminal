@@ -4,13 +4,23 @@ A small [Model Context Protocol](https://modelcontextprotocol.io) stdio
 server that bridges Claude Desktop / Claude Code (or any MCP client) to
 a local **ANT OSS daemon**.
 
-It exposes three tools:
+It exposes ten tools:
 
 | Tool | What it does |
 | --- | --- |
 | `ant_get_pending_mentions` | Long-poll for new mentions of bound handles (default 25s, max 60s). |
-| `ant_post_message` | Post a message to an ANT chat room. |
+| `ant_post_message` | Post a message to an ANT chat room (optionally as a thread reply). |
 | `ant_list_rooms` | List the rooms the authenticated caller can see. |
+| `ant_get_room` | Read one chat room's metadata by id. |
+| `ant_get_room_messages` | Paginated message history for one room (`limit` + `before` cursor). |
+| `ant_get_message` | Resolve a message id to its persisted message row. |
+| `ant_search_room_messages` | Full-text search within one room, newest-first. |
+| `ant_list_agents` | List registered agents, optionally narrowed to one room. |
+| `ant_list_plans` | List persisted plans by lifecycle state (`active`/`archived`/`deleted`/`all`). |
+| `ant_get_plan` | Read one plan record by id. |
+
+All tools except `ant_post_message` are annotated `readOnlyHint: true`;
+nothing in this server deletes or overwrites ANT state.
 
 The pending-mentions tool is the **load-bearing** one — it lets the MCP
 client pull bound-handle mentions without busy-looping. The wait is
@@ -56,7 +66,7 @@ Add an entry to `~/Library/Application Support/Claude/claude_desktop_config.json
 }
 ```
 
-Restart Claude Desktop and the three tools will appear in the Tools menu.
+Restart Claude Desktop and the tools will appear in the Tools menu.
 
 ## Claude Code config
 
@@ -118,6 +128,94 @@ Returns `{ "messageId": "msg_abc" }`.
 ### `ant_list_rooms`
 
 No args. Returns `{ "rooms": [{ "id", "name", "kind": "chat" }] }`.
+
+### `ant_get_room`
+
+```jsonc
+{ "roomId": "r1" }
+```
+
+Returns `{ "room": { ... } }` or a 404 error for unknown ids.
+
+### `ant_get_room_messages`
+
+```jsonc
+{
+  "roomId": "r1",
+  "limit": 100,            // optional, 1..200 (default 100)
+  "before": 1024,          // optional cursor: paging.nextBefore from the previous page
+  "includePreBreak": false // optional: include history from before the latest context break
+}
+```
+
+Returns `{ "messages": [...], "paging": { "hasMore", "nextBefore", ... } }`.
+Follow `paging.nextBefore` while `paging.hasMore` is true to walk older
+history.
+
+### `ant_get_message`
+
+```jsonc
+{ "messageId": "msg_abc" }
+```
+
+Returns `{ "message": { ... } }`. The room read gate applies, so private
+rooms do not leak via message-id lookup.
+
+### `ant_search_room_messages`
+
+```jsonc
+{
+  "roomId": "r1",
+  "query": "release blocker",
+  "limit": 50,        // optional, 1..200 (default 50)
+  "allContent": false // optional: search before the latest context break too
+}
+```
+
+Returns `{ "matches": [{ "id", "postedAt", "authorHandle", "body", "postOrder" }], "allContent" }`,
+newest-first.
+
+### `ant_list_agents`
+
+```jsonc
+{
+  "roomId": "r1", // optional: narrow to one room
+  "limit": 50,    // optional, 1..200 (default 50)
+  "offset": 0     // optional: pass nextOffset from the previous page
+}
+```
+
+Returns `{ "agents": [...], "total", "nextOffset" }` — `nextOffset` is
+`null` on the final page.
+
+### `ant_list_plans`
+
+```jsonc
+{
+  "state": "active", // optional: active | archived | deleted | all
+  "limit": 50,       // optional, 1..200 (default 50)
+  "offset": 0        // optional: pass nextOffset from the previous page
+}
+```
+
+Returns `{ "plans": [...], "total", "nextOffset" }`.
+
+### `ant_get_plan`
+
+```jsonc
+{ "planId": "antchat-rv1-2026-06-10" }
+```
+
+Returns `{ "plan": { ... } }` or a 404 error for unknown ids.
+
+## Errors
+
+Tool failures come back as MCP `isError` text results carrying the
+verbatim HTTP status + response body, plus a next-step hint where one
+exists — e.g. a 403 appends *"your token may lack room access — ask the
+operator to run `ant mcp grant --room <roomId> --handle <your-handle>`
+and set ANT_DEVICE_TOKEN to the minted tokenSecret"*, and a connection
+failure points at `ANT_SERVER_URL` / daemon liveness.
 
 ## Architecture
 
