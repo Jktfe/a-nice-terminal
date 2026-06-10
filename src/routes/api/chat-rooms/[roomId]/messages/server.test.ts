@@ -23,6 +23,7 @@ import { addMembership } from '$lib/server/roomMembershipsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { issueToken, resetAntchatAuthTokensForTests } from '$lib/server/antchatAuthStore';
 import { resetAskStoreForTests } from '$lib/server/askStore';
+import { resetTrackerStoreForTests, getTrackerView, listTrackersForRoom } from '$lib/server/trackerStore';
 import { listOpenAskCandidates } from '$lib/server/askCandidateStore';
 import {
   markMessageRead,
@@ -1492,5 +1493,52 @@ describe('POST /api/chat-rooms/:roomId/messages — R2 token→terminal binding'
     } finally {
       warnSpy.mockRestore();
     }
+  });
+});
+
+describe('POST /messages — server-side /tracker detection (JWPK msg_ujjxkn7zr6)', () => {
+  beforeEach(() => {
+    resetChatRoomStoreForTests();
+    resetChatMessageStoreForTests();
+    resetTrackerStoreForTests();
+  });
+
+  it('a /tracker message creates a tracker (not a chat message) + posts the ant-tracker receipt', async () => {
+    const room = createChatRoom({ name: 'trk', whoCreatedIt: '@you' });
+    const before = listMessagesInRoom(room.id).length;
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ body: '/tracker "GVPL4 test" | beneficiary, quantum(£), paid(y/n)', ...verifiedCaller(room.id) })
+    });
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    // returns a tracker, not a message
+    expect(payload.tracker).toBeTruthy();
+    expect(payload.message).toBeUndefined();
+    expect(payload.tracker.title).toBe('GVPL4 test');
+    expect(payload.tracker.columns.map((c: { key: string }) => c.key)).toEqual(['beneficiary', 'quantum', 'paid']);
+    expect(payload.tracker.columns[1].type).toBe('currency');
+    expect(payload.tracker.columns[2].type).toBe('bool');
+    // the tracker exists in the store
+    expect(listTrackersForRoom(room.id)).toHaveLength(1);
+    expect(getTrackerView(payload.tracker.id)).toBeTruthy();
+    // the literal /tracker command was NOT posted as a chat message; the only
+    // new message is the ant-tracker create-receipt (renders the table).
+    const msgs = listMessagesInRoom(room.id);
+    expect(msgs.some((m) => m.body.includes('/tracker "GVPL4 test"'))).toBe(false);
+    expect(msgs.some((m) => m.body.includes('```ant-tracker') && m.body.includes(payload.tracker.id))).toBe(true);
+  });
+
+  it('a normal message is unaffected (no tracker created)', async () => {
+    const room = createChatRoom({ name: 'plain', whoCreatedIt: '@you' });
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ body: 'just a normal message', ...verifiedCaller(room.id) })
+    });
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.message).toBeTruthy();
+    expect(payload.tracker).toBeUndefined();
+    expect(listTrackersForRoom(room.id)).toHaveLength(0);
   });
 });

@@ -19,6 +19,9 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { postMessage, listMessagesInRoom, listMessagesPageInRoom, generateMessageId } from '$lib/server/chatMessageStore';
+import { parseTrackerCommand } from '$lib/composer/composerSlashCommands';
+import { createTracker } from '$lib/server/trackerStore';
+import { parseColumnSpec, postTrackerCreateReceipt } from '$lib/server/trackerRouteHelpers';
 import { resolveHumanOwnership, gateAndConsumeForWrite } from '$lib/server/consentGate';
 import { canonicaliseOperatorHandle, getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle';
 import { isReservedHandle } from '$lib/server/handleValidation';
@@ -304,6 +307,30 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const discussionIdRaw = (rawBody as { discussion_id?: unknown }).discussion_id;
   const discussion_id =
     typeof discussionIdRaw === 'string' && discussionIdRaw.length > 0 ? discussionIdRaw : undefined;
+
+  // Server-side /tracker (JWPK msg_ujjxkn7zr6): the web composer intercepts
+  // `/tracker …` client-side, but a raw message POST from a TERMINAL or
+  // `ant chat send` reaches here and would otherwise post the command as plain
+  // text. Detect + execute it as the already-resolved+gated author (every auth
+  // and consent check above has run), then return the created tracker instead
+  // of posting the literal command. The tracker's own create-receipt (an
+  // ant-tracker fence) is what renders in the thread.
+  const trackerCmd = parseTrackerCommand(messageBody);
+  if (trackerCmd) {
+    const cmdHeaders: Record<string, string> = {};
+    if (warningHeader) cmdHeaders[warningHeader.name] = warningHeader.value;
+    if (mintFreshBrowserSessionCookie) cmdHeaders['set-cookie'] = mintFreshBrowserSessionCookie;
+    else if (clearStaleBrowserCookie)
+      cmdHeaders['set-cookie'] = `ant_browser_session=; HttpOnly; SameSite=Strict; Path=/api/chat-rooms/${params.roomId}; Max-Age=0`;
+    const tracker = createTracker({
+      roomId: params.roomId,
+      title: trackerCmd.title,
+      columns: parseColumnSpec(trackerCmd.columnSpec),
+      createdByHandle: authorHandle
+    });
+    postTrackerCreateReceipt(params.roomId, tracker.id, tracker.title, authorHandle);
+    return json({ tracker }, { status: 201, headers: cmdHeaders });
+  }
 
   try {
     const newMessage = postMessage({
