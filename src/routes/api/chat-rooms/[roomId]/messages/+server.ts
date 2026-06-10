@@ -60,6 +60,8 @@ import { buildPermissionDeniedPayload } from '$lib/server/permissionDeniedPayloa
 import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
 import { listReadersForMessages } from '$lib/server/messageReadReceiptStore';
 import { resolveOrNull } from '$lib/server/sessionResolver';
+import { resolveCallerIdentity, readIdentityReadMode } from '$lib/server/callerIdentityResolver';
+import { corroboratePaneFact } from '$lib/server/paneFactCorroboration';
 import { getRoomPolicy } from '$lib/server/roomPolicyStore';
 import { decidePost } from '$lib/server/roomAccessGate';
 import { filterVisibleMessages } from '$lib/server/visibleContentScope';
@@ -197,7 +199,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
     mintFreshBrowserSessionCookie,
     callerTerminalId,
     authPath
-  } = await resolveMessageAuthorHandle(params.roomId, request, rawBody, clientAuthorHandle);
+  } = await resolveMessageAuthorOnSeam(params.roomId, request, rawBody, clientAuthorHandle);
 
   // plan_consent_gate_2026_05_20 T6: fail-closed post-gate. If the resolved
   // authorHandle maps to a human owner_id, the caller MUST either be on the
@@ -490,12 +492,86 @@ type AuthorResolution = {
   /** plan_consent_gate_2026_05_20 T6: how the caller authenticated. The
    *  consent gate treats 'bearer' as authenticated self-post (no grant
    *  needed) because a bearer token is a first-party human credential. */
-  authPath: 'bearer' | 'cookie' | 'pidchain' | 'caller-grant' | 'ant-session';
+  authPath: 'bearer' | 'cookie' | 'pidchain' | 'caller-grant' | 'ant-session' | 'witness';
 };
 
 async function resolveAccountsBearerHandle(token: string): Promise<string | null> {
   const identity = await resolveAccountsBearerIdentity(token);
   return identity?.handle ?? null;
+}
+
+/**
+ * Step 2 seam adoption — SECOND endpoint on resolveCallerIdentity (blessed
+ * msg_6dtpw2o4pn, steers msg_fjbp2o97h9). The post gate is the highest-
+ * blast-radius surface in the system, so the wrapper is deliberately thin:
+ *
+ *  - Only AGENT-SHAPED calls ride the seam (pidChain present or a durable
+ *    session header). Browser-cookie and bearer identities are a different
+ *    class — witnessed by cookie/credential, not pane — and putting them on
+ *    the seam would generate SHADOW disagreement noise that could never
+ *    flatline, poisoning the cutover gate.
+ *  - LEGACY mode: the full existing resolution runs and its answer is
+ *    returned untouched (the seam call is a no-op pass-through).
+ *  - SHADOW: legacy answers; the corroborated-pane witness comparison is
+ *    ledgered on disagreement. A legacy 403 still throws before comparison —
+ *    rejected posts are not part of the proving data.
+ *  - CLEAN: agent-shaped posts resolve ONLY from the corroborated witnessed
+ *    binding; the legacy machinery is never invoked for them (amended AC1).
+ *    Unresolved → the same fail-closed 403 as every other identity failure.
+ */
+async function resolveMessageAuthorOnSeam(
+  roomId: string,
+  request: Request,
+  rawBody: unknown,
+  clientAuthorHandle: string | null
+): Promise<AuthorResolution> {
+  const pidChain = parsePidChainFromBody(rawBody);
+  const durableSessionPresent =
+    typeof request.headers.get('x-ant-session-id') === 'string' &&
+    (request.headers.get('x-ant-session-id') ?? '').length > 0;
+  const agentShaped = pidChain.length > 0 || durableSessionPresent;
+  if (!agentShaped) {
+    return resolveMessageAuthorHandle(roomId, request, rawBody, clientAuthorHandle);
+  }
+  const paneRaw = (rawBody as { pane?: unknown } | null)?.pane;
+  const presentedPane =
+    typeof paneRaw === 'string' && paneRaw.trim().length > 0 ? paneRaw.trim() : null;
+  const mode = readIdentityReadMode();
+  if (mode === 'clean') {
+    const { pane } = corroboratePaneFact(presentedPane, pidChain);
+    const witnessed = resolveCallerIdentity({ pane, legacy: () => null });
+    if (!witnessed.ok) {
+      rejectMessageIdentity(roomId, 'No daemon-witnessed binding for this caller (clean identity mode).');
+    }
+    const witnessHandle = witnessed.ok ? witnessed.identity.handle : '';
+    if (
+      clientAuthorHandle !== null &&
+      canonicalClaimedHandle(clientAuthorHandle) !== witnessHandle
+    ) {
+      rejectMessageIdentity(roomId, 'authorHandle does not match the witnessed identity.');
+    }
+    return {
+      handle: witnessHandle,
+      authPath: 'witness',
+      ...(witnessed.ok && witnessed.identity.terminalId
+        ? { callerTerminalId: witnessed.identity.terminalId }
+        : {})
+    };
+  }
+  const legacyResolution = await resolveMessageAuthorHandle(
+    roomId, request, rawBody, clientAuthorHandle
+  );
+  if (mode === 'shadow') {
+    const { pane } = corroboratePaneFact(presentedPane, pidChain);
+    resolveCallerIdentity({
+      pane,
+      legacy: () => ({
+        handle: legacyResolution.handle,
+        terminalId: legacyResolution.callerTerminalId ?? null
+      })
+    });
+  }
+  return legacyResolution;
 }
 
 async function resolveMessageAuthorHandle(

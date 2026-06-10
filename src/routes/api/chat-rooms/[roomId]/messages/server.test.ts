@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { GET, POST } from './+server';
 import {
   createChatRoom,
@@ -18,6 +21,9 @@ import {
   resetMessageReactionStoreForTests
 } from '$lib/server/messageReactionStore';
 import { resetIdentityDbForTests } from '$lib/server/db';
+import { bindHandle } from '$lib/server/handleBindingsStore';
+import { listLedger } from '$lib/server/identityLedgerStore';
+import { setListPanePidsForTests } from '$lib/server/paneFactCorroboration';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
@@ -1549,5 +1555,127 @@ describe('POST /messages — server-side /tracker detection (JWPK msg_ujjxkn7zr6
     expect(payload.message).toBeTruthy();
     expect(payload.tracker).toBeUndefined();
     expect(listTrackersForRoom(room.id)).toHaveLength(0);
+  });
+});
+
+describe('post gate on the resolver seam (Step 2 second adopter — highest blast radius)', () => {
+  const prevMode = process.env.ANT_IDENTITY_READ;
+  const prevDbPath = process.env.ANT_FRESH_DB_PATH;
+  let seamTmpDir: string;
+
+  beforeEach(() => {
+    // Fresh file-backed DB per test: ledger rows accumulate across tests
+    // otherwise (resetIdentityDbForTests alone reuses the same file).
+    seamTmpDir = mkdtempSync(join(tmpdir(), 'ant-seam-post-'));
+    process.env.ANT_FRESH_DB_PATH = join(seamTmpDir, 'test.db');
+    resetIdentityDbForTests();
+    resetChatRoomStoreForTests();
+    resetChatMessageStoreForTests();
+    delete process.env.ANT_IDENTITY_READ;
+  });
+
+  afterEach(() => {
+    if (prevMode === undefined) delete process.env.ANT_IDENTITY_READ;
+    else process.env.ANT_IDENTITY_READ = prevMode;
+    setListPanePidsForTests(null);
+    resetIdentityDbForTests();
+    rmSync(seamTmpDir, { recursive: true, force: true });
+    if (prevDbPath === undefined) delete process.env.ANT_FRESH_DB_PATH;
+    else process.env.ANT_FRESH_DB_PATH = prevDbPath;
+  });
+
+  function witnessedCaller(handle = '@seamster') {
+    callerSeed += 1;
+    const pid = 40_000 + callerSeed;
+    const pid_start = `seam-pid-start-${callerSeed}`;
+    const pane = `%${500 + callerSeed}`;
+    const room = createChatRoom({ name: `seam-room-${callerSeed}`, whoCreatedIt: handle });
+    const terminal = upsertTerminal({ pid, pid_start, name: `seam-${callerSeed}` });
+    addMembership({ room_id: room.id, handle, terminal_id: terminal.id });
+    setListPanePidsForTests(() => ({ status: 0, stdout: `${pane} ${pid}\n`, stderr: '' }));
+    return { room, terminal, pid, pid_start, pane, handle };
+  }
+
+  it('LEGACY (default): agent-shaped post behaves identically and writes no seam ledger rows', async () => {
+    const f = witnessedCaller();
+    const response = await callPost({
+      roomId: f.room.id,
+      body: JSON.stringify({ body: 'legacy post', authorHandle: f.handle,
+        pidChain: [{ pid: f.pid, pid_start: f.pid_start }], pane: f.pane })
+    });
+    expect(response.status).toBe(201);
+    expect((await response.json()).message.authorHandle).toBe(f.handle);
+    expect(listLedger({}).filter((e) => e.kind === 'resolver.disagreement')).toHaveLength(0);
+  });
+
+  it('SHADOW: agent post answers legacy unchanged and ledgers the nothing-witnessed signature', async () => {
+    process.env.ANT_IDENTITY_READ = 'shadow';
+    const f = witnessedCaller();
+    // no binding for the pane — witness has nothing
+    const response = await callPost({
+      roomId: f.room.id,
+      body: JSON.stringify({ body: 'shadow post', authorHandle: f.handle,
+        pidChain: [{ pid: f.pid, pid_start: f.pid_start }], pane: f.pane })
+    });
+    expect(response.status).toBe(201);
+    const rows = listLedger({}).filter((e) => e.kind === 'resolver.disagreement');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].detail).toMatchObject({ legacy_handle: f.handle, witness_handle: null });
+  });
+
+  it('SHADOW: agreement (witnessed binding matches legacy) writes nothing', async () => {
+    process.env.ANT_IDENTITY_READ = 'shadow';
+    const f = witnessedCaller();
+    bindHandle({ handle: f.handle, pane: f.pane, pid: f.pid, pidStart: f.pid_start, terminalId: f.terminal.id });
+    const response = await callPost({
+      roomId: f.room.id,
+      body: JSON.stringify({ body: 'agreeing post', authorHandle: f.handle,
+        pidChain: [{ pid: f.pid, pid_start: f.pid_start }], pane: f.pane })
+    });
+    expect(response.status).toBe(201);
+    expect(listLedger({}).filter((e) => e.kind === 'resolver.disagreement').map((e) => e.detail)).toEqual([]);
+  });
+
+  it('SHADOW: browser-cookie posts stay OFF the seam — different identity class, zero noise', async () => {
+    process.env.ANT_IDENTITY_READ = 'shadow';
+    const room = createChatRoom({ name: 'seam-browser', whoCreatedIt: '@JWPK' });
+    const terminal = upsertTerminal({ pid: 9301, pid_start: 'seam-browser-proof', name: 'seam-browser-public' });
+    addMembership({ room_id: room.id, handle: '@JWPK', terminal_id: terminal.id });
+    const session = createBrowserSession({ roomId: room.id, authorHandle: '@you' });
+    if (!session) throw new Error('expected browser session');
+    const response = await callPost({
+      roomId: room.id,
+      cookie: `ant_browser_session=${session.browserSessionSecret}`,
+      body: JSON.stringify({ body: 'browser post', authorHandle: '@you' })
+    });
+    expect(response.status).toBe(201);
+    expect(listLedger({}).filter((e) => e.kind === 'resolver.disagreement')).toHaveLength(0);
+  });
+
+  it('CLEAN: agent post with a corroborated witnessed binding posts as the witness handle', async () => {
+    process.env.ANT_IDENTITY_READ = 'clean';
+    const f = witnessedCaller();
+    bindHandle({ handle: f.handle, pane: f.pane, pid: f.pid, pidStart: f.pid_start, terminalId: f.terminal.id });
+    const response = await callPost({
+      roomId: f.room.id,
+      body: JSON.stringify({ body: 'witnessed post', authorHandle: f.handle,
+        pidChain: [{ pid: f.pid, pid_start: f.pid_start }], pane: f.pane })
+    });
+    expect(response.status).toBe(201);
+    expect((await response.json()).message.authorHandle).toBe(f.handle);
+  });
+
+  it('CLEAN: agent post with no witnessed binding is refused, no message written', async () => {
+    process.env.ANT_IDENTITY_READ = 'clean';
+    const f = witnessedCaller();
+    const beforeCount = listMessagesInRoom(f.room.id).length;
+    const response = await callPost({
+      roomId: f.room.id,
+      body: JSON.stringify({ body: 'unwitnessed post', authorHandle: f.handle,
+        pidChain: [{ pid: f.pid, pid_start: f.pid_start }], pane: f.pane })
+    });
+    expect(response.status).toBe(403);
+    expect(listMessagesInRoom(f.room.id)).toHaveLength(beforeCount);
+    expect(listMessagesInRoom(f.room.id).some((m) => m.body === 'unwitnessed post')).toBe(false);
   });
 });
