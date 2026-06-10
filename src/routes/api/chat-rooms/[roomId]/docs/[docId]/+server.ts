@@ -97,7 +97,18 @@ export const PUT: RequestHandler = async ({ params, request }) => {
     | null;
   if (!payload) throw error(400, 'JSON body required.');
   // LAUNCH-BLOCKER CVE FIX D (2026-05-20): identity-gate doc-content PUT.
-  requireChatRoomMutationAuth(roomId, request, payload);
+  // 2026-06-10 anti-spoof (security review): capture the auth result and use
+  // the SERVER-RESOLVED handle for attribution — a caller-supplied
+  // updatedByHandle was previously trusted verbatim, letting anyone attribute
+  // a doc edit to any handle. Admin-bearer may still attribute on behalf of
+  // another (automation path); a normal caller may only write as themselves.
+  const auth = requireChatRoomMutationAuth(roomId, request, payload);
+  const requestedUpdatedBy =
+    typeof payload.updatedByHandle === 'string' ? payload.updatedByHandle : undefined;
+  if (requestedUpdatedBy !== undefined && !auth.isAdminBearer && auth.handle !== requestedUpdatedBy) {
+    throw error(403, `Caller ${auth.handle} cannot update a doc as ${requestedUpdatedBy}.`);
+  }
+  const updatedByHandle = requestedUpdatedBy ?? auth.handle;
   if (typeof payload.artefactId !== 'string' || payload.artefactId.length === 0) {
     throw error(400, 'artefactId is required.');
   }
@@ -118,8 +129,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
     kind: 'doc',
     contentFormat: payload.contentFormat as ArtefactContentFormat,
     contentBody: payload.contentBody,
-    updatedByHandle:
-      typeof payload.updatedByHandle === 'string' ? payload.updatedByHandle : null
+    updatedByHandle
   });
   return json(persisted, { status: 200 });
 };
