@@ -419,6 +419,18 @@ describe('ant chat send — message body input modes', () => {
     expect(bodyAt(captured).body).toBe('hello literal');
   });
 
+  it('B1b: tracker command response prints a tracker receipt instead of Posted ? as ?', async () => {
+    const { runtime, captured } = makeSendRuntime({
+      tracker: { id: 'trk_gvpl4', title: 'GVPL4 test' }
+    });
+
+    await handleChatVerb('send', ['--room', 'room-a', '--msg', '/tracker "GVPL4 test" | beneficiary, paid(y/n)'], runtime, { CliInputError });
+
+    expect(bodyAt(captured).body).toBe('/tracker "GVPL4 test" | beneficiary, paid(y/n)');
+    expect(captured.stdout.join('\n')).toContain('Created tracker trk_gvpl4 "GVPL4 test" in room-a.');
+    expect(captured.stdout.join('\n')).not.toContain('Posted ? as ?');
+  });
+
   it('B2: --msg-file reads body from disk; content with backticks/$/!/@ comes through untouched', async () => {
     const trickyBody = 'reply with `whoami` and $PATH and ! marks plus trailing @';
     const fsStub = { readFileSync: (p, enc) => {

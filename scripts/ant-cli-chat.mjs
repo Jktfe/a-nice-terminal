@@ -250,9 +250,7 @@ async function runNameAwarePost(chatIdentifier, args, runtime, CliInputError, pa
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
   } else {
-    const m = result?.message ?? {};
-    const verb = parentMessageId ? 'Replied' : 'Posted';
-    runtime.writeOut(`${verb} ${m.id ?? '?'} as ${m.authorHandle ?? '?'} into "${room.name}".`);
+    writePostResult(runtime, result, `"${room.name}"`, parentMessageId ? 'Replied' : 'Posted');
   }
   return 0;
 }
@@ -327,10 +325,19 @@ async function runSend(flags, runtime, CliInputError) {
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
   } else {
-    const m = result?.message;
-    runtime.writeOut(`Posted ${m?.id ?? '?'} as ${m?.authorHandle ?? '?'} into ${room}.`);
+    writePostResult(runtime, result, room, 'Posted');
   }
   return 0;
+}
+
+function writePostResult(runtime, result, roomLabel, messageVerb) {
+  const tracker = result?.tracker;
+  if (tracker) {
+    runtime.writeOut(`Created tracker ${tracker.id ?? '?'} "${tracker.title ?? 'untitled'}" in ${roomLabel}.`);
+    return;
+  }
+  const m = result?.message ?? {};
+  runtime.writeOut(`${messageVerb} ${m.id ?? '?'} as ${m.authorHandle ?? '?'} into ${roomLabel}.`);
 }
 
 function assertSendIntentIsSafe(body, flags, CliInputError) {
