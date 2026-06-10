@@ -216,6 +216,73 @@ describe('/api/cli-hook POST', () => {
       agent_status_source: 'hook'
     });
   });
+
+  // feat/status-cascade 2026-06-10 — dialect normalisation through the
+  // endpoint: Copilot camelCase and Gemini Before*/After* names previously
+  // persisted raw but projected NO status (mapper returned null).
+  it('gemini BeforeTool drives the pill to working', async () => {
+    const terminal = upsertTerminal({
+      pid: 555, pid_start: 'Mon May 25 10:00:00 2026', name: 'gemini-pill', source: 'test', ttlSeconds: 3600
+    });
+    const response = await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook?source=gemini', {
+        session_id: 'gem-1',
+        ant_session_id: terminal.id,
+        hook_event_name: 'BeforeTool'
+      })
+    );
+    expect(response.status).toBe(201);
+    expect(getAgentStatus(terminal.id)).toMatchObject({
+      agent_status: 'working',
+      agent_status_source: 'hook'
+    });
+  });
+
+  it('copilot camelCase agentStop flips a working pill back to idle', async () => {
+    const terminal = upsertTerminal({
+      pid: 556, pid_start: 'Mon May 25 10:00:00 2026', name: 'copilot-pill', source: 'test', ttlSeconds: 3600
+    });
+    await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook?source=copilot', {
+        session_id: 'cop-1', ant_session_id: terminal.id, hook_event_name: 'preToolUse'
+      })
+    );
+    expect(getAgentStatus(terminal.id)?.agent_status).toBe('working');
+    await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook?source=copilot', {
+        session_id: 'cop-1', ant_session_id: terminal.id, hook_event_name: 'agentStop'
+      })
+    );
+    expect(getAgentStatus(terminal.id)?.agent_status).toBe('idle');
+  });
+
+  it('unmapped failure-dialect events persist as evidence but write NO status', async () => {
+    // postToolUseFailure's spec target is 'blocked' — a state the 4-state
+    // enum does not have. It must not be approximated: event persists, pill
+    // untouched.
+    const terminal = upsertTerminal({
+      pid: 557, pid_start: 'Mon May 25 10:00:00 2026', name: 'failure-pill', source: 'test', ttlSeconds: 3600
+    });
+    await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook?source=copilot', {
+        session_id: 'cop-2', ant_session_id: terminal.id, hook_event_name: 'preToolUse'
+      })
+    );
+    expect(getAgentStatus(terminal.id)?.agent_status).toBe('working');
+    const response = await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook?source=copilot', {
+        session_id: 'cop-2', ant_session_id: terminal.id, hook_event_name: 'postToolUseFailure'
+      })
+    );
+    expect(response.status).toBe(201);
+    expect(listCliHookEventsForSession('cop-2')).toHaveLength(2); // persisted
+    expect(getAgentStatus(terminal.id)?.agent_status).toBe('working'); // untouched
+  });
 });
 
 describe('/api/cli-hook GET', () => {

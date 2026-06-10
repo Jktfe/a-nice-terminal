@@ -45,9 +45,11 @@ describe('agentStatusStore (M3.4a-v2 T1)', () => {
     expect(isAllowedAgentStatus(null)).toBe(false);
   });
 
-  it('isAllowedAgentStatusSource accepts the five canonical sources and rejects others', () => {
+  it('isAllowedAgentStatusSource accepts the six canonical sources and rejects others', () => {
     expect(isAllowedAgentStatusSource('fingerprint')).toBe(true);
     expect(isAllowedAgentStatusSource('hook')).toBe(true);
+    // feat/status-cascade 2026-06-10: 'pane' = pane-label re-promotion.
+    expect(isAllowedAgentStatusSource('pane')).toBe(true);
     expect(isAllowedAgentStatusSource('ant-activity')).toBe(true);
     expect(isAllowedAgentStatusSource('pid-cpu')).toBe(true);
     expect(isAllowedAgentStatusSource('default')).toBe(true);

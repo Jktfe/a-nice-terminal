@@ -150,7 +150,10 @@ const SCHEMA_DDL_STATEMENTS = [
   // + last_message_sent_at_ms + last_pty_byte_at_ms are the input signals
   // for the priority cascade fingerprint→hooks→ANT-activity→PID.
   `ALTER TABLE terminals ADD COLUMN agent_status TEXT NOT NULL DEFAULT 'idle' CHECK (agent_status IN ('idle','thinking','working','response-required'))`,
-  `ALTER TABLE terminals ADD COLUMN agent_status_source TEXT NOT NULL DEFAULT 'default' CHECK (agent_status_source IN ('fingerprint','hook','ant-activity','pid-cpu','default'))`,
+  // 'pane' added feat/status-cascade 2026-06-10 (pane-label re-promotion).
+  // Existing DBs carrying the narrower CHECK are widened by
+  // extendAgentStatusSourceCheckForPane below.
+  `ALTER TABLE terminals ADD COLUMN agent_status_source TEXT NOT NULL DEFAULT 'default' CHECK (agent_status_source IN ('fingerprint','hook','pane','ant-activity','pid-cpu','default'))`,
   `ALTER TABLE terminals ADD COLUMN agent_status_at_ms INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE terminals ADD COLUMN last_fingerprint_hash TEXT`,
   `ALTER TABLE terminals ADD COLUMN last_fingerprint_at_ms INTEGER`,
@@ -2666,6 +2669,7 @@ function applySchemaMigrations(db: DatabaseInstance): void {
   }
   extendAsksStatusCheckForActiveStatuses(db);
   extendArtefactKindCheckForStage(db);
+  extendAgentStatusSourceCheckForPane(db);
   // v0.2 additive migration — see V02_SCHEMA_DDL_STATEMENTS comment block.
   // Runs after legacy schema so v0.2 tables can reference legacy tables in
   // future cut-over slices if needed. Same duplicate-column tolerance.
@@ -2857,6 +2861,32 @@ function extendArtefactKindCheckForStage(db: DatabaseInstance): void {
     db.prepare(`DROP TABLE chat_room_artefacts`).run();
     db.prepare(`ALTER TABLE chat_room_artefacts_new RENAME TO chat_room_artefacts`).run();
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_chat_room_artefacts_room_kind ON chat_room_artefacts (room_id, kind, created_at_ms DESC)`).run();
+  });
+  rebuild();
+}
+
+/**
+ * feat/status-cascade (2026-06-10): widen the terminals.agent_status_source
+ * CHECK to admit 'pane' — the pane-label re-promotion provenance written by
+ * agentStatusPoller. SQLite cannot modify a CHECK in place; because this one
+ * is a COLUMN-LEVEL constraint we can use the cheap rename → re-add (widened)
+ * → copy → drop dance instead of rebuilding the whole terminals table (which
+ * other tables reference). DROP COLUMN removes the legacy column-level CHECK
+ * with it. Idempotent: fresh DBs get the widened CHECK straight from
+ * SCHEMA_DDL_STATEMENTS and short-circuit on the "'hook','pane'" probe.
+ */
+function extendAgentStatusSourceCheckForPane(db: DatabaseInstance): void {
+  const existingSchema = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'terminals'`)
+    .get() as { sql: string | null } | undefined;
+  if (!existingSchema?.sql) return;
+  if (!existingSchema.sql.includes('agent_status_source')) return; // pre-M3.4a DB; DDL loop adds it widened
+  if (existingSchema.sql.includes(`'hook','pane'`)) return; // already widened
+  const rebuild = db.transaction(() => {
+    db.prepare(`ALTER TABLE terminals RENAME COLUMN agent_status_source TO agent_status_source_legacy`).run();
+    db.prepare(`ALTER TABLE terminals ADD COLUMN agent_status_source TEXT NOT NULL DEFAULT 'default' CHECK (agent_status_source IN ('fingerprint','hook','pane','ant-activity','pid-cpu','default'))`).run();
+    db.prepare(`UPDATE terminals SET agent_status_source = agent_status_source_legacy`).run();
+    db.prepare(`ALTER TABLE terminals DROP COLUMN agent_status_source_legacy`).run();
   });
   rebuild();
 }

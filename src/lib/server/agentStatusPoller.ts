@@ -15,6 +15,10 @@
  *   - setAgentStatus called ONLY when decision.status differs from the
  *     current agent_status (no-op writes avoided to keep events table
  *     audit-friendly).
+ *   - pane-label re-promotion (source 'pane'): when a label CLI's own
+ *     status strip reads Working/thinking AND the pane tail changed within
+ *     30s, an 'idle' status is promoted back to 'working' so background
+ *     work after a Stop hook still presents as working. See pollOneTerminal.
  *
  * Cadence clamped 5..60 sec per Q3. Override via $ANT_AGENT_STATUS_POLL_MS.
  *
@@ -25,6 +29,7 @@
 import { listAllTerminals, setTerminalStatus, type TerminalRow } from './terminalsStore';
 import { getAgentStatus, refreshAgentStatusAtMs, setAgentStatus, type AgentStatus } from './agentStatusStore';
 import { deriveStateFromFingerprint, decideAgentStatus } from './fingerprintHasher';
+import { parsePaneState, type CliKind as PaneCliKind } from './paneStatusParser';
 import { detectFingerprint, applyFingerprintWriteBack } from './fingerprintDetector';
 import { defaultTmuxCaptureFn, type CaptureFn } from './tmuxCapture';
 import { verifyPaneTargetState } from './pty-inject-bridge';
@@ -54,6 +59,46 @@ const CWD_CACHE_TTL_MS = 5_000;
 
 type CwdCacheEntry = { value: string | null; expiresAtMs: number };
 const cwdCache = new Map<string, CwdCacheEntry>();
+
+// Pane-label re-promotion state (feat/status-cascade 2026-06-10, "ant goes
+// static while background work runs"). Per-terminal tail hash + the last time
+// it CHANGED. In-memory only — the poller is a globalThis singleton, so a
+// server restart costs exactly one missed sample (the first tick re-seeds).
+type PaneTailEntry = { tailHash: string; lastTailChangeAtMs: number };
+const paneTailState = new Map<string, PaneTailEntry>();
+
+/**
+ * agent_kind → paneStatusParser CliKind. Mirrors agentKindToCli
+ * (terminalSessionLink.ts) but targets the parser's kind enum. gemini has no
+ * pane-label grammar in paneStatusParser, so it maps to null (safe default:
+ * keeps today's behaviour). Label-less kinds (agy/copilot/pi) ARE mapped —
+ * they can never promote (promotion requires parse.source === 'label') but
+ * tracking their tails is harmless and keeps the map total.
+ */
+export function agentKindToPaneCliKind(agentKind: string | null | undefined): PaneCliKind | null {
+  switch (agentKind) {
+    case 'claude':
+    case 'claude-code':
+    case 'claude_code':
+      return 'claude';
+    case 'codex':
+    case 'codex-cli':
+      return 'codex';
+    case 'qwen':
+    case 'qwen-cli':
+      return 'qwen';
+    case 'agy':
+    case 'antigravity':
+      return 'agy';
+    case 'copilot':
+    case 'copilot-cli':
+      return 'copilot';
+    case 'pi':
+      return 'pi';
+    default:
+      return null;
+  }
+}
 
 export type PollerController = {
   stop: () => void;
@@ -232,11 +277,69 @@ async function pollOneTerminal(terminal: TerminalRow, captureFn: CaptureFn): Pro
   const captureText = captureFn(terminal);
   if (captureText === null) return;
   const nowMs = Date.now();
+  // Fingerprint chain state updates EVERY tick — even when the pane-label
+  // promotion below early-returns — so the change-detection ageMs stays
+  // anchored to the poll cadence and a later fall-through tick cannot
+  // misread a multi-minute-old hash timestamp as "stale pane".
   const { prevHash, prevAtMs } = readFingerprintState(terminal.id);
   const fingerprint = deriveStateFromFingerprint({
     captureText, prevHash, prevAtMs, nowMs
   });
   writeFingerprintState(terminal.id, fingerprint.hash, nowMs);
+  // Pane-label re-promotion (feat/status-cascade 2026-06-10): a Stop hook
+  // flips the status to idle even while background work (subagents, queued
+  // harness tasks) keeps streaming into the pane. The CLI's own status-strip
+  // label ("Working") is the CLI's rendered assertion — same trust tier as a
+  // hook event — so while the label says working AND the pane tail is still
+  // churning, re-promote idle → working. STRICTLY one-directional:
+  //   • only fires when the current status is 'idle' (a hook 'working' is
+  //     never demoted, and Stop-written idle with a quiet pane stays idle);
+  //   • only on parse.source === 'label' — the streaming-diff 'stream' source
+  //     is exactly the tail -f / chatty-shell false positive and NEVER promotes;
+  //   • requires the tail to have changed within HOOK_FRESH_MS — a crashed CLI
+  //     frozen displaying 'Working' stops re-promoting after 30s of unchanged
+  //     tail and the 45s stale-volatile backstop decays it to idle.
+  // While promoted (source === 'pane'), refresh agent_status_at_ms each tick
+  // the label still reads working and the tail is fresh, so the decay sweep
+  // does not idle a genuinely-busy agent mid-run. When the work ends the
+  // progress tree freezes + the strip flips to Waiting → refreshes stop → the
+  // existing 45s backstop decays to idle. Zero new decay machinery.
+  const paneKind = agentKindToPaneCliKind(terminal.agent_kind);
+  if (paneKind) {
+    const prevTail = paneTailState.get(terminal.id);
+    const parse = parsePaneState(paneKind, captureText, prevTail?.tailHash ?? null);
+    const tailChanged = prevTail === undefined || prevTail.tailHash !== parse.tailHash;
+    const lastTailChangeAtMs = tailChanged || prevTail === undefined ? nowMs : prevTail.lastTailChangeAtMs;
+    paneTailState.set(terminal.id, { tailHash: parse.tailHash, lastTailChangeAtMs });
+    const tailFresh = nowMs - lastTailChangeAtMs < HOOK_FRESH_MS;
+    const labelSaysBusy = parse.source === 'label' && (parse.state === 'working' || parse.state === 'thinking');
+    if (labelSaysBusy && tailFresh) {
+      const beforePane = getAgentStatus(terminal.id);
+      if (beforePane?.agent_status === 'idle') {
+        setAgentStatus({
+          terminalId: terminal.id,
+          newStatus: 'working',
+          source: 'pane',
+          nowMs,
+          evidence: {
+            via: 'pane-label-promotion',
+            label: parse.evidence,
+            paneState: parse.state,
+            tailChangedAgoMs: nowMs - lastTailChangeAtMs
+          }
+        });
+        return;
+      }
+      if (
+        beforePane &&
+        beforePane.agent_status_source === 'pane' &&
+        isVolatileAgentStatus(beforePane.agent_status)
+      ) {
+        refreshAgentStatusAtMs(terminal.id, nowMs);
+        return;
+      }
+    }
+  }
   const current = getAgentStatus(terminal.id);
   if (!fingerprint.status) return;
   if (current && current.agent_status === fingerprint.status) {
@@ -274,6 +377,14 @@ function projectCliStateFileStatus(terminal: TerminalRow, cwdFn?: (terminal: Ter
   const snapshot = resolveAgentStateSnapshotForTerminal(terminal, cwd);
   const projected = projectLiveAgentStateSnapshotToStatus(snapshot);
   if (!projected) return false;
+  // An idle state-file projection must NOT pin idle past fresher pane
+  // evidence (feat/status-cascade 2026-06-10): the status-line emitter writes
+  // its label at Stop and stays "Waiting" while background work keeps the
+  // pane busy. Returning false here (no write, no short-circuit) lets the
+  // pane-label step in pollOneTerminal look; if the pane also reads idle,
+  // the fingerprint/default path (or the 45s decay backstop) lands idle as
+  // before. Volatile + response-required projections keep the short-circuit.
+  if (projected === 'idle') return false;
   const current = getAgentStatus(terminal.id);
   if (current?.agent_status === projected) {
     if (isVolatileAgentStatus(projected)) refreshAgentStatusAtMs(terminal.id);
@@ -365,4 +476,16 @@ export function _testResetPoller(): void {
   const slot = globalThis as Record<string, unknown>;
   const existing = slot[POLLER_GLOBAL_KEY] as PollerController | undefined;
   if (existing) existing.stop();
+  paneTailState.clear();
+}
+
+/**
+ * Test seam: seed the in-memory pane-tail state so the tail-staleness gate
+ * (lastTailChangeAtMs) can be exercised without fast-forwarding Date.now().
+ */
+export function _testSeedPaneTailState(
+  terminalId: string,
+  entry: { tailHash: string; lastTailChangeAtMs: number }
+): void {
+  paneTailState.set(terminalId, entry);
 }

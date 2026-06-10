@@ -26,11 +26,62 @@ describe('mapHookEventToAgentStatus', () => {
     expect(mapHookEventToAgentStatus('thinking')).toBe('thinking');
   });
 
+  // feat/status-cascade 2026-06-10 — additive lifecycle coverage (spec §1).
+  it('session/compaction lifecycle: SessionStart/SessionEnd → idle, SubagentStart/PreCompact/PostCompact → working', () => {
+    expect(mapHookEventToAgentStatus('SessionStart')).toBe('idle');
+    expect(mapHookEventToAgentStatus('SessionEnd')).toBe('idle');
+    expect(mapHookEventToAgentStatus('SubagentStart')).toBe('working');
+    expect(mapHookEventToAgentStatus('PreCompact')).toBe('working');
+    expect(mapHookEventToAgentStatus('PostCompact')).toBe('working');
+  });
+
+  // feat/status-cascade 2026-06-10 — Copilot camelCase dialect (spec §5).
+  it('copilot camelCase dialect maps onto existing statuses', () => {
+    expect(mapHookEventToAgentStatus('preToolUse')).toBe('working');
+    expect(mapHookEventToAgentStatus('userPromptSubmitted')).toBe('working');
+    expect(mapHookEventToAgentStatus('subagentStart')).toBe('working');
+    expect(mapHookEventToAgentStatus('preCompact')).toBe('working');
+    expect(mapHookEventToAgentStatus('postToolUse')).toBe('idle');
+    expect(mapHookEventToAgentStatus('agentStop')).toBe('idle');
+    expect(mapHookEventToAgentStatus('subagentStop')).toBe('idle');
+    expect(mapHookEventToAgentStatus('sessionStart')).toBe('idle');
+    expect(mapHookEventToAgentStatus('sessionEnd')).toBe('idle');
+  });
+
+  // feat/status-cascade 2026-06-10 — Gemini Before*/After* dialect (spec §5).
+  it('gemini Before*/After* dialect maps onto existing statuses', () => {
+    expect(mapHookEventToAgentStatus('BeforeAgent')).toBe('working');
+    expect(mapHookEventToAgentStatus('BeforeTool')).toBe('working');
+    expect(mapHookEventToAgentStatus('PreCompress')).toBe('working');
+    expect(mapHookEventToAgentStatus('AfterAgent')).toBe('idle');
+    expect(mapHookEventToAgentStatus('AfterTool')).toBe('idle');
+    expect(mapHookEventToAgentStatus('BeforeModel')).toBe('thinking');
+    expect(mapHookEventToAgentStatus('AfterModel')).toBe('thinking');
+    expect(mapHookEventToAgentStatus('BeforeToolSelection')).toBe('thinking');
+  });
+
+  it('blocked / response-needed dialect names stay UNMAPPED (gated on the enum work)', () => {
+    // Spec targets these at blocked / response-needed — states that do not
+    // exist in the 4-state enum. They must project null, not an approximation.
+    expect(mapHookEventToAgentStatus('permissionRequest')).toBeNull();
+    expect(mapHookEventToAgentStatus('PermissionRequest')).toBeNull();
+    expect(mapHookEventToAgentStatus('errorOccurred')).toBeNull();
+    expect(mapHookEventToAgentStatus('postToolUseFailure')).toBeNull();
+    expect(mapHookEventToAgentStatus('PostToolUseFailure')).toBeNull();
+    expect(mapHookEventToAgentStatus('StopFailure')).toBeNull();
+    expect(mapHookEventToAgentStatus('notification')).toBeNull();
+  });
+
   it('NEVER maps to response-required (that state is asks-only)', () => {
     const eventNames = [
       'PreToolUse', 'PostToolUse', 'Stop', 'SubagentStop',
       'Notification', 'tool_use_start', 'tool_use_stop',
-      'UserPromptSubmit', 'ThinkingStart', 'thinking'
+      'UserPromptSubmit', 'ThinkingStart', 'thinking',
+      'SessionStart', 'SessionEnd', 'SubagentStart', 'PreCompact', 'PostCompact',
+      'preToolUse', 'postToolUse', 'userPromptSubmitted', 'agentStop',
+      'subagentStart', 'subagentStop', 'sessionStart', 'sessionEnd', 'preCompact',
+      'BeforeAgent', 'AfterAgent', 'BeforeModel', 'AfterModel',
+      'BeforeTool', 'AfterTool', 'BeforeToolSelection', 'PreCompress'
     ];
     for (const name of eventNames) {
       expect(mapHookEventToAgentStatus(name)).not.toBe('response-required');

@@ -5,6 +5,7 @@ const PTY_OUTPUT_FRESH_MS = 30_000;
 
 const FINGERPRINT_STALE_MS = VOLATILE_ACTIVE_STALE_MS;
 const HOOK_STALE_MS = VOLATILE_ACTIVE_STALE_MS;
+const PANE_STALE_MS = VOLATILE_ACTIVE_STALE_MS;
 const ANT_ACTIVITY_STALE_MS = VOLATILE_ACTIVE_STALE_MS;
 const PID_CPU_STALE_MS = VOLATILE_ACTIVE_STALE_MS;
 
@@ -24,6 +25,7 @@ export type EffectiveAgentStatusProjection = {
 function staleMsForSource(source: AgentStatusSource): number | null {
   if (source === 'fingerprint') return FINGERPRINT_STALE_MS;
   if (source === 'hook') return HOOK_STALE_MS;
+  if (source === 'pane') return PANE_STALE_MS;
   if (source === 'ant-activity') return ANT_ACTIVITY_STALE_MS;
   if (source === 'pid-cpu') return PID_CPU_STALE_MS;
   return null;

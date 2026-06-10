@@ -89,9 +89,11 @@ export function decideAgentStatus(input: CascadeInput): CascadeDecision {
   if (input.antActivity) {
     const recentMsg = input.antActivity.lastMessageAgeMs !== null && input.antActivity.lastMessageAgeMs < ANT_ACTIVITY_FRESH_MS;
     const recentPty = input.antActivity.lastPtyAgeMs !== null && input.antActivity.lastPtyAgeMs < ANT_ACTIVITY_FRESH_MS;
-    if (recentMsg && recentPty) return { status: 'working', source: 'ant-activity', evidence: input.antActivity };
-    if (recentMsg) return { status: 'response-required', source: 'ant-activity', evidence: input.antActivity };
-    if (recentPty) return { status: 'working', source: 'ant-activity', evidence: input.antActivity };
+    // Any recent activity → working. The old recentMsg-only branch emitted
+    // 'response-required', violating the asks-only rule above (and the spec's
+    // overlay model) — dead today (no live caller feeds antActivity) but a
+    // footgun if the tier is ever wired. Fixed feat/status-cascade 2026-06-10.
+    if (recentMsg || recentPty) return { status: 'working', source: 'ant-activity', evidence: input.antActivity };
   }
   if (input.pidCpu?.samplesValid) {
     if (input.pidCpu.cpuPercent > PID_CPU_HIGH_PERCENT) {

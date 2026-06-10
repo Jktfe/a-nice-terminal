@@ -150,14 +150,18 @@ describe('fingerprintHasher (M3.4a-v2 T2 pure cascade)', () => {
       expect(r.source).toBe('ant-activity');
     });
 
-    it('ANT activity: recent message only → response-required (probably typing)', () => {
+    it('ANT activity: recent message only → working, NEVER response-required (asks-only rule)', () => {
+      // feat/status-cascade 2026-06-10: the old recentMsg-only branch emitted
+      // response-required, contradicting both the asks-as-pill lock ("agents
+      // only ever wear idle/thinking/working") and the spec's overlay model.
       const r = decideAgentStatus({
         fingerprint: null,
         hookPush: null,
         antActivity: { lastMessageAgeMs: 5000, lastPtyAgeMs: null },
         pidCpu: null
       });
-      expect(r.status).toBe('response-required');
+      expect(r.status).toBe('working');
+      expect(r.status).not.toBe('response-required');
       expect(r.source).toBe('ant-activity');
     });
 

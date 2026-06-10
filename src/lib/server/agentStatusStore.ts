@@ -20,7 +20,11 @@
 import { getIdentityDb } from './db';
 
 export type AgentStatus = 'idle' | 'thinking' | 'working' | 'response-required';
-export type AgentStatusSource = 'fingerprint' | 'hook' | 'ant-activity' | 'pid-cpu' | 'default';
+// 'pane' = pane-label re-promotion (feat/status-cascade 2026-06-10): the CLI's
+// own rendered status-strip label (paneStatusParser source==='label') observed
+// by the poller. Same trust tier as a hook event — the CLI asserted it, we
+// just read it off the pane instead of receiving a POST.
+export type AgentStatusSource = 'fingerprint' | 'hook' | 'pane' | 'ant-activity' | 'pid-cpu' | 'default';
 
 export type AgentStatusRow = {
   terminal_id: string;
@@ -40,7 +44,7 @@ export type AgentStatusEvent = {
 };
 
 const ALLOWED_STATUSES: readonly AgentStatus[] = ['idle', 'thinking', 'working', 'response-required'];
-const ALLOWED_SOURCES: readonly AgentStatusSource[] = ['fingerprint', 'hook', 'ant-activity', 'pid-cpu', 'default'];
+const ALLOWED_SOURCES: readonly AgentStatusSource[] = ['fingerprint', 'hook', 'pane', 'ant-activity', 'pid-cpu', 'default'];
 
 export function isAllowedAgentStatus(value: unknown): value is AgentStatus {
   return typeof value === 'string' && (ALLOWED_STATUSES as readonly string[]).includes(value);

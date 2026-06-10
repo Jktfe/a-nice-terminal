@@ -64,6 +64,29 @@ describe('projectEffectiveAgentStatus', () => {
     });
   });
 
+  // feat/status-cascade 2026-06-10: 'pane' (pane-label re-promotion) is
+  // staleness-governed exactly like the other live sources.
+  it('keeps fresh pane-promoted working states active and expires stale ones', () => {
+    expect(projectEffectiveAgentStatus({
+      agent_status: 'working',
+      agent_status_source: 'pane',
+      agent_status_at_ms: 10_000
+    }, 20_000)).toMatchObject({
+      agent_status: 'working',
+      agent_status_source: 'pane',
+      agent_status_at_ms: 10_000
+    });
+    expect(projectEffectiveAgentStatus({
+      agent_status: 'working',
+      agent_status_source: 'pane',
+      agent_status_at_ms: 1_000
+    }, 302_000)).toEqual({
+      agent_status: 'idle',
+      agent_status_source: 'default',
+      agent_status_at_ms: 0
+    });
+  });
+
   it('does not expire response-required states', () => {
     expect(projectEffectiveAgentStatus({
       agent_status: 'response-required',

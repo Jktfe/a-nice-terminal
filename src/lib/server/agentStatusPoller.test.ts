@@ -9,8 +9,9 @@ import { join } from 'node:path';
 import { resetIdentityDbForTests, getIdentityDb } from './db';
 import { upsertTerminal } from './terminalsStore';
 import { getAgentStatus, listEventsForTerminal, setAgentStatus } from './agentStatusStore';
-import { startPoller, defaultTmuxCaptureFn, reconcileStaleVolatileStatuses, _testResetPoller } from './agentStatusPoller';
+import { startPoller, defaultTmuxCaptureFn, reconcileStaleVolatileStatuses, _testResetPoller, _testSeedPaneTailState } from './agentStatusPoller';
 import { hashCaptureOutput } from './fingerprintHasher';
+import { tailHash as paneTailHash } from './paneStatusParser';
 import { setSpawnImplForTests, resetBridgeStateForTests } from './pty-inject-bridge';
 import { _clearStateReaderCache } from './agentStateReader';
 import type { TerminalRow } from './terminalsStore';
@@ -436,6 +437,250 @@ describe('agentStatusPoller — stale volatile decay (Stop-drop backstop)', () =
     } finally {
       delete process.env.ANT_AGENT_STATUS_STALE_DECAY_MS;
     }
+  });
+});
+
+// feat/status-cascade (JWPK 2026-06-10): "the ant goes static while background
+// work runs". A Stop hook flips the pill idle even though subagents/queued
+// tasks keep streaming into the pane. The poller now reads the CLI's OWN
+// status-strip label (paneStatusParser, source 'label' only) and re-promotes
+// idle → working while the label reads Working AND the pane tail changed
+// within 30s. Strictly one-directional: hook 'working' is never demoted,
+// stream-diff churn (the tail -f false positive) never promotes, and the
+// existing 45s stale-volatile backstop provides the natural decay.
+describe('agentStatusPoller — pane-label re-promotion (background work presents as working)', () => {
+  const CLAUDE_STRIP_WORKING = (body: string): string =>
+    `${body}\n  sent:18:19:47  resp:16:50:21  edit:16:50:03  |  a-nice-terminal  |  Opus 4.8 (1M context)  |  7h:53%  |  Working                          Remote Control active`;
+  const CLAUDE_STRIP_WAITING = (body: string): string =>
+    `${body}\n  sent:15:14:39  resp:15:41:51  edit:15:48:18  |  a-nice-terminal  |  Opus 4.8 (1M context)  |  84:82%  |  Waiting                           Remote Control active`;
+
+  function backdateFingerprint(terminalId: string, ageMs: number): void {
+    // Simulate the production poll cadence (≥5s between ticks) so the legacy
+    // fingerprint tier behaves as it does live (its <5s working/thinking
+    // branch never fires) — back-to-back runOnce calls in tests would
+    // otherwise hit ageMs≈0 and let the fingerprint tier mask the pane path.
+    getIdentityDb().prepare(`UPDATE terminals SET last_fingerprint_at_ms = ? WHERE id = ?`)
+      .run(Date.now() - ageMs, terminalId);
+  }
+
+  it('promotes idle → working when the claude strip reads Working and the tail is fresh', async () => {
+    const tid = makeAgentTerminal('t-bg-promote');
+    const c = startPoller({
+      captureFn: () => CLAUDE_STRIP_WORKING('⏺ subagent streaming progress'),
+      cwdFn: () => null,
+      intervalMs: 5000
+    });
+    await c.runOnce();
+    c.stop();
+    const status = getAgentStatus(tid);
+    expect(status?.agent_status).toBe('working');
+    expect(status?.agent_status_source).toBe('pane');
+    const events = listEventsForTerminal(tid);
+    expect(events).toHaveLength(1);
+    const evidence = JSON.parse(events[0].evidence_json ?? '{}');
+    expect(evidence.via).toBe('pane-label-promotion');
+    expect(evidence.label).toBe('Working');
+  });
+
+  it('re-promotes inside the 30s hook-fresh window after a Stop wrote idle (the headline bug)', async () => {
+    const tid = makeAgentTerminal('t-bg-after-stop');
+    // Stop hook landed 5s ago and wrote idle — but background work is still
+    // streaming and the strip reads Working. The pill must come back up.
+    setAgentStatus({
+      terminalId: tid,
+      newStatus: 'idle',
+      source: 'hook',
+      nowMs: Date.now() - 5_000,
+      evidence: { hookEventName: 'Stop' }
+    });
+    const c = startPoller({
+      captureFn: () => CLAUDE_STRIP_WORKING('subagent progress tree churning'),
+      cwdFn: () => null,
+      intervalMs: 5000
+    });
+    await c.runOnce();
+    c.stop();
+    const status = getAgentStatus(tid);
+    expect(status?.agent_status).toBe('working');
+    expect(status?.agent_status_source).toBe('pane');
+    const [latest] = listEventsForTerminal(tid);
+    expect(latest.new_status).toBe('working');
+    expect(latest.source).toBe('pane');
+  });
+
+  it('chatty-but-stopped shell: Waiting label + churning pane NEVER promotes', async () => {
+    const tid = makeAgentTerminal('t-chatty');
+    let n = 0;
+    const c = startPoller({
+      captureFn: () => CLAUDE_STRIP_WAITING(`tail -f noise line ${++n}`),
+      cwdFn: () => null,
+      intervalMs: 5000
+    });
+    await c.runOnce();
+    backdateFingerprint(tid, 10_000);
+    await c.runOnce();
+    c.stop();
+    expect(getAgentStatus(tid)?.agent_status).toBe('idle');
+    expect(listEventsForTerminal(tid)).toHaveLength(0);
+  });
+
+  it('label-less CLI churn (stream source) NEVER promotes — that is exactly the tail -f false positive', async () => {
+    const tid = makeAgentTerminal('t-copilot-churn', 'copilot');
+    let n = 0;
+    const c = startPoller({
+      captureFn: () => `● old bullet text\nchatty output ${++n}\n❯`,
+      cwdFn: () => null,
+      intervalMs: 5000
+    });
+    await c.runOnce();
+    backdateFingerprint(tid, 10_000);
+    await c.runOnce();
+    c.stop();
+    expect(getAgentStatus(tid)?.agent_status).toBe('idle');
+    expect(listEventsForTerminal(tid)).toHaveLength(0);
+  });
+
+  it('Stop still wins when the pane is quiet: idle stays idle on a Waiting strip', async () => {
+    const tid = makeAgentTerminal('t-stop-quiet');
+    setAgentStatus({
+      terminalId: tid,
+      newStatus: 'idle',
+      source: 'hook',
+      nowMs: Date.now() - 2_000,
+      evidence: { hookEventName: 'Stop' }
+    });
+    const c = startPoller({
+      captureFn: () => CLAUDE_STRIP_WAITING('final answer rendered'),
+      cwdFn: () => null,
+      intervalMs: 5000
+    });
+    await c.runOnce();
+    await c.runOnce();
+    c.stop();
+    const status = getAgentStatus(tid);
+    expect(status?.agent_status).toBe('idle');
+    expect(status?.agent_status_source).toBe('hook');
+    expect(listEventsForTerminal(tid)).toHaveLength(1); // only the Stop write
+  });
+
+  it('a fresh hook working is never touched by pane evidence (promotion is idle→volatile only)', async () => {
+    const tid = makeAgentTerminal('t-hook-working');
+    const hookAtMs = Date.now() - 3_000;
+    setAgentStatus({
+      terminalId: tid,
+      newStatus: 'working',
+      source: 'hook',
+      nowMs: hookAtMs,
+      evidence: { hookEventName: 'PreToolUse' }
+    });
+    const c = startPoller({
+      captureFn: () => CLAUDE_STRIP_WORKING('tool output streaming'),
+      cwdFn: () => null,
+      intervalMs: 5000
+    });
+    await c.runOnce();
+    c.stop();
+    const status = getAgentStatus(tid);
+    expect(status?.agent_status).toBe('working');
+    expect(status?.agent_status_source).toBe('hook'); // not rewritten as 'pane'
+    expect(listEventsForTerminal(tid)).toHaveLength(1);
+  });
+
+  it('refreshes (no second event) while the label still reads Working and the tail churns', async () => {
+    const tid = makeAgentTerminal('t-bg-refresh');
+    let n = 0;
+    const c = startPoller({
+      captureFn: () => CLAUDE_STRIP_WORKING(`progress ${++n}`),
+      cwdFn: () => null,
+      intervalMs: 5000
+    });
+    await c.runOnce(); // tick 1: promotes
+    expect(getAgentStatus(tid)?.agent_status_source).toBe('pane');
+    // Backdate the status write so the tick-2 refresh is observable.
+    getIdentityDb().prepare(`UPDATE terminals SET agent_status_at_ms = ? WHERE id = ?`)
+      .run(Date.now() - 40_000, tid);
+    await c.runOnce(); // tick 2: label still Working, tail changed → refresh
+    c.stop();
+    const status = getAgentStatus(tid);
+    expect(status?.agent_status).toBe('working');
+    expect(status?.agent_status_source).toBe('pane');
+    expect(status?.agent_status_at_ms ?? 0).toBeGreaterThan(Date.now() - 5_000);
+    expect(listEventsForTerminal(tid)).toHaveLength(1); // refresh, not a new transition
+  });
+
+  it('natural decay: a pane-promoted working with no fresh evidence decays to idle via the 45s backstop', () => {
+    const tid = makeAgentTerminal('t-bg-decay', 'claude_code', null);
+    setAgentStatus({
+      terminalId: tid,
+      newStatus: 'working',
+      source: 'pane',
+      nowMs: Date.now() - 120_000, // refreshes stopped 2 min ago
+      evidence: { via: 'pane-label-promotion' }
+    });
+    reconcileStaleVolatileStatuses();
+    const status = getAgentStatus(tid);
+    expect(status?.agent_status).toBe('idle');
+    expect(status?.agent_status_source).toBe('default');
+  });
+
+  it('a frozen Working strip with a >30s-unchanged tail does NOT re-promote (crashed-CLI guard)', async () => {
+    // Crashed CLI frozen displaying 'Working': the label says busy but the
+    // pane tail has not changed for 40s. The tail-staleness gate must block
+    // the promotion so the idle (decayed) status sticks. We seed the
+    // in-memory tail state directly because Date.now() cannot be
+    // fast-forwarded mid-poller.
+    const tid = makeAgentTerminal('t-frozen');
+    const frozen = CLAUDE_STRIP_WORKING('frozen progress tree');
+    _testSeedPaneTailState(tid, {
+      tailHash: paneTailHash(frozen),
+      lastTailChangeAtMs: Date.now() - 40_000 // > HOOK_FRESH_MS (30s)
+    });
+    const c = startPoller({ captureFn: () => frozen, cwdFn: () => null, intervalMs: 5000 });
+    await c.runOnce();
+    c.stop();
+    expect(getAgentStatus(tid)?.agent_status).toBe('idle'); // never promoted
+    expect(listEventsForTerminal(tid)).toHaveLength(0);
+  });
+
+  it('an idle state-file projection no longer pins idle: the pane Working label wins', async () => {
+    const tid = makeAgentTerminal('t-statefile-bg', 'claude_code', '%7');
+    // The status-line emitter wrote 'Waiting' at Stop (projects to idle) and
+    // is fresh — pre-fix this short-circuited the pane sample every tick and
+    // pinned idle for the whole background run.
+    writeCliState('claude-code', 'claude-sess-bg', {
+      state: 'Waiting',
+      cwd: '/repo/bg-work'
+    });
+    const c = startPoller({
+      captureFn: () => CLAUDE_STRIP_WORKING('background subagent streaming'),
+      cwdFn: () => '/repo/bg-work',
+      intervalMs: 5000
+    });
+    await c.runOnce();
+    c.stop();
+    const status = getAgentStatus(tid);
+    expect(status?.agent_status).toBe('working');
+    expect(status?.agent_status_source).toBe('pane');
+  });
+
+  it('a volatile state-file projection still short-circuits the pane sample (unchanged behaviour)', async () => {
+    const tid = makeAgentTerminal('t-statefile-volatile', 'claude_code', '%8');
+    writeCliState('claude-code', 'claude-sess-vol', {
+      state: 'Working',
+      cwd: '/repo/vol-work'
+    });
+    let paneSampled = 0;
+    const c = startPoller({
+      captureFn: () => { paneSampled += 1; return CLAUDE_STRIP_WORKING('x'); },
+      cwdFn: () => '/repo/vol-work',
+      intervalMs: 5000
+    });
+    await c.runOnce();
+    c.stop();
+    expect(paneSampled).toBe(0); // state file answered; pane never sampled
+    const status = getAgentStatus(tid);
+    expect(status?.agent_status).toBe('working');
+    expect(status?.agent_status_source).toBe('hook');
   });
 });
 

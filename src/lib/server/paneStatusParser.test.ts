@@ -42,6 +42,17 @@ describe('label CLIs — read the printed state (single sample)', () => {
     expect(isLabelCli('claude')).toBe(true);
     expect(isLabelCli('copilot')).toBe(false);
   });
+  // feat/status-cascade 2026-06-10: the poller's re-promotion gate trusts
+  // ONLY source==='label' — these pin the source value for the consumers.
+  it('claude activity strip without a state label → thinking, still source label', () => {
+    const r = parsePaneState('claude', 'streaming output\n✻ Brewing for 12s (esc to interrupt)');
+    expect(r).toMatchObject({ state: 'thinking', source: 'label' });
+  });
+  it('a Working strip parse carries source label (the re-promotion trust tier)', () => {
+    const r = parsePaneState('claude', FIX.claudeWorking);
+    expect(r.source).toBe('label');
+    expect(r.state).toBe('working');
+  });
 });
 
 describe('label-less CLIs — streaming-diff, not presence-of-text', () => {

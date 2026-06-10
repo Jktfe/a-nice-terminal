@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closeIdentityDbHandleForTests, getIdentityDb, resetIdentityDbForTests } from './db';
+import { upsertTerminal } from './terminalsStore';
 
 let tmpDir: string;
 let dbFile: string;
@@ -68,6 +69,41 @@ describe('getIdentityDb', () => {
     expect(tableNames.has('verification_lenses')).toBe(true);
     expect(tableNames.has('validation_schemas')).toBe(false);
     expect(tableNames.has('validation_runs')).toBe(false);
+  });
+
+  it('widens the agent_status_source CHECK to admit pane on legacy DBs (feat/status-cascade 2026-06-10)', () => {
+    const db = getIdentityDb();
+    const terminal = upsertTerminal({ pid: 777, pid_start: 'p', name: 'legacy-check' });
+    db.prepare(`UPDATE terminals SET agent_status = 'working', agent_status_source = 'hook' WHERE id = ?`)
+      .run(terminal.id);
+    // Regress the column to the pre-2026-06-10 CHECK (no 'pane'), exactly as
+    // a live prod DB created before the widening would carry it.
+    db.prepare(`ALTER TABLE terminals RENAME COLUMN agent_status_source TO ass_regress`).run();
+    db.prepare(`ALTER TABLE terminals ADD COLUMN agent_status_source TEXT NOT NULL DEFAULT 'default' CHECK (agent_status_source IN ('fingerprint','hook','ant-activity','pid-cpu','default'))`).run();
+    db.prepare(`UPDATE terminals SET agent_status_source = ass_regress`).run();
+    db.prepare(`ALTER TABLE terminals DROP COLUMN ass_regress`).run();
+    // Sanity: the regressed CHECK really rejects 'pane'.
+    expect(() =>
+      db.prepare(`UPDATE terminals SET agent_status_source = 'pane' WHERE id = ?`).run(terminal.id)
+    ).toThrow(/CHECK constraint/);
+    closeIdentityDbHandleForTests();
+
+    // Re-open → applySchemaMigrations runs extendAgentStatusSourceCheckForPane.
+    const reopened = getIdentityDb();
+    const schemaSql = (reopened
+      .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='terminals'`)
+      .get() as { sql: string }).sql;
+    expect(schemaSql).toContain(`'hook','pane'`);
+    // Pre-existing source values survive the rebuild…
+    const row = reopened
+      .prepare(`SELECT agent_status, agent_status_source FROM terminals WHERE id = ?`)
+      .get(terminal.id) as { agent_status: string; agent_status_source: string };
+    expect(row).toEqual({ agent_status: 'working', agent_status_source: 'hook' });
+    // …and 'pane' now writes cleanly.
+    reopened.prepare(`UPDATE terminals SET agent_status_source = 'pane' WHERE id = ?`).run(terminal.id);
+    // Idempotent on a second pass (already-widened probe short-circuits).
+    closeIdentityDbHandleForTests();
+    expect(() => getIdentityDb()).not.toThrow();
   });
 
   it('still blocks duplicate validation tables when legacy rows remain', () => {
