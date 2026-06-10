@@ -1,8 +1,14 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { GET, PUT } from './+server';
 import { createArtefactInRoom, resetChatRoomArtefactStoreForTests } from '$lib/server/chatRoomArtefactStore';
-import { resetChatRoomArtefactContentStoreForTests, upsertArtefactContent } from '$lib/server/chatRoomArtefactContentStore';
+import {
+  getArtefactContentById,
+  resetChatRoomArtefactContentStoreForTests,
+  upsertArtefactContent
+} from '$lib/server/chatRoomArtefactContentStore';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
 
 type AnyEvent = Parameters<typeof GET>[0];
 
@@ -166,5 +172,100 @@ describe('GET /api/chat-rooms/:roomId/decks/:deckId', () => {
     }));
 
     expect(response.status).toBe(401);
+  });
+});
+
+describe('PUT /api/chat-rooms/:roomId/decks/:deckId — write-attribution anti-spoof', () => {
+  const ADMIN_TOKEN = 'decks-put-test-admin-token';
+  const ORIG_ADMIN = process.env.ANT_ADMIN_TOKEN;
+  beforeAll(() => {
+    process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN;
+  });
+  afterAll(() => {
+    if (ORIG_ADMIN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = ORIG_ADMIN;
+  });
+  beforeEach(() => {
+    resetChatRoomArtefactContentStoreForTests();
+    resetChatRoomArtefactStoreForTests();
+    resetChatRoomStoreForTests();
+  });
+
+  function seedDeck() {
+    const room = createChatRoom({ name: 'deck room', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id,
+      kind: 'deck',
+      title: 'Deck',
+      refUrl: `/api/chat-rooms/${room.id}/decks/dk1`,
+      createdBy: '@you'
+    });
+    return { room, artefact };
+  }
+
+  function putInit(body: unknown, opts: { adminBearer?: boolean } = {}): RequestInit {
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (opts.adminBearer) headers.authorization = `Bearer ${ADMIN_TOKEN}`;
+    return { method: 'PUT', headers, body: JSON.stringify(body) };
+  }
+
+  it('a non-admin caller CANNOT attribute the edit to another handle (403)', async () => {
+    const { room, artefact } = seedDeck();
+    const terminal = upsertTerminal({ pid: 77_201, pid_start: 'decks-spoof', name: 'agent-a', ttlSeconds: 3600 });
+    addMembership({ room_id: room.id, handle: '@a', terminal_id: terminal.id });
+
+    const res = await runPut(eventFor(room.id, 'dk1', putInit({
+      artefactId: artefact.id, contentFormat: 'markdown', contentBody: '# hi',
+      updatedByHandle: '@victim',
+      pidChain: [{ pid: 77_201, pid_start: 'decks-spoof' }]
+    })));
+
+    expect(res.status).toBe(403);
+    expect(getArtefactContentById('dk1')).toBeNull();
+  });
+
+  it('a non-admin caller writing as THEMSELVES is attributed server-side', async () => {
+    const { room, artefact } = seedDeck();
+    const terminal = upsertTerminal({ pid: 77_202, pid_start: 'decks-self', name: 'agent-a', ttlSeconds: 3600 });
+    addMembership({ room_id: room.id, handle: '@a', terminal_id: terminal.id });
+
+    const res = await runPut(eventFor(room.id, 'dk1', putInit({
+      artefactId: artefact.id, contentFormat: 'markdown', contentBody: '# mine',
+      pidChain: [{ pid: 77_202, pid_start: 'decks-self' }]
+    })));
+
+    expect(res.status).toBe(200);
+    expect(getArtefactContentById('dk1')?.updatedByHandle).toBe('@a');
+  });
+
+  it('admin-bearer MAY attribute on behalf of another (automation path)', async () => {
+    const { room, artefact } = seedDeck();
+    const res = await runPut(eventFor(room.id, 'dk1', putInit({
+      artefactId: artefact.id, contentFormat: 'markdown', contentBody: '# auto',
+      updatedByHandle: '@speedycodex'
+    }, { adminBearer: true })));
+
+    expect(res.status).toBe(200);
+    expect(getArtefactContentById('dk1')?.updatedByHandle).toBe('@speedycodex');
+  });
+
+  it('the seeded-demo bypass never trusts a client-supplied updatedByHandle', async () => {
+    const room = createChatRoom({ name: 'demo', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      id: 'univer_demo_aa11',
+      roomId: room.id,
+      kind: 'deck',
+      title: 'Demo',
+      refUrl: `/api/chat-rooms/${room.id}/decks/univer_demo_content_aa11`,
+      createdBy: '@you'
+    });
+
+    const res = await runPut(eventFor(room.id, 'univer_demo_content_aa11', putInit({
+      artefactId: artefact.id, contentFormat: 'univer-json', contentBody: '{"id":"d"}',
+      updatedByHandle: '@victim'
+    })));
+
+    expect(res.status).toBe(200);
+    expect(getArtefactContentById('univer_demo_content_aa11')?.updatedByHandle).toBeNull();
   });
 });

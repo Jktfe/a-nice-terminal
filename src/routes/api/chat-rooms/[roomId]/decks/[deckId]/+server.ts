@@ -147,8 +147,21 @@ export const PUT: RequestHandler = async ({ params, request }) => {
   // The seeded Univer demo is intentionally public during the 2026-05-26
   // dogfood session so a clean browser can prove edit autosave without a
   // login detour. Keep the bypass tied to generated demo ids only.
+  // 2026-06-10 anti-spoof (Tranche 0.4, mirrors docs-PUT 73ab387): attribute
+  // by the SERVER-RESOLVED handle. A caller-supplied updatedByHandle was
+  // trusted verbatim, letting anyone attribute a deck edit to any handle.
+  // Admin-bearer may still attribute on behalf of another (automation); a
+  // normal caller may only write as themselves. The seeded-demo bypass is
+  // anonymous, so it never trusts client attribution — it writes null.
+  const requestedUpdatedBy =
+    typeof payload.updatedByHandle === 'string' ? payload.updatedByHandle : undefined;
+  let updatedByHandle: string | null = null;
   if (!isSeededUniverDemoDeckWrite(deckId, payload)) {
-    requireChatRoomMutationAuth(roomId, request, payload);
+    const auth = requireChatRoomMutationAuth(roomId, request, payload);
+    if (requestedUpdatedBy !== undefined && !auth.isAdminBearer && auth.handle !== requestedUpdatedBy) {
+      throw error(403, `Caller ${auth.handle} cannot update a deck as ${requestedUpdatedBy}.`);
+    }
+    updatedByHandle = requestedUpdatedBy ?? auth.handle;
   }
   if (typeof payload.artefactId !== 'string' || payload.artefactId.length === 0) {
     throw error(400, 'artefactId is required.');
@@ -170,8 +183,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
     kind: 'deck',
     contentFormat: payload.contentFormat as ArtefactContentFormat,
     contentBody: payload.contentBody,
-    updatedByHandle:
-      typeof payload.updatedByHandle === 'string' ? payload.updatedByHandle : null
+    updatedByHandle
   });
   return json(persisted, { status: 200 });
 };
