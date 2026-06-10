@@ -31,6 +31,10 @@ the actual long-lived server process, not a package-manager wrapper that can
 leave orphan child servers behind after a kickstart. The pinned Node path must
 match the ABI used to build `better-sqlite3`.
 
+If you prune dependencies for a source production deploy, do it only after this
+build step. UI-only packages live in `devDependencies`; `npm ci --omit=dev` can
+run an already-built adapter, but it cannot create the UI build.
+
 ## Optional re-seed (in-memory store is wiped on restart)
 
 ```sh

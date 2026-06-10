@@ -20,7 +20,7 @@ test-results/
 .mcp.json
 .claude/
 .ant-agent-sheet/
-screenshots/
+/screenshots/
 static/artefacts/
 ANT-Decks/
 

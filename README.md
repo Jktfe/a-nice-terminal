@@ -193,6 +193,11 @@ cd a-nice-terminal
 npm install && npm run build && npm run start
 ```
 
+For a source production deploy, build with the full dependency set first, then
+serve the built adapter with production dependencies. Browser-only UI packages
+live in `devDependencies`, so `npm ci --omit=dev` is valid for running an
+already-built `build/index.js`, not for creating the build.
+
 For paid features (subscription, licence-bundle propagation, device management), point clients at [accounts.antonline.dev](https://accounts.antonline.dev).
 
 ---
