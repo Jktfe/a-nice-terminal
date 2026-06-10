@@ -99,3 +99,6 @@ test-api.cjs
 /*.avif
 # Captures live in research-site / external, not the repo
 /static/captures/
+
+# Pi CLI agent-local config (not repo content; sibling of .qwen/.claude)
+.pi/
