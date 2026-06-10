@@ -95,3 +95,37 @@ function normaliseHandles(raw: string): string[] {
 function dedupe(values: string[]): string[] {
   return Array.from(new Set(values));
 }
+
+/**
+ * `/tracker` — open a collaborative audit table inline (JWPK msg_p28s81vbyz).
+ *
+ *   /tracker "GVPL4 payments" | beneficiary, quantum(£), invoice link(link), due date(date), paid(y/n), date paid(date)
+ *
+ * Title in quotes (or the text before `|`); columns after `|`, comma-separated,
+ * optional `(type)` per column. The composer detects this on send and POSTs to
+ * the trackers API instead of posting the raw line.
+ */
+export type TrackerCommand = {
+  title: string;
+  /** Raw comma+type column spec, parsed server-side by parseColumnSpec. */
+  columnSpec: string;
+};
+
+export function looksLikeTrackerCommand(rawBody: string): boolean {
+  const t = rawBody.trim().toLowerCase();
+  return t === '/tracker' || t.startsWith('/tracker ');
+}
+
+export function parseTrackerCommand(rawBody: string): TrackerCommand | null {
+  if (!looksLikeTrackerCommand(rawBody)) return null;
+  const rest = rawBody.trim().slice('/tracker'.length).trim();
+  if (rest.length === 0) return null;
+  // Split title | columns on the first pipe.
+  const pipe = rest.indexOf('|');
+  const titlePart = (pipe >= 0 ? rest.slice(0, pipe) : rest).trim();
+  const columnSpec = pipe >= 0 ? rest.slice(pipe + 1).trim() : '';
+  const quoted = titlePart.match(/"([^"]+)"/);
+  const title = (quoted ? quoted[1] : titlePart).trim();
+  if (title.length === 0 || columnSpec.length === 0) return null;
+  return { title, columnSpec };
+}

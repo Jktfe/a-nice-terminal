@@ -23,8 +23,10 @@
   import { renderMarkdown } from '$lib/chat/renderMarkdown';
   import { extractPollRefs } from '$lib/chat/pollRefs';
   import { extractStatusRefs } from '$lib/chat/statusRefs';
+  import { extractTrackerRefs } from '$lib/chat/trackerRefs';
   import PollWidget from './PollWidget.svelte';
   import StatusBoard from './StatusBoard.svelte';
+  import TrackerTable from './TrackerTable.svelte';
   import { resolveAddressedKind, type AddressedKind } from '$lib/chat/addressedToViewer';
   import type { MessageReadReceipt } from '$lib/server/messageReadReceiptStore';
 
@@ -138,7 +140,8 @@
   // mount alongside the message. JWPK msg_39mnm7blal.
   const poll = $derived(extractPollRefs(message.body));
   const status = $derived(extractStatusRefs(poll.body));
-  const renderedBody = $derived(renderMarkdown(status.body));
+  const tracker = $derived(extractTrackerRefs(status.body));
+  const renderedBody = $derived(renderMarkdown(tracker.body));
 </script>
 
 {#if message.kind === 'system-break'}
@@ -147,14 +150,17 @@
   </div>
 {:else if message.kind === 'system'}
   <div class="system-row" class:has-read-receipts={isAnsweredAskReceipt}>
-    {#if status.body}
-      <span class="system-text">{status.body}</span>
+    {#if tracker.body}
+      <span class="system-text">{tracker.body}</span>
     {/if}
     {#each poll.voteIds as voteId (voteId)}
       <PollWidget {voteId} roomId={message.roomId} {asHandle} />
     {/each}
     {#each status.boardIds as boardId (boardId)}
       <StatusBoard {boardId} roomId={message.roomId} {asHandle} />
+    {/each}
+    {#each tracker.trackerIds as trackerId (trackerId)}
+      <TrackerTable {trackerId} roomId={message.roomId} {asHandle} />
     {/each}
     {#if isAnsweredAskReceipt}
       <MessageReadIndicator
@@ -208,7 +214,7 @@
         <em>Message deleted{message.deletedByHandle ? ` by ${message.deletedByHandle}` : ''}{message.deletedAtMs ? ` at ${describeDeletedAt(message.deletedAtMs)}` : ''}.</em>
       </div>
     {:else}
-      {#if status.body}
+      {#if tracker.body}
         <div class="message-body">{@html renderedBody}</div>
       {/if}
       {#each poll.voteIds as voteId (voteId)}
@@ -216,6 +222,9 @@
       {/each}
       {#each status.boardIds as boardId (boardId)}
         <StatusBoard {boardId} roomId={message.roomId} {asHandle} />
+      {/each}
+      {#each tracker.trackerIds as trackerId (trackerId)}
+        <TrackerTable {trackerId} roomId={message.roomId} {asHandle} />
       {/each}
     {/if}
     {#if deleteError}

@@ -4,7 +4,9 @@ import {
   reasonFromBreakCommand,
   looksLikeStatusPollCommand,
   parseStatusPollCommand,
-  DEFAULT_STATUS_STATES
+  DEFAULT_STATUS_STATES,
+  looksLikeTrackerCommand,
+  parseTrackerCommand
 } from './composerSlashCommands';
 
 describe('composerSlashCommands', () => {
@@ -113,6 +115,29 @@ describe('composerSlashCommands', () => {
 
     it('returns null for non-status-poll input', () => {
       expect(parseStatusPollCommand('/break x')).toBeNull();
+    });
+  });
+
+  describe('parseTrackerCommand', () => {
+    it("parses JWPK's example: title + typed columns", () => {
+      const out = parseTrackerCommand('/tracker "GVPL4 payments" | beneficiary, quantum(£), invoice link(link), due date(date), paid(y/n), date paid(date)');
+      expect(out?.title).toBe('GVPL4 payments');
+      expect(out?.columnSpec).toContain('quantum(£)');
+      expect(out?.columnSpec).toContain('paid(y/n)');
+    });
+    it('takes leading text as title when unquoted', () => {
+      const out = parseTrackerCommand('/tracker Payments | a, b');
+      expect(out?.title).toBe('Payments');
+      expect(out?.columnSpec).toBe('a, b');
+    });
+    it('returns null without a title or without columns', () => {
+      expect(parseTrackerCommand('/tracker')).toBeNull();
+      expect(parseTrackerCommand('/tracker "x"')).toBeNull();
+      expect(parseTrackerCommand('/tracker | a, b')).toBeNull();
+    });
+    it('does not match unrelated input', () => {
+      expect(looksLikeTrackerCommand('/track')).toBe(false);
+      expect(parseTrackerCommand('/status-poll "x"')).toBeNull();
     });
   });
 });

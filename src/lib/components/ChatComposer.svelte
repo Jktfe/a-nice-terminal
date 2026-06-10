@@ -20,7 +20,9 @@
     looksLikeBreakCommand,
     reasonFromBreakCommand,
     looksLikeStatusPollCommand,
-    parseStatusPollCommand
+    parseStatusPollCommand,
+    looksLikeTrackerCommand,
+    parseTrackerCommand
   } from '$lib/composer/composerSlashCommands';
   import {
     detectMentionTrigger,
@@ -252,6 +254,46 @@
     }, 0);
   }
 
+  async function submitTracker(rawBody: string) {
+    const cmd = parseTrackerCommand(rawBody);
+    if (!cmd) {
+      lastErrorMessage =
+        '/tracker needs a "title" | columns. e.g. /tracker "GVPL4 payments" | beneficiary, quantum(£), paid(y/n)';
+      composerState = 'bodyBeingTyped';
+      return;
+    }
+    composerState = 'submittingToServer';
+    lastErrorMessage = '';
+    try {
+      const browserSessionResult = await ensureBrowserSessionForRoom({ roomId, authorHandle: asHandle, force: true });
+      if (!browserSessionResult.ok) {
+        throw new Error(
+          browserSessionResult.reason === 'no-handle'
+            ? 'No handle resolved yet for this room — refresh and try again.'
+            : `Could not establish identity for ${asHandle} in this room: ${browserSessionResult.reason}`
+        );
+      }
+      const response = await fetch(`/api/chat-rooms/${encodeURIComponent(roomId)}/trackers`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId, title: cmd.title, columnSpec: cmd.columnSpec, asHandle })
+      });
+      if (!response.ok) {
+        const failurePayload = await response.json().catch(() => ({ message: response.statusText }));
+        throw new Error(failurePayload.message ?? 'Could not open the tracker.');
+      }
+      bodyBeingTyped = '';
+      persistDraftForRoom(roomId, '');
+      composerState = 'emptyComposerWaitingForBody';
+      clearAttachedChips();
+      onMessagePosted?.(undefined);
+    } catch (causeOfFailure) {
+      lastErrorMessage =
+        causeOfFailure instanceof Error ? causeOfFailure.message : 'Could not open the tracker.';
+      composerState = 'bodyBeingTyped';
+    }
+  }
+
   async function submitStatusPoll(rawBody: string) {
     const cmd = parseStatusPollCommand(rawBody);
     if (!cmd) {
@@ -319,6 +361,11 @@
     // echoed; the board's receipt (ant-status fence) renders inline.
     if (looksLikeStatusPollCommand(trimmedBody)) {
       await submitStatusPoll(trimmedBody);
+      return;
+    }
+
+    if (looksLikeTrackerCommand(trimmedBody)) {
+      await submitTracker(trimmedBody);
       return;
     }
 
