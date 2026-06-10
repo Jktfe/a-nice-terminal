@@ -20,7 +20,13 @@ function makeTextResponse(text, status) {
   return new Response(text, { status });
 }
 
-function setupRunner({ fetchReplies = [], throwOnFetch = null, serverUrl = 'http://localhost:4321', config = {} } = {}) {
+function setupRunner({
+  fetchReplies = [],
+  throwOnFetch = null,
+  serverUrl = 'http://localhost:4321',
+  config = {},
+  envTmuxPane
+} = {}) {
   const writtenOut = [];
   const writtenErr = [];
   const fetchCalls = [];
@@ -38,7 +44,8 @@ function setupRunner({ fetchReplies = [], throwOnFetch = null, serverUrl = 'http
     writeOut: (line) => writtenOut.push(line),
     writeErr: (line) => writtenErr.push(line),
     serverUrl,
-    config
+    config,
+    envTmuxPane
   });
 
   return { runner, writtenOut, writtenErr, fetchCalls };
@@ -65,6 +72,65 @@ describe('ant-cli', () => {
       expect(writtenOut[0]).toContain('r1');
       expect(writtenOut[0]).toContain('one');
       expect(writtenOut[1]).toContain('r2');
+    });
+
+    it('uses a pane-bound durable session before pidChain fallback', async () => {
+      const { runner, writtenOut, fetchCalls } = setupRunner({
+        envTmuxPane: '%42',
+        config: { antSessions: { byPane: { '%42': 'session-pane-42' } } },
+        fetchReplies: [
+          makeJsonResponse({
+            chatRooms: [{ id: 'r1', name: 'one', members: [{ handle: '@you' }] }]
+          })
+        ]
+      });
+      const exitCode = await runner.run(['rooms', 'list']);
+      expect(exitCode).toBe(0);
+      const url = new URL(fetchCalls[0].url);
+      expect(`${url.origin}${url.pathname}`).toBe('http://localhost:4321/api/chat-rooms');
+      expect(url.searchParams.get('pidChain')).toBeNull();
+      expect(fetchCalls[0].init?.headers?.['x-ant-session-id']).toBe('session-pane-42');
+      expect(writtenOut[0]).toContain('r1');
+    });
+
+    it('lets ANT_SESSION_ID override pane-bound sessions', async () => {
+      const previousSession = process.env.ANT_SESSION_ID;
+      process.env.ANT_SESSION_ID = 'session-env';
+      try {
+        const { runner, fetchCalls } = setupRunner({
+          envTmuxPane: '%42',
+          config: { antSessions: { byPane: { '%42': 'session-pane-42' } } },
+          fetchReplies: [makeJsonResponse({ chatRooms: [] })]
+        });
+        const exitCode = await runner.run(['rooms', 'list']);
+        expect(exitCode).toBe(0);
+        expect(fetchCalls[0].init?.headers?.['x-ant-session-id']).toBe('session-env');
+      } finally {
+        if (previousSession === undefined) delete process.env.ANT_SESSION_ID;
+        else process.env.ANT_SESSION_ID = previousSession;
+      }
+    });
+
+    it('falls back to pidChain when a durable session is rejected', async () => {
+      const { runner, fetchCalls, writtenOut } = setupRunner({
+        envTmuxPane: '%42',
+        config: { antSessions: { byPane: { '%42': 'session-pane-42' } } },
+        fetchReplies: [
+          makeJsonResponse({ message: 'Authentication required.' }, 401),
+          makeJsonResponse({
+            chatRooms: [{ id: 'r2', name: 'two', members: [{ handle: '@you' }] }]
+          })
+        ]
+      });
+      const exitCode = await runner.run(['rooms', 'list']);
+      expect(exitCode).toBe(0);
+      expect(fetchCalls).toHaveLength(2);
+      expect(fetchCalls[0].init?.headers?.['x-ant-session-id']).toBe('session-pane-42');
+      const retryUrl = new URL(fetchCalls[1].url);
+      expect(`${retryUrl.origin}${retryUrl.pathname}`).toBe('http://localhost:4321/api/chat-rooms');
+      expect(retryUrl.searchParams.get('pidChain')).toBeTruthy();
+      expect(fetchCalls[1].init?.headers?.['x-ant-session-id']).toBeUndefined();
+      expect(writtenOut[0]).toContain('r2');
     });
   });
 

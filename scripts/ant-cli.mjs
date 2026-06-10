@@ -73,7 +73,7 @@ const DISPATCH = {
   deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, tools: handleToolsVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, request: handleRequestVerb, task: handleTaskVerb, memory: handleMemoryVerb, brief: handleBriefVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, vote: handleVoteVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb, whoami: handleWhoamiVerb
 };
 
-export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, serverUrlSource: suppliedServerUrlSource, config } = {}) {
+export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, serverUrlSource: suppliedServerUrlSource, config, envTmuxPane } = {}) {
   const output = writeOut ?? ((line) => console.log(line));
   const errorOutput = writeErr ?? ((line) => console.error(line));
   const configuredServerUrl = serverUrl ?? ENV_SERVER_URL ?? DEFAULT_SERVER_URL;
@@ -86,6 +86,7 @@ export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, server
     serverUrl: configuredServerUrl,
     serverUrlSource,
     config: config ?? loadAntConfig(),
+    envTmuxPane,
     fallbackWarned: false,
     isInteractive: process.stdin.isTTY === true,
     promptImpl: async (q) => {
@@ -223,13 +224,40 @@ async function handleRoomsVerb(action, args, runtime) {
 }
 
 async function listRooms(runtime) {
-  const response = await fetchFromServer(runtime, pathWithPidChain('/api/chat-rooms'));
+  const sessionId = durableSessionIdForRuntime(runtime);
+  let response = sessionId
+    ? await fetchFromServer(runtime, '/api/chat-rooms', {
+        headers: { 'x-ant-session-id': sessionId }
+      })
+    : await fetchFromServer(runtime, pathWithPidChain('/api/chat-rooms'));
+  if (sessionId && response.status === 401) {
+    response = await fetchFromServer(runtime, pathWithPidChain('/api/chat-rooms'));
+  }
   await throwIfNotOk(response, runtime);
   const body = await response.json();
   for (const room of body.chatRooms ?? []) {
     runtime.writeOut(`${room.id}\t${room.name}\t(${room.members.length} members)`);
   }
   return 0;
+}
+
+function normaliseDurableSessionId(raw) {
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
+}
+
+function durableSessionIdForRuntime(runtime) {
+  const envSession = normaliseDurableSessionId(process.env.ANT_SESSION_ID);
+  if (envSession) return envSession;
+  const pane =
+    normaliseDurableSessionId(runtime.envTmuxPane) ??
+    normaliseDurableSessionId(process.env.TMUX_PANE) ??
+    normaliseDurableSessionId(process.env.WEZTERM_PANE);
+  const byPane = runtime.config?.antSessions?.byPane;
+  if (pane && byPane && typeof byPane === 'object') {
+    const paneSession = normaliseDurableSessionId(byPane[pane]);
+    if (paneSession) return paneSession;
+  }
+  return null;
 }
 
 async function createRoom(name, runtime) {
