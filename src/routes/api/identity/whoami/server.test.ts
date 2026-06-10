@@ -146,6 +146,42 @@ describe('POST /api/identity/whoami', () => {
     expect(payload.terminalId).toBe(terminal.id);
   });
 
+  it('does not let an ancestor v0.2 runtime override the resolved terminal handle', async () => {
+    const leafStart = '2026-06-10T11:21:00.000Z';
+    const parentStart = '2026-06-08T07:53:47.000Z';
+    const leaf = upsertTerminal({ pid: 63707, pid_start: leafStart, name: 'antchatClaudeHomebrew' });
+    createTerminalRecord({ sessionId: leaf.id, name: 'antchatClaudeHomebrew', handle: '' });
+    const leafSession = createSession({ kind: 'local-cli', terminalId: leaf.id });
+    addMember('room-live', '@antchatclaudehomebrew', leafSession.id);
+
+    const parent = upsertTerminal({ pid: 34491, pid_start: parentStart, name: 'minimax-codex' });
+    createTerminalRecord({ sessionId: parent.id, name: 'minimax-codex', handle: '' });
+    bootstrapV02Identity({
+      name: 'minimax-codex',
+      pid: 34491,
+      pid_start: parentStart,
+      legacy_terminal_id: parent.id,
+      handle: '@minimaxs-codex'
+    });
+
+    const response = await callPost(
+      JSON.stringify({
+        pids: [
+          { pid: 63707, pid_start: leafStart },
+          { pid: 34491, pid_start: parentStart }
+        ]
+      })
+    );
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.status).toBe('bound');
+    expect(payload.terminalId).toBe(leaf.id);
+    expect(payload.terminalName).toBe('antchatClaudeHomebrew');
+    expect(payload.handle).toBe('@antchatclaudehomebrew');
+    expect(payload.v02AgentId).toBeNull();
+    expect(payload.v02RuntimeId).toBeNull();
+  });
+
   it('does NOT resolve a synthetic @browser-bs_ membership as a handle', async () => {
     // The clean roster excludes browser-session handles; whoami must too, so a
     // terminal that only carries a browser-session membership stays no-handle.

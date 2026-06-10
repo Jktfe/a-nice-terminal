@@ -27,6 +27,7 @@ import { lookupTerminalByPidChain, type PidChainEntry } from '$lib/server/termin
 import { normalisePidStartToIso8601 } from '$lib/server/pidStartNormaliser';
 import { resolveV02ByPidChain } from '$lib/server/v02RegisterBootstrap';
 import { getAgentById } from '$lib/server/v02AgentsStore';
+import { getRuntimeById } from '$lib/server/v02RuntimesStore';
 import { resolveHandleForTerminal } from '$lib/server/membershipStore';
 
 type WhoamiBody = { pids?: unknown };
@@ -45,6 +46,11 @@ function parsePidChain(rawPids: unknown): PidChainEntry[] {
     const pidStart = typeof rawStart === 'string' ? rawStart : null;
     return { pid: pidNum, pid_start: pidStart };
   });
+}
+
+function v02RuntimeBelongsToTerminal(runtimeId: string, terminalId: string): boolean {
+  const runtime = getRuntimeById(runtimeId);
+  return runtime?.register_challenge_proof === `pre-v02-attestation:${terminalId}`;
 }
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -91,7 +97,7 @@ export const POST: RequestHandler = async ({ request }) => {
   let v02RuntimeId: string | null = null;
   try {
     const v02 = resolveV02ByPidChain(pidChain);
-    if (v02) {
+    if (v02 && v02RuntimeBelongsToTerminal(v02.runtime_id, terminal.id)) {
       v02AgentId = v02.agent_id;
       v02RuntimeId = v02.runtime_id;
     }
