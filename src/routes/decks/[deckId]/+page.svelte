@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { invalidate } from '$app/navigation';
   import DeckViewerToolbar from '$lib/components/DeckViewerToolbar.svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import StageFeedbackPanel from '$lib/components/StageFeedbackPanel.svelte';
@@ -625,9 +626,41 @@
     void loadVoiceSettings().then(() => {
       if (voiceSettings.autoplay) void playCurrentSlide();
     });
+
+    // Live Stage (JWPK 2026-06-10): agents edit the deck on the fly — adding to
+    // the alternative track and (via @researchant's auto-adopt) replacing /
+    // appending / parking slides. composedSlides already renders all of that,
+    // but the viewer only re-read alternatives on mount + the presenter's OWN
+    // actions, so a REMOTE agent change never appeared until a manual reload.
+    // Poll both surfaces so it shows up in real time:
+    //   - refreshStageAlternatives(): new alternatives + their decisions →
+    //     composedSlides re-applies replace/append/park live.
+    //   - guarded deck reload: an agent editing the BASE deck (reorder/hide via
+    //     updateDeck) bumps updatedAtMs; only THEN invalidate the load, so the
+    //     view doesn't churn the deck every tick.
+    let lastDeckStamp = deck.updatedAtMs ?? deck.createdAtMs ?? 0;
+    const livePoll = setInterval(() => {
+      void refreshStageAlternatives();
+      void (async () => {
+        try {
+          const res = await fetch(`/api/decks/${encodeURIComponent(deck.id)}${deckPasswordQuery}`);
+          if (!res.ok) return;
+          const body = (await res.json()) as { deck?: { updatedAtMs?: number | null } };
+          const stamp = body.deck?.updatedAtMs ?? 0;
+          if (stamp > lastDeckStamp) {
+            lastDeckStamp = stamp;
+            await invalidate((url) => url.pathname === `/api/decks/${deck.id}`);
+          }
+        } catch {
+          // Best-effort live poll — a failed tick must never disrupt the deck.
+        }
+      })();
+    }, 3000);
+
     return () => {
       stopSpeaking();
       window.removeEventListener('keydown', handleKey);
+      clearInterval(livePoll);
     };
   });
 </script>
