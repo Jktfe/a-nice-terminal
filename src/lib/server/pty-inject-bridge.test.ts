@@ -111,6 +111,12 @@ describe('verifyPaneTargetState', () => {
     expect(verifyPaneTargetState(t)).toBe('verified');
   });
 
+  it('treats claude agent_kind alias as claude-code for prompt verification', () => {
+    setSpawnImplForTests(fakeSpawnReturning('some lines\n│ > \nmore', 0));
+    const t = registerPaneTerminal('ready-claude-alias', 'claude');
+    expect(verifyPaneTargetState(t)).toBe('verified');
+  });
+
   it('returns unknown when claude_code pane shows esc to interrupt (streaming)', () => {
     setSpawnImplForTests(fakeSpawnReturning('│ >\nesc to interrupt', 0));
     const t = registerPaneTerminal('streaming-cc');
@@ -175,6 +181,15 @@ describe('twoCallSubmit', () => {
     expect(sendKeysCalls.length).toBe(2);
     expect(schedules[0].ms).toBe(150);
     expect(schedules[1].ms).toBe(150);
+  });
+
+  it('emits DOUBLE Enter for claude agent_kind alias', () => {
+    const { calls, impl } = captureSpawnCalls();
+    setSpawnImplForTests(impl);
+    const scheduler = (cb: () => void) => { cb(); return 0 as any; };
+    twoCallSubmit('%1', 'hello', 'claude', () => {}, scheduler);
+    const sendKeysCalls = calls.filter((c) => c.args[0] === 'send-keys');
+    expect(sendKeysCalls.length).toBe(2);
   });
 
   it('async send-keys failure routes through onScheduledFailure (not silent)', () => {

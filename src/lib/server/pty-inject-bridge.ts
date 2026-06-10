@@ -79,9 +79,13 @@ function isQwenShellCommandMode(captured: string): boolean {
   );
 }
 
+function isClaudeCodeAgent(agentKind: string | null): boolean {
+  return agentKind === 'claude-code' || agentKind === 'claude';
+}
+
 function matchReadyStateFor(agentKind: string | null, captured: string): boolean {
   const normalized = normalizeAgentKind(agentKind);
-  if (normalized === 'claude-code') {
+  if (isClaudeCodeAgent(normalized)) {
     const hasPromptIndicator = captured.includes('│ >') || captured.includes('❯');
     const isStreaming = captured.includes('esc to interrupt');
     return hasPromptIndicator && !isStreaming;
@@ -207,8 +211,8 @@ function needsBracketedPaste(agentKind: string | null): boolean {
 }
 
 function needsDoubleEnter(agentKind: string | null): boolean {
-  return new Set(['claude-code', 'copilot', 'copilot-cli', 'github-copilot-cli'])
-    .has(agentKind ?? '');
+  return isClaudeCodeAgent(agentKind)
+    || new Set(['copilot', 'copilot-cli', 'github-copilot-cli']).has(agentKind ?? '');
 }
 
 function transformBodyForAgent(text: string, agentKind: string | null): string {
