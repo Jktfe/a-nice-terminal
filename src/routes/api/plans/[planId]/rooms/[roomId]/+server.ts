@@ -16,6 +16,7 @@ import type { RequestHandler } from './$types';
 import { requireAdminAuth } from '$lib/server/chatInviteAuth';
 import { resolveCallerHandleAnyRoom } from '$lib/server/authGate';
 import { detachPlanFromRoom } from '$lib/server/planRoomLinkStore';
+import { broadcastPlanChanged } from '$lib/server/taskPlanRealtime';
 
 function requirePlanRoomLinkAuth(request: Request): void {
   if (resolveCallerHandleAnyRoom(request)) return;
@@ -34,5 +35,9 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
   const roomId = params.roomId ?? '';
   if (planId.length === 0) throw error(400, 'planId is required.');
   if (roomId.length === 0) throw error(400, 'roomId is required.');
-  return json(detachPlanFromRoom({ planId, roomId }));
+  const result = detachPlanFromRoom({ planId, roomId });
+  // Realtime: the detached room is no longer in listRoomsForPlan, so pass
+  // it explicitly so its Plans panel refreshes to drop the link.
+  if (result.removed) broadcastPlanChanged(planId, { action: 'detached' }, [roomId]);
+  return json(result);
 };

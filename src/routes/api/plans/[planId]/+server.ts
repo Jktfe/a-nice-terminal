@@ -26,6 +26,8 @@ import {
 import { getIdentityDb } from '$lib/server/db';
 import { dispatchPlanEvent } from '$lib/server/planTriggerDispatcher';
 import type { PlanTriggerEvent } from '$lib/server/planTriggerStore';
+import { listRoomsForPlan } from '$lib/server/planRoomLinkStore';
+import { broadcastPlanChanged, type PlanChangeAction } from '$lib/server/taskPlanRealtime';
 
 const VALID_ACTIONS = new Set(['archive', 'unarchive', 'delete', 'restore', 'hard-delete']);
 
@@ -101,8 +103,13 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     // Returns the deleted plan + a per-table cascadeCount so the UI can
     // show "you deleted PLAN_X and N tasks, M room links, …" on confirm.
     if (b.action === 'hard-delete') {
+      // Snapshot hosting rooms BEFORE the cascade tears down plan_rooms —
+      // afterwards listRoomsForPlan would resolve to nothing.
+      const hostRooms = listRoomsForPlan(planId).map((r) => r.roomId);
       const result = hardDeletePlan(planId);
       if (!result) throw error(404, 'plan not found');
+      // Realtime: refresh the Plans panel in every room that hosted it.
+      broadcastPlanChanged(planId, { action: 'deleted' }, hostRooms);
       return json({ plan: result.deletedPlan, hardDeleted: true, cascadeCount: result.cascadeCount });
     }
     let next: ReturnType<typeof getPlan> = null;
@@ -131,6 +138,11 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     if (transitioned) {
       const event = ACTION_TO_EVENT[b.action];
       if (event) dispatchPlanEvent(event, { planId });
+      // Realtime: refresh hosting Plans panels. Soft delete + archive keep
+      // plan_rooms links, so listRoomsForPlan still resolves the rooms.
+      const rtAction: PlanChangeAction =
+        b.action === 'archive' ? 'archived' : b.action === 'delete' ? 'deleted' : 'restored';
+      broadcastPlanChanged(planId, { action: rtAction });
     }
     return json({ plan: next });
   }
@@ -153,5 +165,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   if (descriptionPresent) patch.description = b.description as string | null;
   const next = updatePlan(planId, patch);
   if (!next) throw error(404, 'plan not found');
+  // Realtime: refresh the Plans panel in every room hosting this plan.
+  broadcastPlanChanged(planId, { action: 'updated' });
   return json({ plan: next });
 };

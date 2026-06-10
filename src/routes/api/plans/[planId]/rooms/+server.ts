@@ -29,6 +29,7 @@ import {
   listRoomsForPlan,
   PlanRoomLinkError
 } from '$lib/server/planRoomLinkStore';
+import { broadcastPlanChanged } from '$lib/server/taskPlanRealtime';
 
 type PlanRoomLinkAuth =
   | { kind: 'cookie'; actor: string }
@@ -92,6 +93,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
   try {
     const result = attachPlanToRoom({ planId, roomId: b.roomId, attachedBy });
+    // Realtime: a fresh attachment changes the target room's Plans panel.
+    if (result.attached) broadcastPlanChanged(planId, { action: 'attached' }, [b.roomId]);
     return json(result);
   } catch (cause) {
     if (cause instanceof PlanRoomLinkError && cause.reason === 'room_not_found') {

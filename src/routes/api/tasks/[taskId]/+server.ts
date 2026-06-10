@@ -24,6 +24,7 @@ import {
   isJwpkTaskStatus
 } from '$lib/server/tasksStore';
 import { dispatchPlanEvent } from '$lib/server/planTriggerDispatcher';
+import { broadcastTaskChanged } from '$lib/server/taskPlanRealtime';
 import { requireChatRoomMutationAuth, tryAdminBearer } from '$lib/server/chatRoomAuthGate';
 import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
@@ -130,6 +131,12 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
         operatorRescopeAfterWork: scopeEdited && toStatus === before.status,
         actor: typeof b.assigned_to === 'string' ? b.assigned_to : null
       });
+      // Realtime: refresh the Tasks panel in every room hosting this task.
+      broadcastTaskChanged(params.taskId, {
+        action: 'updated',
+        planId: before.planId,
+        status: updated.status
+      });
     }
     return json({ task: updated });
   }
@@ -223,6 +230,12 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
         });
       }
     }
+    // Realtime: refresh the Tasks panel in every room hosting this task.
+    broadcastTaskChanged(params.taskId, {
+      action: 'updated',
+      planId: updated.planId,
+      status: updated.status
+    });
   }
   return json({ task: updated });
 };
@@ -239,5 +252,8 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
     fromStatus: before.status,
     toStatus: 'deleted'
   });
+  // Realtime: soft-delete keeps the row, so room resolution still works —
+  // notify so the Tasks panel drops the now-deleted task.
+  broadcastTaskChanged(params.taskId, { action: 'deleted', planId: before.planId });
   return json({ ok: true });
 };
