@@ -389,18 +389,32 @@ export function softDeleteMessage(input: {
   messageId: string;
   byHandle: string;
   nowMs?: number;
+  /**
+   * Operator override (JWPK msg_3535ek7e5p): the operator may delete ANY
+   * author's post to clear agent chatter; a normal caller may only delete
+   * their own. Operator deletes also PURGE the body (purge-from-search,
+   * credit @minisearch) — the tombstone stays for conversational structure,
+   * but the body is stripped so deleted chatter no longer pollutes search.
+   */
+  asOperator?: boolean;
 }): ChatMessage | null {
   const db = getIdentityDb();
   const existing = getMessageById(input.messageId);
   if (!existing) return null;
-  if (!isSameAuthorHandle(existing.authorHandle, input.byHandle)) return null;
+  if (!input.asOperator && !isSameAuthorHandle(existing.authorHandle, input.byHandle)) return null;
   if (existing.deletedAtMs) return null;
   if (existing.kind === 'system' || existing.kind === 'system-break') return null;
 
   const nowMs = input.nowMs ?? Date.now();
-  db.prepare(
-    `UPDATE chat_messages SET deleted_at_ms = ?, deleted_by_handle = ? WHERE id = ?`
-  ).run(nowMs, input.byHandle, input.messageId);
+  if (input.asOperator) {
+    db.prepare(
+      `UPDATE chat_messages SET deleted_at_ms = ?, deleted_by_handle = ?, body = '' WHERE id = ?`
+    ).run(nowMs, input.byHandle, input.messageId);
+  } else {
+    db.prepare(
+      `UPDATE chat_messages SET deleted_at_ms = ?, deleted_by_handle = ? WHERE id = ?`
+    ).run(nowMs, input.byHandle, input.messageId);
+  }
   return getMessageById(input.messageId);
 }
 

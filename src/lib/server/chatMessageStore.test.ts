@@ -9,6 +9,8 @@ import {
   postBreakMessage,
   postMessage,
   postSystemMessage,
+  softDeleteMessage,
+  getMessageById,
   resetChatMessageStoreForTests
 } from './chatMessageStore';
 
@@ -214,5 +216,55 @@ describe('chatMessageStore', () => {
       expect(child.parentMessageId).toBe(parent.id);
       expect(child.discussion_id).toBe('disc_xyz');
     });
+  });
+});
+
+describe('softDeleteMessage — operator override + purge (JWPK msg_3535ek7e5p)', () => {
+  beforeEach(() => {
+    resetChatRoomStoreForTests();
+    resetChatMessageStoreForTests();
+  });
+
+  it('operator can delete another author and PURGES the body from search', () => {
+    const room = createChatRoom({ name: 'op-del', whoCreatedIt: '@you' });
+    const agentMsg = postMessage({ roomId: room.id, authorHandle: '@some-agent', body: 'chatty noise' });
+
+    const deleted = softDeleteMessage({
+      messageId: agentMsg.id,
+      byHandle: '@you',
+      asOperator: true
+    });
+
+    expect(deleted).not.toBeNull();
+    expect(deleted?.deletedAtMs).toBeTruthy();
+    expect(deleted?.deletedByHandle).toBe('@you');
+    // body purged so it no longer pollutes search; tombstone stays.
+    expect(deleted?.body).toBe('');
+    expect(getMessageById(agentMsg.id)?.body).toBe('');
+  });
+
+  it('a non-operator cannot delete another author (rejected)', () => {
+    const room = createChatRoom({ name: 'no-del', whoCreatedIt: '@you' });
+    const agentMsg = postMessage({ roomId: room.id, authorHandle: '@some-agent', body: 'keep me' });
+
+    const result = softDeleteMessage({
+      messageId: agentMsg.id,
+      byHandle: '@other-agent',
+      asOperator: false
+    });
+
+    expect(result).toBeNull();
+    expect(getMessageById(agentMsg.id)?.body).toBe('keep me');
+    expect(getMessageById(agentMsg.id)?.deletedAtMs ?? null).toBeNull();
+  });
+
+  it('an author deleting their own message keeps the body (tombstone only)', () => {
+    const room = createChatRoom({ name: 'own-del', whoCreatedIt: '@you' });
+    const mine = postMessage({ roomId: room.id, authorHandle: '@some-agent', body: 'my words' });
+
+    const deleted = softDeleteMessage({ messageId: mine.id, byHandle: '@some-agent' });
+
+    expect(deleted?.deletedAtMs).toBeTruthy();
+    expect(deleted?.body).toBe('my words');
   });
 });

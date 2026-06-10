@@ -57,13 +57,18 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
   if (!callerHandle) throw error(401, 'Identity required to delete a message.');
 
   const existing = assertMessageInRoom(params.messageId, params.roomId);
-  if (!isSameAuthor(existing.authorHandle, callerHandle)) {
-    throw error(403, 'Only the author can delete this message.');
+  // JWPK msg_3535ek7e5p: the operator may delete ANY post (to clear agent
+  // chatter from search); everyone else only their own. Operator deletes
+  // also purge the body (see softDeleteMessage).
+  const callerIsOperator = isOperatorHandle(callerHandle);
+  if (!callerIsOperator && !isSameAuthor(existing.authorHandle, callerHandle)) {
+    throw error(403, 'Only the author or the operator can delete this message.');
   }
 
   const updated = softDeleteMessage({
     messageId: params.messageId,
-    byHandle: callerHandle
+    byHandle: callerHandle,
+    asOperator: callerIsOperator
   });
   if (!updated) {
     // Already deleted, or system-kind — either way return current state.

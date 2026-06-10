@@ -65,11 +65,14 @@
      *  MessageList derives this from the live room roster, not from
      *  brittle handle prefixes. */
     viewerIsAgent?: boolean;
+    /** True when the viewer is the operator (JWPK). Lets them delete any
+     *  post — not just their own — to clear agent chatter from search. */
+    viewerIsOperator?: boolean;
     asHandle?: string;
     readReceiptEvent?: Record<string, unknown> | null;
   };
 
-  let { message, member, members = [], onReplyRequested, childCount = 0, parentMessage, claims = [], roomMode = 'brainstorm', onClaimChanged, viewerIsAgent = false, asHandle, readReceiptEvent }: Props = $props();
+  let { message, member, members = [], onReplyRequested, childCount = 0, parentMessage, claims = [], roomMode = 'brainstorm', onClaimChanged, viewerIsAgent = false, viewerIsOperator = false, asHandle, readReceiptEvent }: Props = $props();
   // deleteError is owned by MessageRowHeader but bound back here so the
   // <p class="message-error"> renders in its original spot below the
   // message body (visual contract preserved across the split).
@@ -89,12 +92,15 @@
   // #74: caller can delete a message they authored, as long as it
   // hasn't been tombstoned and isn't a system event. The caller's
   // identity is passed in via `asHandle` from the room page.
+  // JWPK msg_3535ek7e5p: the operator may also delete ANY post (to clear
+  // agent chatter from search) — the server enforces the same rule + purges
+  // the body, so this just surfaces the button.
   const isOwnMessage = $derived(
     typeof asHandle === 'string' && asHandle === message.authorHandle
   );
   const isDeleted = $derived(Boolean(message.deletedAtMs));
   const canDelete = $derived(
-    isOwnMessage &&
+    (isOwnMessage || viewerIsOperator) &&
       !isDeleted &&
       (message.kind === 'human' || message.kind === 'agent')
   );

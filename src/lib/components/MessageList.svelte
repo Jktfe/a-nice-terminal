@@ -132,6 +132,9 @@
     if (isOperatorLikeHandle(handle)) return false;
     return membersByHandle.get(handle)?.kind === 'agent';
   });
+  // The operator (JWPK) may delete any post to clear agent chatter from
+  // search (JWPK msg_3535ek7e5p). Drives the delete button on others' rows.
+  const viewerIsOperator = $derived(isOperatorLikeHandle(asHandle?.trim() ?? ''));
   const newestMessageId = $derived(messages.at(-1)?.id ?? '');
 
   // Sticky-scroll threshold (NMT feedback A from @mark, hs9jv51zrh
@@ -335,6 +338,7 @@
           claims={claimsByMessageId.get(message.id) ?? []}
           {roomMode}
           {viewerIsAgent}
+          {viewerIsOperator}
           onClaimChanged={refreshClaims}
           {asHandle}
           {readReceiptEvent}
