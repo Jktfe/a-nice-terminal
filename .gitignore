@@ -100,5 +100,34 @@ test-api.cjs
 # Captures live in research-site / external, not the repo
 /static/captures/
 
+# Enumerated leak dirs (private-image guard, 2026-06-10): accidents
+# land in scratch / captures / diagnostics / output / agent-generated,
+# NOT in an umbrella "unsynced" folder. Each rule is paired with its
+# WHY-THIS-DIR comment on the line ABOVE (gitignore: only `\#` at the
+# start of a line is a comment; an inline `#` after the pattern is
+# folded into the pattern and matches nothing — the 8b8ef9f bug).
+# generated images, served via /api/assets
+/static/llm-generated/
+# screenshot/UI-capture output
+/static/diagnostics/
+# ad-hoc agent working files; not app content
+/static/scratch/
+# operator local screen captures
+/static/local-screenshots/
+# export/transform pipeline output
+/static/output/
+# (existing /static/captures/ kept, not duplicated; existing
+# /static/artefacts/ kept, not duplicated)
+
+# Format hole: the existing `/*.<ext>` list above covers jpeg/jpg/png/
+# gif/webp/avif. Add the remaining binary image formats that can land at
+# repo root (none are legit at root).
+/*.bmp
+/*.tiff
+/*.tif
+/*.heic
+/*.heif
+/*.raw
+
 # Pi CLI agent-local config (not repo content; sibling of .qwen/.claude)
 .pi/
