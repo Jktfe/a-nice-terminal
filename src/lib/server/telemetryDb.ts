@@ -94,7 +94,7 @@ const TELEMETRY_DDL_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_cli_hook_events_received_at ON cli_hook_events (received_at_ms)`
 ];
 
-function applyTelemetrySchema(db: DatabaseInstance): void {
+export function applyTelemetrySchema(db: DatabaseInstance): void {
   for (const ddl of TELEMETRY_DDL_STATEMENTS) {
     db.prepare(ddl).run();
   }

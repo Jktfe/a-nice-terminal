@@ -1,6 +1,7 @@
 import { statSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { getDbFilePath, getIdentityDb } from './db';
+import { getTelemetryDbFilePath, telemetrySidecarEnabled } from './telemetryDb';
 
 export const DEFAULT_OPERATIONAL_RETENTION_DAYS = 7;
 export const DEFAULT_OPERATIONAL_RETENTION_MAX_DB_BYTES = 1024 * 1024 * 1024;
@@ -306,6 +307,10 @@ export function checkpointWalTruncateInChild(input: {
 } = {}): WalCheckpointChildStartResult {
   const slot = globalThis as Record<string, unknown>;
   const dbPath = input.dbPath ?? getDbFilePath();
+  // Key the "child already running" guard by DB path so the identity DB and
+  // the telemetry sidecar can be checkpointed independently (the firehose WAL
+  // now lives in the telemetry file once ANT_TELEMETRY_SIDECAR is on).
+  const runningKey = `${WAL_CHECKPOINT_CHILD_RUNNING_KEY}:${dbPath}`;
   const walPath = `${dbPath}-wal`;
   const walBytesBefore = fileSizeBytes(walPath);
   const minWalBytes = Math.max(MIN_WAL_CHECKPOINT_BYTES, Math.floor(input.minWalBytes ?? getWalCheckpointMinBytes()));
@@ -318,7 +323,7 @@ export function checkpointWalTruncateInChild(input: {
       minWalBytes
     };
   }
-  if (slot[WAL_CHECKPOINT_CHILD_RUNNING_KEY]) {
+  if (slot[runningKey]) {
     return {
       started: false,
       alreadyRunning: true,
@@ -327,7 +332,7 @@ export function checkpointWalTruncateInChild(input: {
       minWalBytes
     };
   }
-  slot[WAL_CHECKPOINT_CHILD_RUNNING_KEY] = true;
+  slot[runningKey] = true;
   const nowMs = input.nowMs ?? Date.now();
   const spawnImpl = input.spawnImpl ?? spawn;
   const child = spawnImpl(process.execPath, ['--input-type=module', '-e', WAL_CHECKPOINT_CHILD_SCRIPT], {
@@ -361,11 +366,11 @@ export function checkpointWalTruncateInChild(input: {
     slot[LAST_WAL_CHECKPOINT_KEY] = result;
   };
   child.on('error', (error) => {
-    delete slot[WAL_CHECKPOINT_CHILD_RUNNING_KEY];
+    delete slot[runningKey];
     finishWithError(error instanceof Error ? error.message : String(error));
   });
   child.on('close', () => {
-    delete slot[WAL_CHECKPOINT_CHILD_RUNNING_KEY];
+    delete slot[runningKey];
     try {
       const parsed = JSON.parse(stdout.trim()) as WalCheckpointResult;
       slot[LAST_WAL_CHECKPOINT_KEY] = parsed;
@@ -397,13 +402,23 @@ export function ensureOperationalRetentionSweepBooted(input: {
   if (slot[BOOT_KEY]) return { booted: false, disabled: false };
   slot[BOOT_KEY] = true;
 
-  const runSweep = () => {
+  // Checkpoint the identity DB and — once the telemetry sidecar is on — the
+  // telemetry DB too, where the firehose WAL (the ~1GB/13min grower) now lives.
+  // Checkpoint-ONLY: never prunes rows — the firehose is a retained asset
+  // (project_firehose_is_an_asset_mine_before_prune), not pruned to save space.
+  const checkpointAll = () => {
     checkpointWalTruncateInChild();
+    if (telemetrySidecarEnabled()) {
+      checkpointWalTruncateInChild({ dbPath: getTelemetryDbFilePath() });
+    }
+  };
+  const runSweep = () => {
+    checkpointAll();
   };
   const runThresholdCheck = () => {
     // Bound the -wal file out-of-process. Synchronous SQLite maintenance in
     // this server blocks health/chat while readers pin the WAL.
-    checkpointWalTruncateInChild();
+    checkpointAll();
   };
 
   if (input.runImmediately !== false) {
@@ -449,7 +464,13 @@ export function _resetOperationalRetentionBootForTests(): void {
   delete slot[THRESHOLD_TIMER_KEY];
   delete slot[LAST_RESULT_KEY];
   delete slot[LAST_WAL_CHECKPOINT_KEY];
-  delete slot[WAL_CHECKPOINT_CHILD_RUNNING_KEY];
+  // The running guard is keyed by DB path (`<base>:<dbPath>`) so clear every
+  // variant, not just the bare base key.
+  for (const key of Object.keys(slot)) {
+    if (key === WAL_CHECKPOINT_CHILD_RUNNING_KEY || key.startsWith(`${WAL_CHECKPOINT_CHILD_RUNNING_KEY}:`)) {
+      delete slot[key];
+    }
+  }
 }
 
 function getSweepIntervalMs(): number {
