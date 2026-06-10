@@ -26,8 +26,9 @@ import { getIdentityDb } from '$lib/server/db';
 import { lookupTerminalByPidChain, type PidChainEntry } from '$lib/server/terminalsStore';
 import { normalisePidStartToIso8601 } from '$lib/server/pidStartNormaliser';
 import { resolveHandleForTerminal } from '$lib/server/membershipStore';
+import { resolveCallerIdentity } from '$lib/server/callerIdentityResolver';
 
-type WhoamiBody = { pids?: unknown };
+type WhoamiBody = { pids?: unknown; pane?: unknown };
 
 function parsePidChain(rawPids: unknown): PidChainEntry[] {
   if (!Array.isArray(rawPids) || rawPids.length === 0) {
@@ -111,7 +112,24 @@ export const POST: RequestHandler = async ({ request }) => {
     if (memberHandle && memberHandle.length > 0) handle = memberHandle;
   }
 
-  if (!handle) {
+  // Step 2 seam adoption — FIRST endpoint on resolveCallerIdentity (blessed
+  // msg_6dtpw2o4pn, chair order item 2). The legacy resolution above becomes
+  // the deferred thunk; `pane` is a CLI-presented transport fact (optional —
+  // older CLIs omit it, which in SHADOW mode ledgers the legacy-answered-
+  // nothing-witnessed signature, exactly the adoption gap the proving mode
+  // exists to surface). LEGACY mode is behaviour-identical. CLEAN mode makes
+  // whoami answer purely from daemon-witnessed bindings — AC1 verbatim; the
+  // unresolved case maps onto the existing registered-no-handle status until
+  // Step 3 introduces a distinct payload.
+  const paneRaw = body.pane;
+  const paneValue = typeof paneRaw === 'string' && paneRaw.trim().length > 0 ? paneRaw.trim() : null;
+  const legacyHandle = handle;
+  const resolution = resolveCallerIdentity({
+    pane: paneValue,
+    legacy: () => (legacyHandle ? { handle: legacyHandle, terminalId: terminal.id } : null)
+  });
+
+  if (!resolution.ok) {
     return json(
       {
         status: 'registered-no-handle',
@@ -133,7 +151,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
   return json({
     status: 'bound',
-    handle,
+    handle: resolution.identity.handle,
+    identitySource: resolution.identity.source,
     terminalId: terminal.id,
     terminalName: terminal.name,
     pidChain: pidChain.map((entry) => entry.pid),

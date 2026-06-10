@@ -18,6 +18,7 @@ export type IdentityLedgerKind =
   | 'handle.claim-refused'
   | 'owner.added'
   | 'owner.removed'
+  | 'owner.notified'
   | 'room.assigned'
   | 'resolver.disagreement';
 

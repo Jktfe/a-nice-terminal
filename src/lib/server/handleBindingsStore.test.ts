@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resetIdentityDbForTests } from './db';
+import { getIdentityDb, resetIdentityDbForTests } from './db';
 import {
   bindHandle,
   getHandleRow,
@@ -95,6 +95,27 @@ describe('handleBindingsStore — tombstone', () => {
     // re-bind clears vacancy again — the powercut reclaim flow
     bindHandle({ handle: '@dave', pane: '%2', pid: 2, pidStart: null });
     expect(getHandleRow('@dave')?.vacated_at_ms).toBeNull();
+  });
+
+  it('reclaiming a VACANT handle with owners ledgers an owner notification (claims are loud)', () => {
+    bindHandle({ handle: '@dave', pane: '%1', pid: 1, pidStart: null });
+    getIdentityDb()
+      .prepare(`UPDATE handles SET owners = ? WHERE handle = ?`)
+      .run(JSON.stringify(['@JWPK', '@extracheck']), '@dave');
+    tombstoneBinding('@dave', 'pane-not-found');
+    bindHandle({ handle: '@dave', pane: '%2', pid: 2, pidStart: null });
+    const notifies = listLedger({ handle: '@dave' }).filter((e) => e.kind === 'owner.notified');
+    expect(notifies).toHaveLength(1);
+    expect(notifies[0].detail).toMatchObject({
+      reason: 'vacant-claim',
+      owners: ['@JWPK', '@extracheck'],
+      pane: '%2'
+    });
+  });
+
+  it('a first-ever claim (no vacancy, no owners) does not ledger a notification', () => {
+    bindHandle({ handle: '@fresh', pane: '%3', pid: 3, pidStart: null });
+    expect(listLedger({ handle: '@fresh' }).filter((e) => e.kind === 'owner.notified')).toHaveLength(0);
   });
 
   it('tombstoneBindingsForPane kills every live binding on that pane', () => {

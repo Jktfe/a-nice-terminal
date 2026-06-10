@@ -118,11 +118,26 @@ export function bindHandle(input: BindHandleInput): HandleBindingRow {
         detail: { superseded_binding_id: prior.id, new_pane: input.pane }
       });
     }
+    // Contract step 5 (blessed msg_6dtpw2o4pn): claims are LOUD. Reclaiming a
+    // VACANT desk that has owners ledgers an owner notification — the inbox
+    // surface reads these rows; the record itself is the canonical notify.
+    const priorHandleRow = db.prepare(
+      `SELECT vacated_at_ms, owners FROM handles WHERE handle = ?`
+    ).get(handle) as { vacated_at_ms: number | null; owners: string | null } | undefined;
     db.prepare(
       `INSERT INTO handles (handle, created_at_ms, created_by)
        VALUES (?, ?, ?)
        ON CONFLICT(handle) DO UPDATE SET vacated_at_ms = NULL`
     ).run(handle, nowMs, input.spawnedBy ?? null);
+    if (priorHandleRow?.vacated_at_ms != null && priorHandleRow.owners) {
+      const owners = JSON.parse(priorHandleRow.owners) as string[];
+      if (owners.length > 0) {
+        appendLedger({
+          kind: 'owner.notified', handle, actor: 'daemon', atMs: nowMs,
+          detail: { reason: 'vacant-claim', owners, pane: input.pane, pid: input.pid }
+        });
+      }
+    }
     const info = db.prepare(
       `INSERT INTO handle_bindings
          (handle, pane, pid, pid_start, spawned_by, terminal_id, bound_at_ms)

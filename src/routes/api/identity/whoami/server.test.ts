@@ -10,13 +10,18 @@ import { bootstrapV02Identity } from '$lib/server/v02RegisterBootstrap';
 import { getAgentById } from '$lib/server/v02AgentsStore';
 import { createSession } from '$lib/server/antSessionStore';
 import { addMember, isMember } from '$lib/server/membershipStore';
+import { bindHandle } from '$lib/server/handleBindingsStore';
+import { listLedger } from '$lib/server/identityLedgerStore';
 
 let tmpDir: string;
 const previousEnv = process.env.ANT_FRESH_DB_PATH;
 
+const previousReadMode = process.env.ANT_IDENTITY_READ;
+
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-whoami-'));
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+  delete process.env.ANT_IDENTITY_READ;
   resetIdentityDbForTests();
 });
 
@@ -25,6 +30,8 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
   if (previousEnv === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = previousEnv;
+  if (previousReadMode === undefined) delete process.env.ANT_IDENTITY_READ;
+  else process.env.ANT_IDENTITY_READ = previousReadMode;
 });
 
 function eventForPost(body?: string) {
@@ -225,5 +232,72 @@ describe('POST /api/identity/whoami', () => {
   it('rejects missing pids with 400', async () => {
     const response = await callPost('not-json');
     expect(response.status).toBe(400);
+  });
+});
+
+describe('whoami on the resolver seam (Step 2 adoption — first endpoint)', () => {
+  function boundFixture() {
+    const terminal = upsertTerminal({ pid: 7100, pid_start: 'pstart-seam', name: 't-seam' });
+    createTerminalRecord({ sessionId: terminal.id, handle: '@seamy' });
+    return terminal;
+  }
+
+  it('LEGACY (default): identical bound answer, identitySource legacy, ledger untouched', async () => {
+    boundFixture();
+    const response = await callPost(JSON.stringify({
+      pids: [{ pid: 7100, pid_start: 'pstart-seam' }], pane: '%41'
+    }));
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.handle).toBe('@seamy');
+    expect(payload.identitySource).toBe('legacy');
+    expect(listLedger({}).filter((e) => e.kind === 'resolver.disagreement')).toHaveLength(0);
+  });
+
+  it('SHADOW: still answers legacy, ledgers the disagreement when nothing is witnessed on the presented pane', async () => {
+    process.env.ANT_IDENTITY_READ = 'shadow';
+    boundFixture();
+    const response = await callPost(JSON.stringify({
+      pids: [{ pid: 7100, pid_start: 'pstart-seam' }], pane: '%41'
+    }));
+    expect(response.status).toBe(200);
+    expect((await response.json()).handle).toBe('@seamy');
+    const rows = listLedger({}).filter((e) => e.kind === 'resolver.disagreement');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].detail).toMatchObject({ legacy_handle: '@seamy', witness_handle: null, pane: '%41' });
+  });
+
+  it('SHADOW: agreement (witnessed binding matches legacy) writes nothing', async () => {
+    process.env.ANT_IDENTITY_READ = 'shadow';
+    const terminal = boundFixture();
+    bindHandle({ handle: '@seamy', pane: '%41', pid: 7100, pidStart: 'pstart-seam', terminalId: terminal.id });
+    const response = await callPost(JSON.stringify({
+      pids: [{ pid: 7100, pid_start: 'pstart-seam' }], pane: '%41'
+    }));
+    expect(response.status).toBe(200);
+    expect(listLedger({}).filter((e) => e.kind === 'resolver.disagreement')).toHaveLength(0);
+  });
+
+  it('CLEAN: answers from the witnessed binding (identitySource witness)', async () => {
+    process.env.ANT_IDENTITY_READ = 'clean';
+    const terminal = boundFixture();
+    bindHandle({ handle: '@seamy', pane: '%41', pid: 7100, pidStart: 'pstart-seam', terminalId: terminal.id });
+    const response = await callPost(JSON.stringify({
+      pids: [{ pid: 7100, pid_start: 'pstart-seam' }], pane: '%41'
+    }));
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.handle).toBe('@seamy');
+    expect(payload.identitySource).toBe('witness');
+  });
+
+  it('CLEAN: no witnessed binding -> registered-no-handle even though legacy knows the handle (amended AC1)', async () => {
+    process.env.ANT_IDENTITY_READ = 'clean';
+    boundFixture();
+    const response = await callPost(JSON.stringify({
+      pids: [{ pid: 7100, pid_start: 'pstart-seam' }], pane: '%41'
+    }));
+    expect(response.status).toBe(422);
+    expect((await response.json()).status).toBe('registered-no-handle');
   });
 });
