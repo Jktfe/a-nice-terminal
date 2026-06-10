@@ -56,3 +56,27 @@ function firstToken(inner: string): string {
   }
   return '';
 }
+
+/**
+ * Sanitise a tracker `link`-column cell before it becomes an <a href>.
+ *
+ * SECURITY (review 2026-06-10 @oiresearch): a link cell is user-controlled
+ * room content; rendering it as `<a href={val}>` lets a member inject
+ * `javascript:…` (or any unsafe scheme) that fires for every viewer. Mirror
+ * the markdown sanitiser allowlist (renderMarkdown.ts: http/https/mailto) plus
+ * repo-relative paths. Anything else → null and the widget renders text.
+ */
+export function safeUrlForTrackerLink(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const v = raw.trim();
+  if (v.length === 0) return null;
+  // Repo-relative path (single leading slash; reject protocol-relative //).
+  if (v.startsWith('/') && !v.startsWith('//')) return v;
+  try {
+    const u = new URL(v);
+    if (u.protocol === 'http:' || u.protocol === 'https:' || u.protocol === 'mailto:') return v;
+  } catch {
+    return null; // not an absolute URL
+  }
+  return null;
+}

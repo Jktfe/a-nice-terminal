@@ -41,4 +41,28 @@ describe('TrackerTable', () => {
     const { body } = render(TrackerTable, { props: { trackerId: 'trk_1', roomId: 'r1' } });
     expect(body).not.toContain('class="tracker"');
   });
+
+  it('SECURITY: a javascript: link cell never renders as an href (XSS block)', () => {
+    const evil: TrackerView = {
+      ...VIEW,
+      columns: [{ key: 'invoice', label: 'Invoice', type: 'link' }],
+      rows: [{ id: 'row_e', tableId: 'trk_1', cells: { invoice: 'javascript:alert(1)' }, createdByHandle: '@a', createdAtMs: 2, updatedAtMs: 2 }]
+    };
+    const { body } = render(TrackerTable, { props: { trackerId: 'trk_1', roomId: 'r1', initialTracker: evil } });
+    // The security guarantee: the unsafe value never becomes an href, and is
+    // never wrapped in an anchor. Showing it as ESCAPED text is safe + honest.
+    expect(body).not.toContain('href="javascript:');
+    expect(body).not.toContain('<a class="tk-link"');
+    expect(body).toContain('tk-celltext'); // rendered as plain text instead
+  });
+
+  it('a safe https link cell DOES render as an href', () => {
+    const ok: TrackerView = {
+      ...VIEW,
+      columns: [{ key: 'invoice', label: 'Invoice', type: 'link' }],
+      rows: [{ id: 'row_ok', tableId: 'trk_1', cells: { invoice: 'https://pay.example/inv/1' }, createdByHandle: '@a', createdAtMs: 2, updatedAtMs: 2 }]
+    };
+    const { body } = render(TrackerTable, { props: { trackerId: 'trk_1', roomId: 'r1', initialTracker: ok } });
+    expect(body).toContain('href="https://pay.example/inv/1"');
+  });
 });

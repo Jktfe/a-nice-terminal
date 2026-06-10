@@ -19,6 +19,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { TrackerView, TrackerColumn, TrackerRow } from '$lib/server/trackerStore';
+  import { safeUrlForTrackerLink } from '$lib/chat/trackerRefs';
 
   type Props = {
     trackerId: string;
@@ -170,7 +171,8 @@
                       {isTruthy(val) ? '✓' : '✗'}
                     </button>
                   {:else if col.type === 'link'}
-                    {#if val.trim()}<a class="tk-link" href={val} target="_blank" rel="noopener noreferrer">🔗 link</a>{:else}<span class="tk-empty">—</span>{/if}
+                    {@const safeHref = safeUrlForTrackerLink(val)}
+                    {#if safeHref}<a class="tk-link" href={safeHref} target="_blank" rel="noopener noreferrer">🔗 link</a>{:else if val.trim()}<span class="tk-celltext" title="not a safe URL">{val}</span>{:else}<span class="tk-empty">—</span>{/if}
                   {:else}
                     <input
                       class="tk-cell"
@@ -279,6 +281,7 @@
   .tk-bool.yes { color: #15803d; }
   .tk-link { padding: 0.32rem 0.5rem; display: inline-block; color: #1d4ed8; font-size: 0.78rem; }
   .tk-empty { color: var(--ink-soft); padding: 0 0.5rem; }
+  .tk-celltext { padding: 0.32rem 0.5rem; color: var(--ink-strong); font-size: 0.78rem; overflow-wrap: anywhere; }
   .tracker-foot {
     display: flex; align-items: center; gap: 0.6rem; margin-top: 0.5rem;
     color: var(--ink-soft); font-size: 0.74rem; font-weight: 700;

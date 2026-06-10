@@ -35,3 +35,23 @@ describe('extractTrackerRefs', () => {
     expect(extractTrackerRefs('```ant-status\nstatus_1\n```').trackerIds).toEqual([]);
   });
 });
+
+import { safeUrlForTrackerLink } from './trackerRefs';
+describe('safeUrlForTrackerLink', () => {
+  it('allows http/https/mailto + repo-relative', () => {
+    expect(safeUrlForTrackerLink('https://x.com/a')).toBe('https://x.com/a');
+    expect(safeUrlForTrackerLink('http://x.com')).toBe('http://x.com');
+    expect(safeUrlForTrackerLink('mailto:a@b.com')).toBe('mailto:a@b.com');
+    expect(safeUrlForTrackerLink('/manual/x.png')).toBe('/manual/x.png');
+  });
+  it('rejects javascript: and other unsafe schemes', () => {
+    expect(safeUrlForTrackerLink('javascript:alert(1)')).toBeNull();
+    expect(safeUrlForTrackerLink('JAVASCRIPT:alert(1)')).toBeNull();
+    expect(safeUrlForTrackerLink('data:text/html,<script>')).toBeNull();
+    expect(safeUrlForTrackerLink('vbscript:x')).toBeNull();
+    expect(safeUrlForTrackerLink('//evil.com')).toBeNull();
+    expect(safeUrlForTrackerLink('  ')).toBeNull();
+    expect(safeUrlForTrackerLink(null)).toBeNull();
+    expect(safeUrlForTrackerLink('INV-001')).toBeNull();
+  });
+});
