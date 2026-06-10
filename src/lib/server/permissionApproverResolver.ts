@@ -28,6 +28,7 @@ import { findChatRoomById } from './chatRoomStore';
 import { getPlan } from './planStore';
 import { getTask } from './tasksStore';
 import { listOrgAdmins } from './orgsStore';
+import { getHandleRow } from './handleBindingsStore';
 
 export type ResolveApproversInput = {
   targetKind: PermissionTargetKind;
@@ -133,9 +134,25 @@ export function resolveApproversFor(
       return resolveOrgApprovers(input.targetId);
     case 'system':
       return resolveSystemApprovers();
+    case 'handle':
+      return resolveHandleApprovers(input.targetId);
     default: {
       const _exhaustive: never = input.targetKind;
       return _exhaustive;
     }
   }
+}
+
+// AC3 Step 3 scaffolding (ant-handles-rooms-ownership-contract.md, ratified
+// 2026-06-10): approvers for a handle target are its owners[] from the clean
+// identity core — the chain a handle_occupied refusal escalates to. Empty
+// when the handle is unknown or its owners are not yet backfilled.
+function resolveHandleApprovers(rawHandle: string): PermissionApprover[] {
+  const row = getHandleRow(rawHandle);
+  if (!row?.owners) return [];
+  return row.owners.map((owner, index) => ({
+    handle: normaliseHandle(owner),
+    role: 'owner',
+    preferred: index === 0
+  }));
 }

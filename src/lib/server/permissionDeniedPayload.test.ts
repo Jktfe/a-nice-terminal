@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  buildHandleOccupiedPayload,
   buildPermissionDeniedPayload,
   humanizeReason,
   isPermissionDeniedPayload,
@@ -248,5 +249,49 @@ describe('approve_command shell safety (security fix 2026-05-29)', () => {
     expect(payload.permission_denied.approve_command).toBe(
       'ant grant @speedyc chat.post'
     );
+  });
+});
+
+describe('buildHandleOccupiedPayload (AC3 Step 3 scaffolding — unwired until refuse-or-claim lands)', () => {
+  it('shapes the refusal: handle target, owner approvers, rebind approve_command', () => {
+    const payload = buildHandleOccupiedPayload({
+      handle: '@dave',
+      owners: ['@JWPK', '@extracheck'],
+      claimant_pane: '%66'
+    });
+    expect(payload.permission_denied.reason).toBe('handle_occupied');
+    expect(payload.permission_denied.target_kind).toBe('handle');
+    expect(payload.permission_denied.target_id).toBe('@dave');
+    expect(payload.permission_denied.approvers).toEqual([
+      { handle: '@JWPK', role: 'owner', preferred: true },
+      { handle: '@extracheck', role: 'owner', preferred: false }
+    ]);
+    expect(payload.permission_denied.approve_command).toBe('ant rebind @dave --to %66');
+    expect(payload.message.length).toBeGreaterThan(0);
+    expect(isPermissionDeniedPayload(payload)).toBe(true);
+  });
+
+  it('omits the pane from the approve_command when the claimant pane is unknown', () => {
+    const payload = buildHandleOccupiedPayload({ handle: '@dave', owners: ['@JWPK'] });
+    expect(payload.permission_denied.approve_command).toBe('ant rebind @dave --to <pane>');
+  });
+
+  it('falls back to a generic command when handle or pane fails the shell-safe charset', () => {
+    const evil = buildHandleOccupiedPayload({
+      handle: '@dave; rm -rf /',
+      owners: ['@JWPK'],
+      claimant_pane: '%66'
+    });
+    expect(evil.permission_denied.approve_command).not.toContain('rm -rf');
+    const evilPane = buildHandleOccupiedPayload({
+      handle: '@dave',
+      owners: ['@JWPK'],
+      claimant_pane: '%66 && curl evil'
+    });
+    expect(evilPane.permission_denied.approve_command).not.toContain('curl');
+  });
+
+  it('humanizeReason covers handle_occupied', () => {
+    expect(humanizeReason('handle_occupied').length).toBeGreaterThan(0);
   });
 });

@@ -47,9 +47,10 @@ export type PermissionDeniedReason =
   | 'no_grant'
   | 'identity_unresolved'
   | 'tier_required'
-  | 'human_consent_required';
+  | 'human_consent_required'
+  | 'handle_occupied';
 
-export type PermissionTargetKind = 'room' | 'plan' | 'task' | 'org' | 'system';
+export type PermissionTargetKind = 'room' | 'plan' | 'task' | 'org' | 'system' | 'handle';
 
 export type PermissionApprover = {
   handle: string;
@@ -120,6 +121,8 @@ export function humanizeReason(reason: PermissionDeniedReason): string {
       return 'action requires a premium tier';
     case 'human_consent_required':
       return 'action requires active human consent';
+    case 'handle_occupied':
+      return 'handle is occupied by a live binding — collisions are refused, not queued';
     default: {
       // Exhaustiveness guard — TypeScript will flag a missing branch.
       const _exhaustive: never = reason;
@@ -222,4 +225,48 @@ export function isPermissionDeniedPayload(
     Array.isArray(cast.approvers) &&
     typeof cast.approve_command === 'string'
   );
+}
+
+/**
+ * AC3 Step 3 scaffolding (ant-handles-rooms-ownership-contract.md R2,
+ * ratified 2026-06-10): the refusal payload for `register --handle <occupied>`.
+ * UNWIRED until the refuse-or-claim register lands at cutover — the suffix
+ * behaviour stays until then. Approve-via is the contract's rebind line, not
+ * a grant: occupancy is data integrity, so the remedy is an owner rebind.
+ *
+ * Same copy-paste-safety rule as defaultApproveCommand: handle and pane are
+ * charset-gated before being embedded in a command a human will paste.
+ */
+const SAFE_PANE_RE = /^%[0-9]+$/;
+
+export type BuildHandleOccupiedInput = {
+  /** The occupied handle the caller tried to claim (canonical @x form). */
+  handle: string;
+  /** owners[] of the handle — first owner renders as the preferred approver. */
+  owners: string[];
+  /** The refused claimant's pane, when witnessed — renders into the rebind line. */
+  claimant_pane?: string;
+};
+
+export function buildHandleOccupiedPayload(
+  input: BuildHandleOccupiedInput
+): PermissionDeniedPayload {
+  const handleSafe = SAFE_HANDLE_RE.test(input.handle);
+  const paneSafe = input.claimant_pane === undefined || SAFE_PANE_RE.test(input.claimant_pane);
+  const approveCommand = handleSafe && paneSafe
+    ? `ant rebind ${input.handle} --to ${input.claimant_pane ?? '<pane>'}`
+    : 'Ask an owner of this handle to run ant rebind manually.';
+  return buildPermissionDeniedPayload({
+    action: 'identity.register',
+    target_kind: 'handle',
+    target_id: input.handle,
+    reason: 'handle_occupied',
+    grantee_handle: input.handle,
+    approvers: input.owners.map((owner, index) => ({
+      handle: owner,
+      role: 'owner',
+      preferred: index === 0
+    })),
+    approve_command: approveCommand
+  });
 }
