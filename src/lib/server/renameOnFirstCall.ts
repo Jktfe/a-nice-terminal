@@ -1,11 +1,11 @@
 /**
- * renameOnFirstCall — type `/rename <terminal base name>` into a CLI's own
+ * renameOnFirstCall — type `/rename <terminal handle>` into a CLI's own
  * pane the first time a fresh CLI session calls home.
  *
  * JWPK (Research Colony msg_6ed667svyn): "ALL the cli's use /rename" — every
  * agent CLI accepts a /rename slash command at its prompt. Driving it from
- * the server names the CLI's OWN session after the ANT terminal, so:
- *   - each CLI's session list reads as terminal names, not UUID soup, and
+ * the server names the CLI's OWN session after the ANT terminal handle, so:
+ *   - each CLI's session list reads as handles, not UUID soup, and
  *   - resume-by-name works everywhere, layered on the exact-uuid resume
  *     (terminal_records.cli_session_id) captured by the same hook event.
  *
@@ -24,6 +24,7 @@
  *     prompt verbatim.
  */
 
+import { deriveHandle } from './terminalRecordsStore';
 import { baseName } from './terminalNameTag';
 import { getTerminalById, type TerminalRow } from './terminalsStore';
 import { twoCallSubmit, verifyPaneTargetState } from './pty-inject-bridge';
@@ -47,10 +48,12 @@ const DEFAULT_DEPS: RenameInjectDeps = {
   submit: (pane, text, agentKind) => twoCallSubmit(pane, text, agentKind, () => {})
 };
 
-/** Flatten to a single prompt-safe line; cap so a pathological name can't flood the prompt. */
-export function renameCommandFor(recordName: string): string | null {
-  if (recordName.startsWith('auto:')) return null;
-  const flat = baseName(recordName).replace(/[\r\n\t]+/g, ' ').trim().slice(0, 80).trim();
+/** Flatten to a single prompt-safe line; cap so a pathological handle can't flood the prompt. */
+export function renameCommandFor(recordName: string, recordHandle?: string | null): string | null {
+  const name = baseName(recordName).replace(/[\r\n\t]+/g, ' ').trim();
+  if (!recordHandle && (recordName.startsWith('auto:') || name.length === 0)) return null;
+  const handle = deriveHandle({ name, handle: recordHandle ?? null });
+  const flat = handle.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 80).trim();
   if (flat.length === 0) return null;
   return `/rename ${flat}`;
 }
@@ -58,9 +61,10 @@ export function renameCommandFor(recordName: string): string | null {
 export function maybeInjectRenameOnFirstCall(
   terminalId: string,
   recordName: string,
+  recordHandle?: string | null,
   deps: RenameInjectDeps = DEFAULT_DEPS
 ): RenameInjectOutcome {
-  const command = renameCommandFor(recordName);
+  const command = renameCommandFor(recordName, recordHandle);
   if (!command) return 'skipped-auto-name';
   const terminal = deps.getTerminal(terminalId);
   if (!terminal?.tmux_target_pane) return 'skipped-no-pane';

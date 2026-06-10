@@ -192,7 +192,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
         // event — prompt-verification makes any-event retry safe (a busy pane
         // never gets typed into) — while a stamped session is never spammed.
         if (record.cli_title_synced_session_id !== sessionId) {
-          const outcome = maybeInjectRenameOnFirstCall(captureTerminalId, record.name);
+          const outcome = maybeInjectRenameOnFirstCall(captureTerminalId, record.name, record.handle);
           if (outcome === 'injected' || outcome === 'skipped-auto-name') {
             // auto:* names are permanently skipped for this session — stamp
             // them too so the guard doesn't re-evaluate on every event.
