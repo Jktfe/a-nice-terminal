@@ -131,28 +131,48 @@ function queryMatchingMessages(input: {
   const roomIds = listRoomIdsForCaller(input.callerHandle);
   if (roomIds.length === 0) return [];
   const db = getIdentityDb();
-  // Use SQLite's `?` placeholders for the roomId IN-list. Bound at
-  // statement prepare time so the cache stays warm across calls.
+  // Push the `since` cursor into SQL so an active poller no longer reloads
+  // the entire room history every call (P0, Tranche 1.6). posted_at is
+  // stored as new Date().toISOString() (chatMessageStore), so an ISO-UTC
+  // string compare is chronological; new Date(since).toISOString() rebuilds
+  // the same shape. The JS postedAtMs guard below stays as an exact backstop.
+  const sinceIso = new Date(input.since).toISOString();
   const placeholders = roomIds.map(() => '?').join(',');
   const stmt = db.prepare(
     `SELECT id, room_id, author_handle, body, posted_at
      FROM chat_messages
      WHERE room_id IN (${placeholders})
        AND kind IN ('human','agent')
+       AND posted_at > ?
      ORDER BY post_order ASC`
   );
-  const rows = stmt.all(...roomIds) as ChatMessageRow[];
+  const rows = stmt.all(...roomIds, sinceIso) as ChatMessageRow[];
+  // Prefetch room names once (roomId → name) instead of loading the full
+  // room object per matched row.
+  // Match findChatRoomById/loadRoomById exactly: deleted + archived rooms
+  // resolve to no name, so their messages are excluded (preserved behaviour).
+  const roomNameById = new Map<string, string>();
+  if (rows.length > 0) {
+    const nameRows = db
+      .prepare(
+        `SELECT id, name FROM chat_rooms
+         WHERE id IN (${placeholders})
+           AND deleted_at_ms IS NULL AND archived_at_ms IS NULL`
+      )
+      .all(...roomIds) as { id: string; name: string }[];
+    for (const r of nameRows) roomNameById.set(r.id, r.name);
+  }
   const out: AntMention[] = [];
   for (const row of rows) {
     if (postedAtMs(row.posted_at) <= input.since) continue;
     const matched = findMatch(row.body, input.boundHandles);
     if (matched === null) continue;
-    const room = findChatRoomById(row.room_id);
-    if (!room) continue;
+    const roomName = roomNameById.get(row.room_id);
+    if (roomName === undefined) continue;
     out.push({
       messageId: row.id,
       roomId: row.room_id,
-      roomName: room.name,
+      roomName,
       authorHandle: row.author_handle,
       body: row.body,
       postedAt: row.posted_at,
