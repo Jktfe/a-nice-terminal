@@ -20,6 +20,7 @@
   import QuickShortcutsBar from './QuickShortcutsBar.svelte';
   import type { QuickShortcut } from './QuickShortcutsBar.svelte';
   import { postInput as ptyPostInput } from '$lib/terminal/ptyInput';
+  import { substituteShortcutTokens } from '$lib/terminal/shortcutTokens';
 
   type ViewMode = 'chat' | 'ant' | 'raw';
 
@@ -98,6 +99,8 @@
 
   let linkedChatRoomId = $state<string | null>(null);
   let agentKind = $state<string | null>(null);
+  // Server-derived handle for shortcut-token substitution ([terminalHandle]).
+  let derivedHandle = $state<string | null>(null);
   let agentState = $state<AgentStateSnapshot | null>(null);
   let terminalAccess = $state<TerminalAccess | null>(null);
   let copiedAccessCommand = $state<string | null>(null);
@@ -107,9 +110,10 @@
     try {
       const res = await fetch(`/api/terminals/${encodeURIComponent(terminalId)}`);
       if (!res.ok) return;
-      const body = (await res.json()) as { linkedChatRoomId?: string | null; agentKind?: string | null };
+      const body = (await res.json()) as { linkedChatRoomId?: string | null; agentKind?: string | null; derivedHandle?: string | null };
       linkedChatRoomId = body.linkedChatRoomId ?? null;
       agentKind = body.agentKind ?? null;
+      derivedHandle = body.derivedHandle ?? null;
       await loadTerminalAccess();
       await loadAgentState();
     } catch { /* non-blocking */ }
@@ -341,7 +345,13 @@
   }
 
   async function handleShortcutSend(chip: QuickShortcut): Promise<void> {
-    await ptyPostInput(terminalId, chip.text);
+    // Per-terminal tokens (JWPK 2026-06-10): a global chip like
+    // '/rename [terminalHandle]' types this terminal's own handle.
+    const text = substituteShortcutTokens(chip.text, {
+      terminalHandle: derivedHandle,
+      terminalName: userName
+    });
+    await ptyPostInput(terminalId, text);
     if (chip.autoEnter) {
       // Same 5ms gap as the cd two-call protocol — gives the shell a tick
       // to receive the payload before the CR fires it.
