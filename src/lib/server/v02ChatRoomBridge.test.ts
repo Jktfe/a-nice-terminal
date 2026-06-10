@@ -13,6 +13,8 @@ import { getIdentityDb, resetIdentityDbForTests } from './db';
 import { seedSiblingFkTargets } from './v02TestFixtures';
 import * as v02Agents from './v02AgentsStore';
 import * as v02Memberships from './v02MembershipsStore';
+import { isMember as cleanIsMember, listMembers as listCleanMembers } from './membershipStore';
+import { getMemberPresentation } from './membershipPresentationStore';
 import {
   ensureV02AgentForHandle,
   ensureV02RoomExists,
@@ -180,20 +182,25 @@ describe('ensureV02AgentForHandle', () => {
 });
 
 describe('mirrorAddMembership', () => {
-  it('writes a v02_memberships row + auto-creates the agent + room', () => {
+  it('writes clean room_membership only and does not auto-create v0.2 rows', () => {
     seedLegacyChatRoom('mirror-room');
     const membership_id = mirrorAddMembership({
       roomId: 'mirror-room',
       handle: '@mirror-handle',
-      displayName: 'Mirror Agent'
+      displayName: 'Mirror Agent',
+      roomDisplayName: 'Mirror Agent',
+      memberKind: 'agent'
     });
-    expect(membership_id).not.toBeNull();
+    expect(membership_id).toBeNull();
+    expect(cleanIsMember('mirror-room', '@mirror-handle')).toBe(true);
+    expect(getMemberPresentation('mirror-room', '@mirror-handle')?.room_display_name).toBe('Mirror Agent');
+    expect(getMemberPresentation('mirror-room', '@mirror-handle')?.member_kind).toBe('agent');
     const memberships = v02Memberships.listActiveMembershipsForRoom('mirror-room');
-    expect(memberships.length).toBe(1);
-    expect(memberships[0].membership_id).toBe(membership_id);
+    expect(memberships.length).toBe(0);
+    expect(v02Agents.getLiveAgentByHandle('@mirror-handle')).toBeNull();
   });
 
-  it('is idempotent — second call for same (room, handle) returns same row', () => {
+  it('is idempotent — second call for same (room, handle) keeps one clean row', () => {
     seedLegacyChatRoom('mirror-room-2');
     const first = mirrorAddMembership({
       roomId: 'mirror-room-2',
@@ -204,11 +211,12 @@ describe('mirrorAddMembership', () => {
       handle: '@idemp'
     });
     expect(first).toBe(second);
+    expect(listCleanMembers('mirror-room-2').map((m) => m.handle)).toEqual(['@idemp']);
     const memberships = v02Memberships.listActiveMembershipsForRoom('mirror-room-2');
-    expect(memberships.length).toBe(1);
+    expect(memberships.length).toBe(0);
   });
 
-  it('writes an audit event on first join', () => {
+  it('does not write v0.2 audit events on first join', () => {
     seedLegacyChatRoom('audit-room');
     mirrorAddMembership({ roomId: 'audit-room', handle: '@audit-agent' });
     const auditRow = getIdentityDb()
@@ -218,8 +226,7 @@ describe('mirrorAddMembership', () => {
           ORDER BY at_ms DESC LIMIT 1`
       )
       .get() as { kind: string; entity_kind: string } | undefined;
-    expect(auditRow?.kind).toBe('membership.joined');
-    expect(auditRow?.entity_kind).toBe('membership');
+    expect(auditRow).toBeUndefined();
   });
 
   it('does not throw when called twice with same handle/room', () => {
@@ -232,18 +239,17 @@ describe('mirrorAddMembership', () => {
 });
 
 describe('mirrorRemoveMembership', () => {
-  it('soft-leaves a v02_memberships row (left_at_ms set)', () => {
+  it('hard-removes the clean room_membership row and leaves v0.2 untouched', () => {
     seedLegacyChatRoom('remove-room');
     mirrorAddMembership({ roomId: 'remove-room', handle: '@remove-me' });
+    expect(cleanIsMember('remove-room', '@remove-me')).toBe(true);
     const flipped = mirrorRemoveMembership('remove-room', '@remove-me');
     expect(flipped).toBe(true);
-    // The active membership view should no longer include the agent.
+    expect(cleanIsMember('remove-room', '@remove-me')).toBe(false);
     const active = v02Memberships.listActiveMembershipsForRoom('remove-room');
     expect(active.length).toBe(0);
-    // But the historical row remains.
     const all = v02Memberships.listAllMembershipsForRoomIncludingHistorical('remove-room');
-    expect(all.length).toBe(1);
-    expect(all[0].left_at_ms).not.toBeNull();
+    expect(all.length).toBe(0);
   });
 
   it('returns false when no agent exists for the handle', () => {
@@ -251,7 +257,7 @@ describe('mirrorRemoveMembership', () => {
     expect(flipped).toBe(false);
   });
 
-  it('writes an audit event on successful soft-leave', () => {
+  it('does not write v0.2 audit events on successful remove', () => {
     seedLegacyChatRoom('audit-remove');
     mirrorAddMembership({ roomId: 'audit-remove', handle: '@bye' });
     mirrorRemoveMembership('audit-remove', '@bye');
@@ -262,7 +268,7 @@ describe('mirrorRemoveMembership', () => {
           ORDER BY at_ms DESC LIMIT 1`
       )
       .get() as { kind: string } | undefined;
-    expect(auditRow?.kind).toBe('membership.left');
+    expect(auditRow).toBeUndefined();
   });
 });
 
@@ -271,9 +277,10 @@ describe('resolveV02AgentIdForHandle', () => {
     expect(resolveV02AgentIdForHandle('@missing')).toBeNull();
   });
 
-  it('returns the agent_id when one exists', () => {
+  it('returns null even when a historical v0.2 agent exists', () => {
     const agent_id = ensureV02AgentForHandle('@here');
-    expect(resolveV02AgentIdForHandle('@here')).toBe(agent_id);
+    expect(agent_id).toBeTruthy();
+    expect(resolveV02AgentIdForHandle('@here')).toBeNull();
   });
 
   it('does NOT auto-create agents', () => {

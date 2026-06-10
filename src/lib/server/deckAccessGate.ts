@@ -7,7 +7,7 @@
  */
 
 import { resolveBrowserSessionSecretIgnoringRoom } from './browserSessionStore';
-import { isHandleActiveMemberOfRoom as v02IsHandleActiveMemberOfRoom } from './v02MembershipsStore';
+import { isHandleMemberOfRoom } from './membershipStore';
 
 function getCookieValue(request: Request, name: string): string | null {
   const cookieHeader = request.headers.get('cookie');
@@ -22,14 +22,6 @@ function getCookieValue(request: Request, name: string): string | null {
     }
   }
   return null;
-}
-
-// M9d cut-over phase 3: deck access gate reads membership from v0.2
-// memberships rather than chat_room_members. Both surfaces are
-// dual-written via v02ChatRoomBridge so the result is identical, and
-// v0.2 is the new source of truth.
-function isHandleMemberOfRoom(roomId: string, handle: string): boolean {
-  return v02IsHandleActiveMemberOfRoom(roomId, handle);
 }
 
 export function resolveDeckAccess(args: {

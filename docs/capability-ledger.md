@@ -37,6 +37,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Participants list | v5 chat/room lane | CHANGE | Claude | Participants talk; features serve. |
 | Change participant handle | v5 chat/room lane | CHANGE | Claude | Needs visible rename history. |
 | Room member kick/reinvite identity | JWPK Oldboys msg_ejb33vdks9 + msg_ll7pbiflt6, 2026-06-09 | CHANGE | Codex/Fast | v1 removal invariant: kicking a member now hard-removes the clean membership row and retires every active post-gate lease for that room handle, so reinvite starts from one fresh durable binding instead of inheriting stale v0.2-era handle/session drift. |
+| v0.2 prod removal | JWPK Oldboys msg_ltxolr8ofw, 2026-06-10 | REJECT | Codex/Fast | v0.2 is no longer a production identity or roster source: register no longer dual-writes agents/runtimes/audit sidecar rows, whoami/resolve ignore v0.2 runtimes and return null compatibility fields, chat-room rosters/read gates/deck access/inbox auth read clean membership, and room writes mirror only clean membership/presentation. Historical v0.2 store modules remain inert until a drop-table migration removes the old schema. |
 | Focus mode | v5 chat/room lane | CHANGE | Claude | Must not hide accountability. |
 | Link discussions | v5 chat/room lane | DEDUPE | Claude | Discussion is a room facet, not a separate destination. |
 | Artefact rail | v5 chat/room lane | CHANGE | Claude | Decks, docs, sheets, files, and sites share the rail. |

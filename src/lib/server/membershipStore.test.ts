@@ -270,7 +270,7 @@ describe('membershipStore — member ⟹ can post (membership write claims the c
     expect(leaseIsMember('roomP', 'live-sess')).toBe(true); // post gate now resolves the live session
   });
 
-  it('addMember reactivates the matching v0.2 roster membership when one exists', () => {
+  it('addMember does not reactivate an old v0.2 roster membership', () => {
     const roomId = createV02Room('roomP');
     const agent = createAgent({ primary_handle: '@agent', display_name: '@agent' });
     addV02Membership({ agent_id: agent.agent_id, room_id: roomId, member_kind: 'agent' });
@@ -279,8 +279,6 @@ describe('membershipStore — member ⟹ can post (membership write claims the c
 
     addMember(roomId, '@agent', 'sess-agent');
 
-    expect(listActiveV02MembershipsForRoom(roomId).map((member) => member.agent_id)).toEqual([
-      agent.agent_id
-    ]);
+    expect(listActiveV02MembershipsForRoom(roomId)).toEqual([]);
   });
 });

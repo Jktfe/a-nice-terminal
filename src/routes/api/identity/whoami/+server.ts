@@ -25,9 +25,6 @@ import type { RequestHandler } from './$types';
 import { getIdentityDb } from '$lib/server/db';
 import { lookupTerminalByPidChain, type PidChainEntry } from '$lib/server/terminalsStore';
 import { normalisePidStartToIso8601 } from '$lib/server/pidStartNormaliser';
-import { resolveV02ByPidChain } from '$lib/server/v02RegisterBootstrap';
-import { getAgentById } from '$lib/server/v02AgentsStore';
-import { getRuntimeById } from '$lib/server/v02RuntimesStore';
 import { resolveHandleForTerminal } from '$lib/server/membershipStore';
 
 type WhoamiBody = { pids?: unknown };
@@ -46,11 +43,6 @@ function parsePidChain(rawPids: unknown): PidChainEntry[] {
     const pidStart = typeof rawStart === 'string' ? rawStart : null;
     return { pid: pidNum, pid_start: pidStart };
   });
-}
-
-function v02RuntimeBelongsToTerminal(runtimeId: string, terminalId: string): boolean {
-  const runtime = getRuntimeById(runtimeId);
-  return runtime?.register_challenge_proof === `pre-v02-attestation:${terminalId}`;
 }
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -93,39 +85,16 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ status: 'no-terminal' }, { status: 404 });
   }
 
-  let v02AgentId: string | null = null;
-  let v02RuntimeId: string | null = null;
-  try {
-    const v02 = resolveV02ByPidChain(pidChain);
-    if (v02 && v02RuntimeBelongsToTerminal(v02.runtime_id, terminal.id)) {
-      v02AgentId = v02.agent_id;
-      v02RuntimeId = v02.runtime_id;
-    }
-  } catch {
-    // Legacy path stays authoritative — v0.2 sidecar is best-effort.
-  }
-
-  // Handle resolution. Post-cut-over (M9b/M9c) the canonical source is
-  // agents.primary_handle, not terminal_records.handle (which is empty
-  // for all rows currently — discovered during live smoke after PR #124
-  // landed). Try v0.2 first, fall back to terminal_records for any
-  // pre-cut-over rows that still have it populated.
   let handle: string | null = null;
-  if (v02AgentId) {
-    const agent = getAgentById(v02AgentId);
-    if (agent?.primary_handle) handle = agent.primary_handle;
-  }
-  if (!handle) {
-    const handleRow = db
-      .prepare(
-        `SELECT handle FROM terminal_records
-          WHERE session_id = ? AND superseded_at_ms IS NULL
-          ORDER BY created_at_ms DESC LIMIT 1`
-      )
-      .get(terminal.id) as { handle: string | null } | undefined;
-    const legacy = handleRow?.handle;
-    if (legacy && legacy.length > 0) handle = legacy;
-  }
+  const handleRow = db
+    .prepare(
+      `SELECT handle FROM terminal_records
+        WHERE session_id = ? AND superseded_at_ms IS NULL
+        ORDER BY created_at_ms DESC LIMIT 1`
+    )
+    .get(terminal.id) as { handle: string | null } | undefined;
+  const legacy = handleRow?.handle;
+  if (legacy && legacy.length > 0) handle = legacy;
   if (!handle) {
     // MEMBERSHIP FALLBACK (2026-06-08): post-cut-over a live agent posts via
     // the session/lease path, so its handle lives in the clean room_membership
@@ -148,8 +117,8 @@ export const POST: RequestHandler = async ({ request }) => {
         status: 'registered-no-handle',
         terminalId: terminal.id,
         terminalName: terminal.name,
-        v02AgentId,
-        v02RuntimeId
+        v02AgentId: null,
+        v02RuntimeId: null
       },
       { status: 422 }
     );
@@ -172,7 +141,7 @@ export const POST: RequestHandler = async ({ request }) => {
     lastBoundAt: lastBound?.created_at
       ? new Date(lastBound.created_at * 1000).toISOString()
       : null,
-    v02AgentId,
-    v02RuntimeId
+    v02AgentId: null,
+    v02RuntimeId: null
   });
 };

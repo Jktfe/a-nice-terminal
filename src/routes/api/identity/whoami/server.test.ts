@@ -7,6 +7,7 @@ import { resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
 import { bootstrapV02Identity } from '$lib/server/v02RegisterBootstrap';
+import { getAgentById } from '$lib/server/v02AgentsStore';
 import { createSession } from '$lib/server/antSessionStore';
 import { addMember, isMember } from '$lib/server/membershipStore';
 
@@ -107,7 +108,7 @@ describe('POST /api/identity/whoami', () => {
     expect(payload.handle).toBe('@ancestor');
   });
 
-  it('falls back to v0.2 agents.primary_handle when terminal_records.handle is empty (post-cut-over reality)', async () => {
+  it('does not fall back to v0.2 agents.primary_handle when terminal_records.handle is empty', async () => {
     const isoNow = new Date().toISOString();
     // Legacy half — terminals row + terminal_records row with EMPTY handle
     // (the exact state discovered in fresh-ant.db live smoke after PR #124).
@@ -121,11 +122,13 @@ describe('POST /api/identity/whoami', () => {
       legacy_terminal_id: terminal.id,
       handle: '@v02-resolved'
     });
+    expect(getAgentById(bootstrap.agent_id)?.primary_handle).toBe('@v02-resolved');
     const response = await callPost(JSON.stringify({ pids: [{ pid: 800, pid_start: isoNow }] }));
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(422);
     const payload = await response.json();
-    expect(payload.handle).toBe('@v02-resolved');
-    expect(payload.v02AgentId).toBe(bootstrap.agent_id);
+    expect(payload.status).toBe('registered-no-handle');
+    expect(payload.v02AgentId).toBeNull();
+    expect(payload.v02RuntimeId).toBeNull();
   });
 
   it('resolves handle from clean room_membership when terminal_records.handle is empty (the "in-room but registered-no-handle" bug)', async () => {

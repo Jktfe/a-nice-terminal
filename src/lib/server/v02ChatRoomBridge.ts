@@ -1,6 +1,9 @@
 /**
- * v02ChatRoomBridge — auto-bootstrap + dual-write shim for the M9c
- * cut-over phase (chat-room + membership endpoints).
+ * v02ChatRoomBridge — historical helper shell.
+ *
+ * Live mirror exports now write clean vNext membership/presentation only.
+ * Direct ensureV02* helpers remain for old tests and migration archaeology
+ * until the v0.2 schema is dropped.
  *
  * The v0.2 schema requires v02_memberships rows to FK an existing
  * v02_agents row + an existing v02_rooms row before a membership can be
@@ -167,17 +170,7 @@ export function ensureV02AgentForHandle(handle: string, displayName?: string | n
   return created.agent_id;
 }
 
-/**
- * Mirror a legacy addMembership write into v02_memberships. Best-effort:
- * swallows all errors with a console.error so the calling endpoint never
- * 500s due to a v0.2 sidecar failure.
- *
- * Idempotent — addMembership in v02MembershipsStore reuses the existing
- * active row if (agent_id, room_id) already has one.
- *
- * Returns the v02 membership_id when the mirror succeeded, or null when
- * the mirror was skipped/failed (caller doesn't gate on it).
- */
+/** Compatibility adapter: mirror a room-membership write into clean vNext stores only. */
 export function mirrorAddMembership(input: {
   roomId: string;
   handle: string;
@@ -199,50 +192,9 @@ export function mirrorAddMembership(input: {
   roomDisplayName?: string | null;
 }): string | null {
   try {
-    ensureV02RoomExists(input.roomId);
-    const agent_id = ensureV02AgentForHandle(input.handle, input.displayName);
-    const membership = v02Memberships.addMembership({
-      agent_id,
-      room_id: input.roomId,
-      role: input.role ?? 'member',
-      room_alias: null,
-      display_color: input.displayColor,
-      display_icon: input.displayIcon,
-      display_background_style: input.displayBackgroundStyle,
-      member_kind: input.memberKind,
-      room_display_name: input.roomDisplayName
-    });
-    appendAuditEvent({
-      kind: 'membership.joined',
-      entity_kind: 'membership',
-      entity_id: membership.membership_id,
-      actor_agent_id: agent_id,
-      actor_runtime_id: null,
-      after_json: {
-        room_id: input.roomId,
-        handle: input.handle,
-        via: 'v02-chatroom-bridge'
-      }
-    });
-    // R3 consolidation (2026-06-05): ALSO write the clean room_membership
-    // roster (handle-keyed; session resolves later via the post-gate, so NULL
-    // here is correct). ADDITIVE — the dashboard doesn't read room_membership
-    // yet; this populates the canonical roster ahead of the read cut-over so
-    // it lands on a complete table. Best-effort, inside the existing try.
-    //
-    // SKIP browser-session synthetic handles: the browser-session mint calls
-    // this bridge with a @browser-bs_ handle, which is NOT a durable member (the
-    // live read hides it). Guarding here stops ongoing pollution of the clean
-    // roster — the backfill skips the historical ones, this skips new ones.
     if (isDurableMemberHandle(input.handle)) {
       cleanAddMember(input.roomId, input.handle, null);
     }
-    // R3 read-flip parity: seed the clean presentation row at invite time too,
-    // so member_kind / display_* survive into the clean read WITHOUT depending
-    // on a later updateRoomMemberPresentation call or a live terminal_records
-    // fallback. The legacy hydrated read gets member_kind from v0.2 memberships;
-    // the clean read gets it from HERE. Only write fields we were actually given
-    // (partial-merge upsert preserves anything an explicit update set earlier).
     if (
       isDurableMemberHandle(input.handle) &&
       (input.memberKind != null ||
@@ -261,7 +213,7 @@ export function mirrorAddMembership(input: {
         ...(input.memberKind != null && { member_kind: input.memberKind })
       });
     }
-    return membership.membership_id;
+    return null;
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[v02-bridge] mirrorAddMembership failed (legacy unaffected):', err);
@@ -269,12 +221,7 @@ export function mirrorAddMembership(input: {
   }
 }
 
-/**
- * M9d: mirror chatRoomStore.updateRoomMemberPresentation into
- * v02_memberships so the v0.2 read path stays in lockstep with the
- * legacy table for per-room colour / icon / background overrides.
- * Best-effort; never throws.
- */
+/** Compatibility adapter: update clean member presentation only. */
 export function mirrorUpdateMemberPresentation(input: {
   roomId: string;
   handle: string;
@@ -284,16 +231,13 @@ export function mirrorUpdateMemberPresentation(input: {
   displayBackgroundStyle?: string | null;
 }): boolean {
   try {
-    const agent = v02Agents.getLiveAgentByHandle(input.handle);
-    if (!agent) return false;
-    return v02Memberships.updateMembershipPresentation({
-      agent_id: agent.agent_id,
-      room_id: input.roomId,
+    setMemberPresentation(input.roomId, input.handle, {
       room_display_name: input.roomDisplayName,
       display_color: input.displayColor,
       display_icon: input.displayIcon,
       display_background_style: input.displayBackgroundStyle
     });
+    return true;
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[v02-bridge] mirrorUpdateMemberPresentation failed (legacy unaffected):', err);
@@ -301,36 +245,10 @@ export function mirrorUpdateMemberPresentation(input: {
   }
 }
 
-/**
- * Mirror a legacy removeMembership / DELETE into v02_memberships as a
- * soft-leave (left_at_ms timestamp). Best-effort.
- *
- * Returns true if the flip happened, false if no active row was found
- * (idempotent no-op) or the mirror errored.
- */
+/** Compatibility adapter: remove from the clean roster only. */
 export function mirrorRemoveMembership(roomId: string, handle: string): boolean {
   try {
-    // R3 consolidation: mirror the leave into the clean roster too (best-effort,
-    // additive). Done regardless of whether a v0.2 agent resolves below.
-    cleanRemoveMember(roomId, handle);
-    const agent = v02Agents.getLiveAgentByHandle(handle);
-    if (!agent) return false;
-    const flipped = v02Memberships.removeMembership(agent.agent_id, roomId);
-    if (flipped) {
-      appendAuditEvent({
-        kind: 'membership.left',
-        entity_kind: 'membership',
-        entity_id: `${agent.agent_id}:${roomId}`,
-        actor_agent_id: agent.agent_id,
-        actor_runtime_id: null,
-        after_json: {
-          room_id: roomId,
-          handle,
-          via: 'v02-chatroom-bridge'
-        }
-      });
-    }
-    return flipped;
+    return cleanRemoveMember(roomId, handle);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[v02-bridge] mirrorRemoveMembership failed (legacy unaffected):', err);
@@ -344,8 +262,8 @@ export function mirrorRemoveMembership(roomId: string, handle: string): boolean 
  * present but fall back to the legacy data when no agent exists yet.
  */
 export function resolveV02AgentIdForHandle(handle: string): string | null {
-  const agent = v02Agents.getLiveAgentByHandle(handle);
-  return agent?.agent_id ?? null;
+  void handle;
+  return null;
 }
 
 /**

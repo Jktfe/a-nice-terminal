@@ -24,10 +24,6 @@ import { getIdentityDb } from './db';
 import { getSession } from './antSessionStore';
 import { syncMembershipTerminalBinding } from './roomMembershipsStore';
 import { claimHandle, retireActiveLeasesForHandle } from './roomHandleLeaseClean';
-import { getLiveAgentByHandle } from './v02AgentsStore';
-import { addMembership as addV02Membership } from './v02MembershipsStore';
-import { isOperatorHandle } from './operatorHandle';
-import { findTerminalRecordByHandle } from './terminalRecordsStore';
 
 /**
  * Browser sessions are minted per-room as ephemeral auth artifacts and the
@@ -154,60 +150,6 @@ function mirrorCleanLease(roomId: string, handle: string, sessionId: string | nu
   claimHandle(roomId, handle, sessionId, db);
 }
 
-function mirrorV02Membership(roomId: string, handle: string, db = getIdentityDb()): void {
-  const roomExists = db
-    .prepare(`SELECT 1 FROM rooms WHERE room_id = ? LIMIT 1`)
-    .get(roomId) as { 1: number } | undefined;
-  if (!roomExists) return;
-  const agent = getLiveAgentByHandle(handle, db);
-  if (!agent) return;
-
-  const hasMemberships = db
-    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memberships'`)
-    .get() as { 1: number } | undefined;
-
-  // Query existing membership to preserve role
-  const existing = hasMemberships
-    ? (db
-        .prepare(`SELECT role, member_kind FROM memberships WHERE agent_id = ? AND room_id = ? AND left_at_ms IS NULL LIMIT 1`)
-        .get(agent.agent_id, roomId) as { role: string; member_kind: string | null } | undefined)
-    : undefined;
-
-  const hasExistingAgentBinding = (): boolean => {
-    // Check if table room_handle_lease exists first
-    const hasLeaseTable = db
-      .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'room_handle_lease'`)
-      .get() as { 1: number } | undefined;
-    if (!hasLeaseTable) return false;
-
-    // Check if there is an active lease for this handle in the room
-    const row = db
-      .prepare(
-        `SELECT 1 FROM room_handle_lease
-         WHERE room_id = ? AND handle = ? AND active = 1
-         LIMIT 1`
-      )
-      .get(roomId, handle);
-    return !!row;
-  };
-
-  const resolvedKind: 'human' | 'agent' =
-    isOperatorHandle(handle)
-      ? 'human'
-      : findTerminalRecordByHandle(handle) || hasExistingAgentBinding()
-        ? 'agent'
-        : existing?.member_kind === 'agent'
-          ? 'agent'
-          : 'human';
-
-  addV02Membership({
-    agent_id: agent.agent_id,
-    room_id: roomId,
-    role: existing ? (existing.role as any) : (isOperatorHandle(handle) ? 'owner' : 'member'),
-    member_kind: resolvedKind
-  });
-}
-
 /**
  * Add or update a member. Upsert on (room_id, handle), preserving the original
  * created_at_ms.
@@ -244,7 +186,6 @@ export function addMember(
     .get(roomId, handle) as MembershipRow;
   mirrorLegacyTerminalBinding(roomId, handle, row.session_id);
   mirrorCleanLease(roomId, handle, row.session_id, db);
-  mirrorV02Membership(roomId, handle, db);
   return rowToMembership(row);
 }
 
@@ -309,7 +250,7 @@ export function listMembers(roomId: string, db = getIdentityDb()): Membership[] 
     .prepare(
       `SELECT * FROM room_membership
         WHERE room_id = ? AND ${durableMemberWhereClause()}
-        ORDER BY created_at_ms ASC, handle ASC`
+        ORDER BY created_at_ms ASC, rowid ASC`
     )
     .all(roomId) as MembershipRow[];
   return rows.map(rowToMembership);
@@ -394,6 +335,28 @@ export function isMember(roomId: string, handle: string, db = getIdentityDb()): 
     .prepare(`SELECT 1 FROM room_membership WHERE room_id = ? AND handle = ?`)
     .get(roomId, handle) as { 1: number } | undefined;
   return row !== undefined;
+}
+
+/** Room-handle membership predicate for product gates that used to read v0.2. */
+export function isHandleMemberOfRoom(roomId: string, handle: string, db = getIdentityDb()): boolean {
+  if (!isDurableMemberHandle(handle)) return false;
+  if (isMember(roomId, handle, db)) return true;
+  try {
+    const hasLegacyTable = db
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'room_memberships'`)
+      .get();
+    if (!hasLegacyTable) return false;
+    const row = db
+      .prepare(
+        `SELECT 1 FROM room_memberships
+          WHERE room_id = ? AND handle = ? AND revoked_at_ms IS NULL
+          LIMIT 1`
+      )
+      .get(roomId, handle);
+    return !!row;
+  } catch {
+    return false;
+  }
 }
 
 /**

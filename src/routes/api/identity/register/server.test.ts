@@ -21,8 +21,6 @@ import {
   getHandleAliases,
   getTerminalRecord
 } from '$lib/server/terminalRecordsStore';
-import * as v02Agents from '$lib/server/v02AgentsStore';
-import * as v02Runtimes from '$lib/server/v02RuntimesStore';
 import { addMember, resolveMember as resolveMembershipMember } from '$lib/server/membershipStore';
 import {
   claimHandle as claimCleanHandle,
@@ -289,27 +287,17 @@ describe('POST /api/identity/register', () => {
   //   (b) PID-in-use under a different live name → 409;
   //   (c) same (name, pid, pid_start) re-register stays idempotent;
   //   (d) name that exists but is archived can be reused.
-  // Phase A2 (a) was the 2026-05-29 stop-gap to reject silent dual-binds
-  // before the v0.2 reclaim primitive existed. With v0.2 in place (JWPK
-  // ratified design call msg_undyx0gkd3 2026-05-30) the same scenario
-  // auto-reclaims via bootstrapV02Identity instead of 409-erroring — every
-  // register creates a v02_agents row keyed by handle, so the second
-  // register finds a known agent and the reclaim path runs. Phase A2 (a)
-  // remains active for the case where there is NO prior v0.2 agent for
-  // the derived handle (covered by a separate test below if added).
-  it('Phase A2 (a) DEFERS to v0.2 reclaim when same name re-registers with different PID', async () => {
+  it('Phase A2 (a): 409 when a live name re-registers from a different PID without the durable token', async () => {
     const first = await callPost(JSON.stringify({
       name: 'conflict-live', pids: [{ pid: 1111, pid_start: 's-orig' }]
     }));
     expect(first.status).toBe(201);
-    const firstPayload = await first.json();
     const second = await callPost(JSON.stringify({
       name: 'conflict-live', pids: [{ pid: 2222, pid_start: 's-new' }]
     }));
-    expect(second.status).toBe(201);
-    const secondPayload = await second.json();
-    expect(secondPayload.v02_agent_id).toBe(firstPayload.v02_agent_id);
-    expect(secondPayload.v02_runtime_id).not.toBe(firstPayload.v02_runtime_id);
+    expect(second.status).toBe(409);
+    const payload = await second.json().catch(() => ({}));
+    expect(String(payload?.message ?? '')).toContain("Name 'conflict-live' is already live");
   });
 
   it('Phase A2 (b): 409 when PID is already bound to a different live terminal', async () => {
@@ -348,7 +336,7 @@ describe('POST /api/identity/register', () => {
     const firstId = (await first.json()).terminal_id as string;
     expect(setTerminalStatus(firstId, 'archived')).toBe(true);
     const second = await callPost(JSON.stringify({
-      name: 'recycle-name', pids: [{ pid: 6666, pid_start: 's-new' }]
+      name: 'recycle-name', pids: [{ pid: 6666, pid_start: 's-new' }], fresh: true
     }));
     expect(second.status).toBe(201);
     const stored = getTerminalByName('recycle-name');
@@ -609,121 +597,36 @@ describe('POST /api/identity/register', () => {
     });
   });
 
-  // -- M9b cut-over phase 1: dual-write to v0.2 stores ------------------
-  describe('M9b dual-write to v0.2 stores', () => {
-    it('creates a v02_agents row on first register for a new handle', async () => {
+  describe('v0.2 removal — register does not run the sidecar in prod', () => {
+    it('returns null v0.2 fields and creates no v0.2 agent/runtime/audit rows', async () => {
       const response = await callPost(JSON.stringify({
-        name: 'v02-agent-first',
+        name: 'no-v02-sidecar',
+        handle: '@no-v02-sidecar',
         pids: [{ pid: 7777, pid_start: 'Tue May 13 00:00:00 2026' }],
         pane: '%9',
         agent_kind: 'claude_code'
       }));
       expect(response.status).toBe(201);
       const payload = await response.json();
-      expect(payload.v02_agent_id).toBeTruthy();
-      expect(payload.v02_runtime_id).toBeTruthy();
-      const agent = v02Agents.getAgentById(payload.v02_agent_id);
-      expect(agent).not.toBeNull();
-      expect(agent?.display_name).toBe('v02-agent-first');
-      expect(agent?.primary_handle).toBe('@v02-agent-first');
-      expect(agent?.current_runtime_id).toBe(payload.v02_runtime_id);
-    });
-
-    it('creates a v02_runtimes row FK-chained to the agent', async () => {
-      const response = await callPost(JSON.stringify({
-        name: 'v02-runtime-fk',
-        pids: [{ pid: 9001, pid_start: 'Tue May 13 00:00:00 2026' }],
-        pane: '%2',
-        agent_kind: 'codex_cli'
-      }));
-      const payload = await response.json();
-      const runtime = v02Runtimes.getRuntimeById(payload.v02_runtime_id);
-      expect(runtime).not.toBeNull();
-      expect(runtime?.agent_id).toBe(payload.v02_agent_id);
-      expect(runtime?.pid).toBe(9001);
-      expect(runtime?.status).toBe('live');
-      expect(runtime?.tmux_pane).toBe('%2');
-      expect(runtime?.cli_provider_id).toBe('codex_cli');
-      expect(runtime?.register_challenge_proof).toMatch(/^pre-v02-attestation:/);
-    });
-
-    it('respects an explicit handle override', async () => {
-      // Fix #3 of sec-iter1 (2026-05-30): `@you` is on the reserved list
-      // and the register endpoint rejects it with a 400. The override
-      // semantics still hold for any non-reserved handle; switched the
-      // test handle to `@james-pane` so we keep coverage of the
-      // explicit-handle-respected behaviour without colliding with the
-      // reserved-list enforcement under test elsewhere.
-      const response = await callPost(JSON.stringify({
-        name: 'James Pane',
-        handle: '@james-pane',
-        pids: [{ pid: 100, pid_start: null }]
-      }));
-      const payload = await response.json();
-      const agent = v02Agents.getAgentById(payload.v02_agent_id);
-      expect(agent?.primary_handle).toBe('@james-pane');
-      expect(agent?.display_name).toBe('James Pane');
-    });
-
-    it('re-register from a different PID atomically reclaims the prior runtime', async () => {
-      const first = await callPost(JSON.stringify({
-        name: 'v02-reclaim',
-        pids: [{ pid: 1, pid_start: 'Tue May 13 00:00:00 2026' }],
-        pane: '%1',
-        agent_kind: 'claude_code'
-      }));
-      const firstPayload = await first.json();
-      const second = await callPost(JSON.stringify({
-        name: 'v02-reclaim',
-        pids: [{ pid: 2, pid_start: 'Wed May 14 00:00:00 2026' }],
-        pane: '%2',
-        agent_kind: 'claude_code'
-      }));
-      const secondPayload = await second.json();
-      expect(secondPayload.v02_agent_id).toBe(firstPayload.v02_agent_id);
-      expect(secondPayload.v02_runtime_id).not.toBe(firstPayload.v02_runtime_id);
-
-      const oldRuntime = v02Runtimes.getRuntimeById(firstPayload.v02_runtime_id);
-      expect(oldRuntime?.status).toBe('reclaimed');
-      expect(oldRuntime?.reclaimed_by_runtime_id).toBe(secondPayload.v02_runtime_id);
-
-      const agent = v02Agents.getAgentById(firstPayload.v02_agent_id);
-      expect(agent?.current_runtime_id).toBe(secondPayload.v02_runtime_id);
-      expect(agent?.reclaim_count).toBe(1);
-    });
-
-    it('writes audit events for both agent.created + runtime.registered', async () => {
-      const response = await callPost(JSON.stringify({
-        name: 'v02-audit',
-        pids: [{ pid: 4242, pid_start: null }]
-      }));
-      const payload = await response.json();
+      expect(payload.v02_agent_id).toBeNull();
+      expect(payload.v02_runtime_id).toBeNull();
       const db = getIdentityDb();
-      const rows = db
-        .prepare(
-          `SELECT kind, entity_kind, entity_id FROM audit_events
-            WHERE entity_id IN (?, ?) ORDER BY at_ms ASC`
-        )
-        .all(payload.v02_agent_id, payload.v02_runtime_id) as {
-        kind: string;
-        entity_kind: string;
-        entity_id: string;
-      }[];
-      expect(rows.find((r) => r.kind === 'agent.created')).toBeTruthy();
-      expect(rows.find((r) => r.kind === 'runtime.registered')).toBeTruthy();
+      expect((db.prepare(`SELECT COUNT(*) AS n FROM agents`).get() as { n: number }).n).toBe(0);
+      expect((db.prepare(`SELECT COUNT(*) AS n FROM runtimes`).get() as { n: number }).n).toBe(0);
+      expect((db.prepare(`SELECT COUNT(*) AS n FROM audit_events`).get() as { n: number }).n).toBe(0);
     });
 
-    it('tags the legacy meta with v0.2_bridged so M9c/M9d can distinguish', async () => {
+    it('does not tag terminal meta as v0.2 bridged', async () => {
       await callPost(JSON.stringify({
-        name: 'bridged-meta',
+        name: 'plain-meta',
         pids: [{ pid: 5, pid_start: 's' }]
       }));
-      const stored = getTerminalByName('bridged-meta');
+      const stored = getTerminalByName('plain-meta');
       const meta = JSON.parse(stored?.meta ?? '{}');
-      expect(meta['v0.2_bridged']).toBe(true);
+      expect(meta['v0.2_bridged']).toBeUndefined();
     });
 
-    it('preserves caller-supplied meta fields under the v0.2_bridged tag', async () => {
+    it('preserves caller-supplied meta fields without adding v0.2 provenance', async () => {
       await callPost(JSON.stringify({
         name: 'meta-passthrough',
         pids: [{ pid: 6, pid_start: 's' }],
@@ -731,29 +634,25 @@ describe('POST /api/identity/register', () => {
       }));
       const stored = getTerminalByName('meta-passthrough');
       const meta = JSON.parse(stored?.meta ?? '{}');
-      expect(meta['v0.2_bridged']).toBe(true);
+      expect(meta['v0.2_bridged']).toBeUndefined();
       expect(meta.existing_field).toBe('should-survive');
       expect(meta.nested).toEqual({ ok: true });
     });
 
-    it('idempotent on name: second call with same PID still returns a runtime_id (reclaim path)', async () => {
+    it('idempotent on name: second call with same PID still returns null v0.2 fields', async () => {
       const first = await callPost(JSON.stringify({
-        name: 'v02-idem',
+        name: 'no-v02-idem',
         pids: [{ pid: 4, pid_start: 's' }]
       }));
       const second = await callPost(JSON.stringify({
-        name: 'v02-idem',
+        name: 'no-v02-idem',
         pids: [{ pid: 4, pid_start: 's' }]
       }));
-      const firstPayload = await first.json();
       const secondPayload = await second.json();
-      expect(secondPayload.v02_agent_id).toBe(firstPayload.v02_agent_id);
-      // Same PID + same pid_start re-register: reclaim path still flips
-      // the old runtime to 'reclaimed' and inserts a new one with the
-      // same pid. That's acceptable v0.2 semantics — every register
-      // creates a runtime row in the audit trail, and the live pointer
-      // moves to the freshest.
-      expect(secondPayload.v02_runtime_id).toBeTruthy();
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+      expect(secondPayload.v02_agent_id).toBeNull();
+      expect(secondPayload.v02_runtime_id).toBeNull();
     });
   });
 

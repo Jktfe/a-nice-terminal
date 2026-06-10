@@ -8,10 +8,7 @@ import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
 import { createSession } from '$lib/server/antSessionStore';
 import { addMember } from '$lib/server/membershipStore';
-import {
-  bootstrapV02Identity,
-  pidStartToIso
-} from '$lib/server/v02RegisterBootstrap';
+import { bootstrapV02Identity } from '$lib/server/v02RegisterBootstrap';
 import * as v02Runtimes from '$lib/server/v02RuntimesStore';
 
 let tmpDir: string;
@@ -124,9 +121,8 @@ describe('POST /api/identity/resolve', () => {
     expect(payload.name).toBe('ancestor-match');
   });
 
-  // -- M9b cut-over phase 1: surface v0.2 identity fields ---------------
-  describe('M9b v0.2 sidecar', () => {
-    it('returns v02_agent_id + v02_runtime_id when a live v0.2 runtime matches the chain', async () => {
+  describe('v0.2 removal — resolve no longer consults sidecar runtime identity', () => {
+    it('returns null v0.2 fields even when a live v0.2 runtime matches the chain', async () => {
       const isoNow = new Date().toISOString();
       const bootstrap = bootstrapV02Identity({
         name: 'v02-resolve',
@@ -138,8 +134,10 @@ describe('POST /api/identity/resolve', () => {
         pids: [{ pid: 4242, pid_start: isoNow }]
       }));
       const payload = await response.json();
-      expect(payload.v02_agent_id).toBe(bootstrap.agent_id);
-      expect(payload.v02_runtime_id).toBe(bootstrap.runtime_id);
+      expect(payload.terminal_id).toBeNull();
+      expect(payload.v02_agent_id).toBeNull();
+      expect(payload.v02_runtime_id).toBeNull();
+      expect(v02Runtimes.getRuntimeById(bootstrap.runtime_id)?.status).toBe('live');
     });
 
     it('does not surface an ancestor v0.2 runtime when the resolved terminal is different', async () => {
@@ -181,7 +179,7 @@ describe('POST /api/identity/resolve', () => {
       expect(payload.v02_runtime_id).toBeNull();
     });
 
-    it('regression case #2: shadow runtimes (status=reclaimed) do NOT resolve via the v0.2 sidecar', async () => {
+    it('returns null v0.2 fields for reclaimed and live v0.2 runtimes alike', async () => {
       const isoNow = new Date().toISOString();
       const first = bootstrapV02Identity({
         name: 'shadow-test',
@@ -205,24 +203,17 @@ describe('POST /api/identity/resolve', () => {
       const payload = await response.json();
       // pid=7 in v0.2 is 'reclaimed' — sidecar must return null.
       expect(payload.v02_runtime_id).toBeNull();
-      // Sanity: live one still resolves.
       const liveResponse = await callPost(JSON.stringify({
         pids: [{ pid: 8, pid_start: isoNow }]
       }));
       const livePayload = await liveResponse.json();
-      expect(livePayload.v02_runtime_id).toBe(second.runtime_id);
-      // Confirm the reclaimed row is in fact reclaimed (sanity).
+      expect(livePayload.v02_runtime_id).toBeNull();
+      expect(livePayload.v02_agent_id).toBeNull();
       expect(v02Runtimes.getRuntimeById(first.runtime_id)?.status).toBe('reclaimed');
+      expect(v02Runtimes.getRuntimeById(second.runtime_id)?.status).toBe('live');
     });
 
-    it('returns v0.2 fields even when the legacy lookup misses (terminal_id is null but v02 hit)', async () => {
-      // This case arises when the v0.2 cut-over has begun on a clean DB:
-      // legacy terminals row was never created (because the new flow
-      // skips it once M9d ships), but v02_runtimes was. M9b's dual-write
-      // means in practice both land together, but we still want the
-      // resolve endpoint to surface a v0.2 hit even when the legacy lookup
-      // misses, so post-M9d callers don't need to wait for M9d for their
-      // resolve to start working.
+    it('ignores a v0.2-only runtime when the terminal lookup misses', async () => {
       const isoNow = new Date().toISOString();
       const bootstrap = bootstrapV02Identity({
         name: 'v02-only-resolve',
@@ -235,14 +226,12 @@ describe('POST /api/identity/resolve', () => {
       }));
       const payload = await response.json();
       expect(payload.terminal_id).toBeNull();
-      expect(payload.v02_agent_id).toBe(bootstrap.agent_id);
-      expect(payload.v02_runtime_id).toBe(bootstrap.runtime_id);
+      expect(payload.v02_agent_id).toBeNull();
+      expect(payload.v02_runtime_id).toBeNull();
+      expect(v02Runtimes.getRuntimeById(bootstrap.runtime_id)?.status).toBe('live');
     });
 
-    it('pid_start_iso ISO normalisation lets a raw lstart string resolve a v0.2 runtime registered with the same lstart string', async () => {
-      // The bootstrap normalises whatever pid_start it receives into
-      // pid_start_iso. resolve() applies the same normalisation, so the
-      // same raw lstart string in the resolve body should produce a hit.
+    it('does not use v0.2 pid_start_iso normalisation as an identity fallback', async () => {
       const rawLstart = 'Tue May 13 00:00:00 2026';
       const bootstrap = bootstrapV02Identity({
         name: 'iso-roundtrip',
@@ -254,10 +243,9 @@ describe('POST /api/identity/resolve', () => {
         pids: [{ pid: 222, pid_start: rawLstart }]
       }));
       const payload = await response.json();
-      expect(payload.v02_runtime_id).toBe(bootstrap.runtime_id);
-      // Sanity: the stored row holds the ISO form.
-      const runtime = v02Runtimes.getRuntimeById(bootstrap.runtime_id);
-      expect(runtime?.pid_start_iso).toBe(pidStartToIso(rawLstart));
+      expect(payload.v02_agent_id).toBeNull();
+      expect(payload.v02_runtime_id).toBeNull();
+      expect(v02Runtimes.getRuntimeById(bootstrap.runtime_id)).not.toBeNull();
     });
   });
 });

@@ -24,12 +24,8 @@
  * duplicate inbox rooms per handle.
  */
 
-import { randomUUID } from 'node:crypto';
 import { getIdentityDb } from './db';
-import {
-  mirrorAddMembership as v02MirrorAddMembership,
-  ensureV02RoomExists as v02EnsureRoomExists
-} from './v02ChatRoomBridge';
+import { durableMemberWhereClause } from './membershipStore';
 
 const INBOX_ID_PREFIX = '__inbox_';
 const INBOX_ID_SUFFIX = '__';
@@ -67,20 +63,17 @@ export function isInboxRoomId(roomId: string): boolean {
  */
 export function listInboxOwnersWhereHandleIsMember(handle: string): string[] {
   const db = getIdentityDb();
-  // M9d cut-over phase 3: read v0.2 memberships scoped to inbox rooms
-  // (`room_id LIKE '__inbox_%'`). Both surfaces dual-written via the
-  // bridge so the result is identical; v0.2 is the new source of
-  // truth. The handle may match a per-room alias (room_alias column)
-  // or the agent's canonical primary_handle — both are checked via
-  // the JOIN below.
+  const hasCleanMembership = db
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'room_membership'`)
+    .get();
+  if (!hasCleanMembership) return [];
   const rows = db.prepare(
-    `SELECT DISTINCT m.room_id AS room_id
-       FROM memberships m
-       JOIN agents a ON a.agent_id = m.agent_id
-      WHERE (m.room_alias = ? OR a.primary_handle = ?)
-        AND m.left_at_ms IS NULL
-        AND m.room_id LIKE '__inbox_%'`
-  ).all(handle, handle) as Array<{ room_id: string }>;
+    `SELECT DISTINCT room_id AS room_id
+       FROM room_membership
+      WHERE handle = ?
+        AND ${durableMemberWhereClause()}
+        AND room_id LIKE '__inbox_%'`
+  ).all(handle) as Array<{ room_id: string }>;
   const owners: string[] = [];
   for (const row of rows) {
     // __inbox_<slug>__ → @<slug>. Slugs lowercase, no @; reconstruct
@@ -99,64 +92,5 @@ export function ensureHumanInboxRoom(humanHandle: string): string {
   // JWPK cleanup 2026-06-03: hidden per-human inbox rooms are retired.
   // Keep the deterministic id return for callers that use it for broadcasts,
   // but do not create chat_rooms / membership rows.
-  return roomId;
-  const db = getIdentityDb();
-  const nowIso = new Date().toISOString();
-
-  const txn = db.transaction(() => {
-    // creation_order is UNIQUE INTEGER NOT NULL. Inbox rooms shouldn't
-    // consume positive-space creation_order slots — that bumps the
-    // numbering of normal rooms and breaks listChatRooms ordering tests
-    // that assert [1,2,3] for three newly-created rooms. Use the
-    // NEGATIVE half of the integer line: monotonically decreasing
-    // (-1, -2, -3, ...) by walking down from the current minimum.
-    // listChatRooms filters __inbox_* by id pattern so the negative
-    // creation_order is invisible to that surface.
-    const minOrderRow = db
-      .prepare(`SELECT COALESCE(MIN(creation_order), 0) AS min FROM chat_rooms WHERE id LIKE '__inbox_%'`)
-      .get() as { min: number };
-    const inboxOrder = Math.min(0, minOrderRow.min) - 1;
-    const result = db.prepare(`INSERT OR IGNORE INTO chat_rooms
-      (id, name, summary, attention_state, last_update,
-       when_it_was_created, who_created_it, creation_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      roomId,
-      `Inbox: ${withAt}`,
-      `Hidden per-human ask inbox for ${withAt}. Membership is auto-computed; do not edit directly.`,
-      'ready',
-      nowIso,
-      nowIso,
-      withAt,
-      inboxOrder
-    );
-    if (result.changes > 0) {
-      db.prepare(`INSERT OR IGNORE INTO chat_room_members
-        (id, room_id, handle, display_name, display_color, display_icon,
-         display_background_style, joined_at, kind)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'human')`).run(
-        randomUUID(), roomId, withAt, withAt, '#DC2626',
-        withAt.slice(1, 2).toUpperCase() || '?', 'card', nowIso
-      );
-    }
-  });
-  txn();
-  // M9c dual-write + M9d presentation thread-through: mirror the
-  // inbox room + the human owner membership into v0.2 substrate so
-  // the v0.2 read path reproduces the same self-membership row.
-  // Outside the legacy transaction because the bridge helpers swallow
-  // errors and we don't want a v02 failure to roll back the legacy
-  // inbox provisioning.
-  v02EnsureRoomExists(roomId);
-  v02MirrorAddMembership({
-    roomId,
-    handle: withAt,
-    displayName: withAt,
-    role: 'owner',
-    memberKind: 'human',
-    roomDisplayName: withAt,
-    displayColor: '#DC2626',
-    displayIcon: withAt.slice(1, 2).toUpperCase() || '?',
-    displayBackgroundStyle: 'card'
-  });
   return roomId;
 }

@@ -23,17 +23,17 @@ import { findTerminalRecordByHandle } from './terminalRecordsStore';
 import { recomputeInboxEdgesForRoomMembershipChange } from './humanInboxMembership';
 import { ensureHumanInboxRoom } from './humanInboxRoomStore';
 import {
-  mirrorAddMembership as v02MirrorAddMembership,
-  mirrorRemoveMembership as v02MirrorRemoveMembership,
-  mirrorUpdateMemberPresentation as v02MirrorUpdateMemberPresentation,
-  ensureV02RoomExists as v02EnsureRoomExists
+  mirrorAddMembership as mirrorCleanMembership,
+  mirrorRemoveMembership as removeCleanMembership,
+  mirrorUpdateMemberPresentation as updateCleanMemberPresentation
 } from './v02ChatRoomBridge';
 import { setMemberPresentation, getMemberPresentation } from './membershipPresentationStore';
-import { listMembers as cleanListMembers, isDurableMemberHandle } from './membershipStore';
 import {
-  listRoomMembersHydrated as v02ListRoomMembersHydrated,
-  isHandleActiveMemberOfRoom as v02IsHandleActiveMemberOfRoom
-} from './v02MembershipsStore';
+  listMembers as cleanListMembers,
+  isDurableMemberHandle,
+  isHandleMemberOfRoom as cleanIsHandleMemberOfRoom,
+  isMember as cleanIsRosterMember
+} from './membershipStore';
 
 export type ParticipantBackgroundStyle = 'card' | 'tint' | 'transparent';
 
@@ -267,29 +267,9 @@ function recoverableRowToRoom(
 }
 
 /**
- * R3 read-flip (2026-06-05): which roster table the dashboard reads from.
- * `clean`  → room_membership ⋈ room_member_presentation (the consolidated model)
- * default  → v0.2 memberships JOIN agents (current live behaviour)
- *
- * Gated by env so this commit lands with ZERO live behaviour change: go-live is
- * a single `ANT_ROSTER_READ=clean` + kickstart under sign-off, and rollback is
- * the reverse env flip with no redeploy. The keeper-rule gate (verify on a
- * WAL-trio copy showing noDrops=0 / noDupes=0) is satisfied by the live proof
- * at docs/specs/r3-roster-consolidation-live-proof-2026-06-05.json.
- */
-function rosterReadMode(): 'clean' | 'legacy' {
-  return process.env.ANT_ROSTER_READ?.trim().toLowerCase() === 'clean' ? 'clean' : 'legacy';
-}
-
-/**
- * Clean-model roster read. Sources membership from `room_membership` (oldest
- * first — same ordering contract as the legacy joined_at ASC read) and
- * presentation from `room_member_presentation`, then reuses the EXACT
- * v02HydratedRowToMember mapper so the output is byte-identical to the legacy
- * read: same kind-resolution (member_kind ?? terminal-record fallback), same
- * display fallbacks (default colour/icon/background), same operator display
- * mapping. The live proof shows this roster is a lossless + injective image of
- * the legacy union, so the only change at the flip is the SOURCE, not the shape.
+ * Clean-model roster read. Sources membership from `room_membership` and
+ * presentation from `room_member_presentation`; v0.2 memberships are no longer
+ * a production roster source.
  */
 function loadMembersForRoomClean(roomId: string): RoomMember[] {
   return cleanListMembers(roomId)
@@ -299,7 +279,7 @@ function loadMembersForRoomClean(roomId: string): RoomMember[] {
     .filter((member) => isDurableMemberHandle(member.handle))
     .map((member) => {
     const presentation = getMemberPresentation(roomId, member.handle);
-    return v02HydratedRowToMember({
+    return presentationRowToMember({
       handle: member.handle,
       // room_display_name is a per-room override; null inherits the handle, which
       // is exactly what the legacy hydrated read passes as display_name too.
@@ -314,21 +294,10 @@ function loadMembersForRoomClean(roomId: string): RoomMember[] {
 }
 
 function loadMembersForRoom(roomId: string): RoomMember[] {
-  if (rosterReadMode() === 'clean') return loadMembersForRoomClean(roomId);
-  // M9d cut-over phase 3: read from v0.2 memberships JOIN agents
-  // rather than chat_room_members. Writes still dual-write to both
-  // until the week-2 cleanup PR drops the legacy half (rollback
-  // safety). The hydrated read returns rows in the same joined_at ASC
-  // ordering as the legacy SELECT so client-side rendering is stable.
-  //
-  // The bridge (v02ChatRoomBridge) auto-creates v02 agents + rooms on
-  // every legacy write, so by the time loadMembersForRoom fires there
-  // is always a v0.2 row mirroring each chat_room_members row.
-  const rows = v02ListRoomMembersHydrated(roomId);
-  return rows.map(v02HydratedRowToMember);
+  return loadMembersForRoomClean(roomId);
 }
 
-function v02HydratedRowToMember(row: {
+function presentationRowToMember(row: {
   handle: string;
   display_name: string;
   display_color: string | null;
@@ -480,15 +449,9 @@ export function createChatRoom(input: {
   });
 
   txn();
-  // M9c dual-write + M9d presentation thread-through: mirror creator
-  // + @you memberships into v02 substrate so v02 memberships reflects
-  // the same roster + per-room display state as chat_room_members.
-  // Best-effort — the shim swallows errors so legacy room creation is
-  // unaffected. Run BEFORE ensureHumanInboxRoom so that the agent rows
-  // capture the creator's display_name + role first (the inbox-edge
-  // recompute auto-creates agents with handle-as-display-name when racing).
-  v02EnsureRoomExists(newRoomId);
-  v02MirrorAddMembership({
+  // Mirror creator + operator rows into clean membership/presentation so the
+  // right rail and gates read one production roster source.
+  mirrorCleanMembership({
     roomId: newRoomId,
     handle: input.whoCreatedIt,
     displayName: input.whoCreatedIt,
@@ -501,7 +464,7 @@ export function createChatRoom(input: {
   });
   const operatorHandle = getOperatorHandle();
   if (!isOperatorHandle(input.whoCreatedIt)) {
-    v02MirrorAddMembership({
+    mirrorCleanMembership({
       roomId: newRoomId,
       handle: operatorHandle,
       displayName: operatorHandle,
@@ -607,11 +570,15 @@ export function doesChatRoomExist(roomId: string): boolean {
  */
 export function isHandleMemberOfRoom(roomId: string, handle: string): boolean {
   if (!roomId || !handle) return false;
-  // M9d cut-over phase 3: resolve via v0.2 memberships (handle/alias
-  // precedence applied by the store). Legacy chat_room_members still
-  // dual-written so rollback safety is preserved; the v0.2 row is
-  // guaranteed to exist by the bridge auto-create path.
-  return v02IsHandleActiveMemberOfRoom(roomId, handle);
+  return cleanIsHandleMemberOfRoom(roomId, handle);
+}
+
+function isVisibleRosterMember(roomId: string, handle: string): boolean {
+  if (cleanIsRosterMember(roomId, handle)) return true;
+  const row = getIdentityDb()
+    .prepare(`SELECT 1 FROM chat_room_members WHERE room_id = ? AND handle = ? LIMIT 1`)
+    .get(roomId, handle);
+  return !!row;
 }
 
 /**
@@ -702,12 +669,8 @@ export function inviteAgentToRoom(input: {
 
   const handleWithAtSign = handleTrimmed.startsWith('@') ? handleTrimmed : `@${handleTrimmed}`;
 
-  // M9d cut-over phase 3: read membership presence from v0.2
-  // memberships (the bridge guarantees a v0.2 row mirrors every legacy
-  // write). Legacy chat_room_members still dual-written below for
-  // rollback safety.
   const db = getIdentityDb();
-  if (v02IsHandleActiveMemberOfRoom(input.roomId, handleWithAtSign)) {
+  if (isVisibleRosterMember(input.roomId, handleWithAtSign)) {
     throw new Error(`${handleWithAtSign} is already a member of this room.`);
   }
 
@@ -716,11 +679,9 @@ export function inviteAgentToRoom(input: {
   const displayName = input.agentDisplayName?.trim() || handleWithAtSign;
 
   const txn = db.transaction(() => {
-    // M9d cut-over compat: pre-existing legacy chat_room_members rows
-    // (from before the v0.2 cut-over) trip the UNIQUE constraint when
-    // v02IsHandleActiveMemberOfRoom returns false (v0.2 hasn't been
-    // backfilled yet). OR IGNORE makes the legacy write idempotent;
-    // the v02 mirror below still backfills the v0.2 side.
+    // Pre-existing chat_room_members rows trip the UNIQUE constraint during
+    // repaired/replayed invites. OR IGNORE keeps the visible roster write
+    // idempotent while the clean membership mirror below aligns the new source.
     db.prepare(`INSERT OR IGNORE INTO chat_room_members
       (id, room_id, handle, display_name, display_color, display_icon, display_background_style, joined_at, kind)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'agent')`).run(
@@ -739,12 +700,7 @@ export function inviteAgentToRoom(input: {
   });
 
   txn();
-  // M9c dual-write + M9d presentation thread-through: mirror the agent
-  // membership into v02 memberships BEFORE the inbox-edge recompute
-  // so the agent's display_name is captured here (the inbox-edge
-  // mirror passes the handle as fallback display_name and would
-  // otherwise win the auto-create race).
-  v02MirrorAddMembership({
+  mirrorCleanMembership({
     roomId: input.roomId,
     handle: handleWithAtSign,
     displayName,
@@ -775,10 +731,8 @@ export function inviteHumanToRoom(input: {
 
   const handleWithAtSign = handleTrimmed.startsWith('@') ? handleTrimmed : `@${handleTrimmed}`;
 
-  // M9d cut-over phase 3: read membership presence from v0.2
-  // memberships (see inviteAgentToRoom for the rationale).
   const db = getIdentityDb();
-  if (v02IsHandleActiveMemberOfRoom(input.roomId, handleWithAtSign)) {
+  if (isVisibleRosterMember(input.roomId, handleWithAtSign)) {
     throw new Error(`${handleWithAtSign} is already a member of this room.`);
   }
 
@@ -787,9 +741,8 @@ export function inviteHumanToRoom(input: {
   const displayName = input.humanDisplayName?.trim() || handleWithAtSign;
 
   const txn = db.transaction(() => {
-    // M9d cut-over compat (same as inviteAgentToRoom above): pre-existing
-    // legacy rows from before the v0.2 cut-over trip UNIQUE; v02 mirror
-    // below backfills the v0.2 side. OR IGNORE makes legacy idempotent.
+    // Pre-existing chat_room_members rows trip UNIQUE during repaired/replayed
+    // invites. OR IGNORE keeps the visible roster write idempotent.
     db.prepare(`INSERT OR IGNORE INTO chat_room_members
       (id, room_id, handle, display_name, display_color, display_icon, display_background_style, joined_at, kind)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'human')`).run(
@@ -808,10 +761,7 @@ export function inviteHumanToRoom(input: {
   });
 
   txn();
-  // M9c dual-write + M9d presentation thread-through: mirror the human
-  // membership into v02 memberships BEFORE the inbox-edge recompute so
-  // the human's display_name is captured here.
-  v02MirrorAddMembership({
+  mirrorCleanMembership({
     roomId: input.roomId,
     handle: handleWithAtSign,
     displayName,
@@ -842,9 +792,7 @@ export function ensureAgentMemberInRoom(input: {
   }
 
   const handleWithAtSign = handleTrimmed.startsWith('@') ? handleTrimmed : `@${handleTrimmed}`;
-  // M9d cut-over phase 3: read membership presence from v0.2
-  // memberships. Same rollback-safe rationale as the invite gates.
-  if (v02IsHandleActiveMemberOfRoom(input.roomId, handleWithAtSign)) {
+  if (isVisibleRosterMember(input.roomId, handleWithAtSign)) {
     return loadRoomById(input.roomId)!;
   }
 
@@ -901,14 +849,7 @@ export function removeMemberFromRoom(input: {
     );
   });
   txn();
-  // M9c dual-write + M9d ordering fix: soft-leave the v0.2
-  // memberships row BEFORE the inbox-edge recompute. The recompute
-  // reads v0.2 to decide whether each (human, agent) pair still
-  // shares a room — if the v0.2 row is still active when recompute
-  // runs, the helper sees a phantom shared room and refuses to drop
-  // the inbox edge. Order must match the legacy chat_room_members
-  // DELETE (which fired inside the txn above).
-  v02MirrorRemoveMembership(input.roomId, input.globalHandle);
+  removeCleanMembership(input.roomId, input.globalHandle);
   // After the delete, recompute every inbox edge involving the removed
   // handle. The helper walks the REMAINING members to find pairings — so
   // if the removed agent had no other shared rooms with each human in
@@ -1023,10 +964,7 @@ export function updateRoomMemberPresentation(input: {
       input.globalHandle
     );
 
-  // M9d dual-write: mirror the presentation update into v0.2
-  // memberships so the v0.2 read path stays in lockstep with the
-  // legacy table. Best-effort.
-  v02MirrorUpdateMemberPresentation({
+  updateCleanMemberPresentation({
     roomId: input.roomId,
     handle: input.globalHandle,
     roomDisplayName: displayName,
@@ -1039,7 +977,7 @@ export function updateRoomMemberPresentation(input: {
   // room_member_presentation table. ADDITIVE — nothing reads it yet, so this
   // fills the canonical presentation table with real data ahead of the
   // dashboard read cut-over (then the read-flip is on already-populated data).
-  // Best-effort, same as the v0.2 mirror.
+  // Best-effort; the clean table is the read source for roster presentation.
   try {
     setMemberPresentation(input.roomId, input.globalHandle, {
       room_display_name: displayName,
