@@ -28,6 +28,7 @@ import { transcriptEventKey } from './transcriptEventId';
 import { fanoutMessageToLinkedChatRoom } from './transcriptToChatFanout';
 import { contextFillFromTokens, numberValue, type ContextFillReading } from './contextFillTelemetry';
 import { setAgentContextFill } from './terminalsStore';
+import { recordLocalUsageEvent } from './localUsage/ollamaLedger';
 import type { ClassifiedKind } from './classifiers/types';
 import type { TerminalRunEventTrust } from './terminalRunEventsStore';
 
@@ -47,9 +48,12 @@ type ClaudeContentItem =
 
 type ClaudeMessage = {
   role?: string;
+  /** Model id on assistant messages, e.g. "claude-opus-4-8". */
+  model?: string;
   content?: string | ClaudeContentItem[];
   usage?: {
     input_tokens?: number;
+    output_tokens?: number;
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
   };
@@ -172,6 +176,36 @@ export function readContextFillFromClaudeUsageLine(rawLine: string): ContextFill
   }
 }
 
+/** Record one ledger event when a Claude transcript line carries usage
+ *  tokens (mirrors recordOllamaUsageFromPiLine for the pi feed). Claude's
+ *  `usage` already reports FRESH input separately from the two cache classes,
+ *  so we map them 1:1 with no folding — preserving the breakdown a cost view
+ *  needs to price cache reads (~10% of input) vs cache creation (~125%)
+ *  correctly. Source of truth = the transcript JSONL; the Stop hook carries
+ *  no token counts. Best-effort: never throws into the caller. */
+export function recordClaudeUsageFromLine(rawLine: string): void {
+  const trimmed = rawLine.trim();
+  if (trimmed.length === 0) return;
+  let parsed: ClaudeJsonlEvent;
+  try {
+    parsed = JSON.parse(trimmed) as ClaudeJsonlEvent;
+  } catch {
+    return;
+  }
+  const message = parsed.message;
+  const usage = message?.usage;
+  if (!usage) return;
+  recordLocalUsageEvent({
+    provider: 'claude',
+    model: message?.model ?? null,
+    source: 'claude-transcript',
+    inputTokens: numberValue(usage.input_tokens),
+    outputTokens: numberValue(usage.output_tokens),
+    cacheReadTokens: numberValue(usage.cache_read_input_tokens),
+    cacheCreationTokens: numberValue(usage.cache_creation_input_tokens)
+  });
+}
+
 export function ingestTranscriptLine(sessionId: string, rawLine: string): number {
   const contextFill = readContextFillFromClaudeUsageLine(rawLine);
   if (contextFill) {
@@ -180,6 +214,12 @@ export function ingestTranscriptLine(sessionId: string, rawLine: string): number
     } catch {
       // Context telemetry must never block transcript ingestion.
     }
+  }
+
+  try {
+    recordClaudeUsageFromLine(rawLine);
+  } catch {
+    // Token telemetry must never block transcript ingestion.
   }
 
   const events = parseTranscriptLine(rawLine);

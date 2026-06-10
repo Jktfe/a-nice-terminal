@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   parseTranscriptLine, mapClaudeContentItem, encodedCwdSegmentFor,
-  ingestTranscriptLine, readContextFillFromClaudeUsageLine
+  ingestTranscriptLine, readContextFillFromClaudeUsageLine, recordClaudeUsageFromLine
 } from './claudeCodeTranscriptTail';
 import { listLatestTerminalRunEvents } from './terminalRunEventsStore';
 import { getIdentityDb } from './db';
@@ -194,5 +194,72 @@ describe('ingestTranscriptLine — DB roundtrip', () => {
     expect(row?.agent_context_fill).toBeCloseTo(0.2);
     expect(row?.agent_context_fill_source).toBe('claude-transcript-usage');
     expect(typeof row?.agent_context_fill_at_ms).toBe('number');
+  });
+});
+
+describe('recordClaudeUsageFromLine — token ledger feed', () => {
+  beforeEach(() => {
+    try { getIdentityDb().prepare(`DELETE FROM local_usage_events`).run(); } catch { /* table created by schema boot */ }
+  });
+
+  function ledgerRows() {
+    return getIdentityDb()
+      .prepare(`SELECT provider, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, source FROM local_usage_events ORDER BY occurred_at_ms`)
+      .all() as Array<Record<string, unknown>>;
+  }
+
+  it('maps Claude usage 1:1 — fresh input, output, and both cache classes kept separate', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        model: 'claude-opus-4-8',
+        usage: {
+          input_tokens: 120,
+          output_tokens: 340,
+          cache_read_input_tokens: 9000,
+          cache_creation_input_tokens: 500
+        }
+      }
+    });
+    recordClaudeUsageFromLine(line);
+    const rows = ledgerRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      provider: 'claude',
+      model: 'claude-opus-4-8',
+      input_tokens: 120,       // FRESH only — cache NOT folded in
+      output_tokens: 340,
+      cache_read_tokens: 9000,
+      cache_creation_tokens: 500,
+      source: 'claude-transcript'
+    });
+  });
+
+  it('records a fully cache-hit turn (input 0, output 0, cache_read > 0) — not dropped', () => {
+    recordClaudeUsageFromLine(JSON.stringify({
+      type: 'assistant',
+      message: { role: 'assistant', model: 'claude-opus-4-8', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 4096 } }
+    }));
+    expect(ledgerRows()).toHaveLength(1);
+    expect(ledgerRows()[0].cache_read_tokens).toBe(4096);
+  });
+
+  it('ignores lines with no usage object + malformed JSON (best-effort, never throws)', () => {
+    recordClaudeUsageFromLine(JSON.stringify({ type: 'user', message: { role: 'user', content: 'hi' } }));
+    recordClaudeUsageFromLine('not json {');
+    recordClaudeUsageFromLine('');
+    expect(ledgerRows()).toHaveLength(0);
+  });
+
+  it('ingestTranscriptLine also feeds the token ledger (single wiring point)', () => {
+    getIdentityDb().prepare(`DELETE FROM local_usage_events`).run();
+    ingestTranscriptLine('t_usage_ingest', JSON.stringify({
+      type: 'assistant',
+      message: { role: 'assistant', model: 'claude-opus-4-8', content: [{ type: 'text', text: 'hi' }], usage: { input_tokens: 50, output_tokens: 10 } }
+    }));
+    const rows = ledgerRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ provider: 'claude', input_tokens: 50, output_tokens: 10, source: 'claude-transcript' });
   });
 });

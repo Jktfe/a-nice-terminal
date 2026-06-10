@@ -1957,6 +1957,34 @@ const SCHEMA_DDL_STATEMENTS = [
     payload_json  TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_usage_snapshots_captured_at ON usage_snapshots (captured_at_ms DESC)`,
+  // Local-usage ledger (JWPK 2026-06-10): one row per locally-observed
+  // model call for providers that have NO upstream usage API (Ollama
+  // today). The open-usage daemon can't see these, so ANT records them
+  // itself wherever it already watches the traffic (pi transcript tail
+  // is the first feed). localUsage/ollamaLedger.ts owns reads + writes;
+  // localUsage/* builds UsageProvider lines from the aggregates so the
+  // /terminals strip + snapshots treat them like any daemon provider.
+  `CREATE TABLE IF NOT EXISTS local_usage_events (
+    id             TEXT PRIMARY KEY,
+    provider       TEXT NOT NULL,
+    model          TEXT,
+    input_tokens   INTEGER NOT NULL DEFAULT 0,
+    output_tokens  INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    occurred_at_ms INTEGER NOT NULL,
+    source         TEXT NOT NULL
+  )`,
+  // Cache-token breakdown (2026-06-10): providers that price cached input
+  // differently (Claude: cache-read ~10% of input, cache-create ~125%) report
+  // it separately. We keep input_tokens = FRESH/uncached input and store the
+  // cache classes alongside so a cost view can price each correctly instead of
+  // lumping them into input. Idempotent ALTERs for DBs created before these
+  // columns existed (duplicate-column-name is tolerated by the runner).
+  `ALTER TABLE local_usage_events ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE local_usage_events ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0`,
+  `CREATE INDEX IF NOT EXISTS idx_local_usage_events_provider_time
+     ON local_usage_events (provider, occurred_at_ms DESC)`,
   // PR-C super-admin reclaim primitive (substrate v0.2 plan, 2026-05-29).
   //
   // Tonight's identity-surgery sprint surfaced a class of recovery operations
