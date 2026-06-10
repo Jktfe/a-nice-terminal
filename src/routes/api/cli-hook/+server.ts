@@ -50,6 +50,7 @@ import { mapHookEventToAgentStatus } from '$lib/server/hookEventStatusMapper';
 import { getTerminalById, setTerminalLastPath } from '$lib/server/terminalsStore';
 import { getTerminalRecord, updateTerminalRecord, type TerminalRecordPatch } from '$lib/server/terminalRecordsStore';
 import { extractLastAgentCommand } from '$lib/server/sessionRecovery';
+import { maybeInjectRenameOnFirstCall } from '$lib/server/renameOnFirstCall';
 
 const MAX_LIMIT = 1000;
 const DEFAULT_LIMIT = 100;
@@ -181,6 +182,15 @@ export const POST: RequestHandler = async ({ request, url }) => {
         if (record.cli_session_id !== sessionId) {
           patch.cliSessionId = sessionId;
           patch.cliSessionSource = sourceCli ?? 'claude-code';
+          // Rename-on-first-call (JWPK msg_6ed667svyn: "ALL the cli's use
+          // /rename"): a FRESH session's first SessionStart gets the CLI's
+          // own session named after the terminal, by typing `/rename <base
+          // name>` into the (prompt-verified) pane. Once per CLI session by
+          // construction — drift rewrites of the same UUID don't re-fire,
+          // and a not-ready pane skips silently (next launch retries).
+          if (hookEventName === 'SessionStart') {
+            maybeInjectRenameOnFirstCall(captureTerminalId, record.name);
+          }
         }
         if (
           hookEventName === 'SessionStart' &&
