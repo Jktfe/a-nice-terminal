@@ -135,8 +135,8 @@ export function findUnprocessedFeedbackEvents(deckId: string, limit = 5): Feedba
 
 /**
  * Naive but functional alternative generator.
- * Reads downstream slides (after the paused slide) and rewrites titles
- * and speaker notes to incorporate the feedback sentiment.
+ * Reads the paused slide first, then downstream slides, and rewrites
+ * titles/content/speaker notes to incorporate actionable feedback.
  *
  * For ε1, this is rule-based. Future slices swap in an LLM call.
  */
@@ -145,17 +145,17 @@ export function generateAlternatives(
   feedbackText: string,
   pausedSlideIndex: number
 ): StageAlternative[] {
-  const downstream = slides.slice(pausedSlideIndex + 1);
-  if (downstream.length === 0) return [];
+  const targetSlides = slides
+    .map((slide, slideIndex) => ({ slide, slideIndex }))
+    .filter(({ slideIndex }) => slideIndex >= pausedSlideIndex)
+    .slice(0, 3);
+  if (targetSlides.length === 0) return [];
 
   const sentiment = analyseSentiment(feedbackText);
   const alternatives: StageAlternative[] = [];
 
-  // Only propose alternatives for the first 3 downstream slides
-  for (let i = 0; i < Math.min(3, downstream.length); i++) {
-    const slide = downstream[i];
-    const globalIndex = pausedSlideIndex + 1 + i;
-
+  // Propose alternatives for the current slide first, then the next slides.
+  for (const { slide, slideIndex: globalIndex } of targetSlides) {
     const alt = rewriteSlide(slide, sentiment, feedbackText);
     if (alt) {
       alternatives.push({
@@ -174,16 +174,23 @@ export function generateAlternatives(
 
 type Sentiment = {
   negative: boolean;
+  actionable: boolean;
+  wantsBeforeAfter: boolean;
   keyPhrase: string;
 };
 
 function analyseSentiment(text: string): Sentiment {
   const lower = text.toLowerCase();
   const negative = /\b(no|not|wrong|bad|terrible|awful|don't|doesn't|shouldn't|mustn't|nope|incorrect|false)\b/.test(lower);
+  const wantsBeforeAfter = /\b(before\s*\/\s*after|before\s+and\s+after|concrete|example|actual failure|failure it removes)\b/.test(lower);
+  const actionable =
+    negative ||
+    wantsBeforeAfter ||
+    /\b(overstates?|hand[-\s]?waving|missing|needs?|unclear|weak|thin|unsupported|show|explain|simplify|harden)\b/.test(lower);
   // Extract the first substantive clause as the key phrase
   const match = text.match(/(?:^|[.!?])\s*([^.,;!?]{10,120})/);
   const keyPhrase = match ? match[1].trim() : text.slice(0, 100);
-  return { negative, keyPhrase };
+  return { negative, actionable, wantsBeforeAfter, keyPhrase };
 }
 
 function rewriteSlide(
@@ -191,12 +198,25 @@ function rewriteSlide(
   sentiment: Sentiment,
   feedback: string
 ): { title: string; content: string; speakerNotes: string } | null {
-  // ε1 rule set — if negative, prepend a challenge marker to the title
-  // and append a cautionary note to speaker notes.
-  if (!sentiment.negative) return null;
+  // ε1 rule set — if feedback is actionable, make an immediately visible
+  // alternative. Agent-authored drafts can refine this scaffold afterward.
+  if (!sentiment.actionable) return null;
 
-  const title = `⚠️ ${slide.title}`;
-  const content = slide.content;
+  const title = sentiment.negative ? `⚠️ ${slide.title}` : `Alternative: ${slide.title}`;
+  const content = sentiment.wantsBeforeAfter
+    ? [
+        slide.content,
+        '',
+        'Before / after proof to add:',
+        '- Before: describe the concrete failure mode this slide removes.',
+        '- After: describe the simplified path after the change.',
+        `- Evidence needed: ${sentiment.keyPhrase}.`
+      ].filter(Boolean).join('\n')
+    : [
+        slide.content,
+        '',
+        `Feedback to address: ${sentiment.keyPhrase}.`
+      ].filter(Boolean).join('\n');
   const notes = [
     slide.speakerNotes || slide.narration || '',
     `\n[ALTERNATIVE TRIGGERED — feedback: "${sentiment.keyPhrase}"]`

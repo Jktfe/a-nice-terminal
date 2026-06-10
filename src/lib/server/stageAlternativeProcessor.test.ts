@@ -16,15 +16,16 @@ describe('stageAlternativeProcessor', () => {
   });
 
   describe('generateAlternatives', () => {
-    it('returns empty when no downstream slides', () => {
+    it('can replace the current slide even when no downstream slides exist', () => {
       const slides: DeckSlide[] = [
         { id: 's1', title: 'Only slide', content: 'Hello' }
       ];
       const alts = generateAlternatives(slides, 'this is wrong', 0);
-      expect(alts).toHaveLength(0);
+      expect(alts).toHaveLength(1);
+      expect(alts[0].slideIndex).toBe(0);
     });
 
-    it('flags downstream slides on negative feedback', () => {
+    it('flags the current slide first on negative feedback', () => {
       const slides: DeckSlide[] = [
         { id: 's1', title: 'Intro', content: 'Welcome' },
         { id: 's2', title: 'Details', content: 'More info' },
@@ -32,8 +33,25 @@ describe('stageAlternativeProcessor', () => {
       ];
       const alts = generateAlternatives(slides, "no, we don't do that", 0);
       expect(alts.length).toBeGreaterThan(0);
-      expect(alts[0].slideIndex).toBe(1);
+      expect(alts[0].slideIndex).toBe(0);
       expect(alts[0].proposedTitle).toMatch(/^⚠️/);
+    });
+
+    it('replaces the current slide when feedback asks for a concrete before-after example', () => {
+      const slides: DeckSlide[] = [
+        { id: 's1', title: 'Context', content: 'Set up' },
+        { id: 's2', title: 'One model, every agent kind', content: 'All agents use one model.' },
+        { id: 's3', title: 'Outcome', content: 'Cleaner joins.' }
+      ];
+      const alts = generateAlternatives(
+        slides,
+        'This slide overstates the claim — the join-flow simplification needs a concrete before/after example or it reads as hand-waving. Show the actual failure it removes.',
+        1
+      );
+      expect(alts.length).toBeGreaterThan(0);
+      expect(alts[0].slideIndex).toBe(1);
+      expect(alts[0].proposedTitle).toContain('One model, every agent kind');
+      expect(alts[0].proposedContent).toContain('Before / after');
     });
 
     it('returns nothing on positive feedback', () => {

@@ -83,13 +83,13 @@ describe('POST /api/decks/:deckId/stage-feedback', () => {
     expect(body.ref).toContain('stage:');
     expect(body.proposal.ref).toMatch(/^\/artefacts\//);
     expect(body.proposal.taskIds).toHaveLength(3);
-    expect(body.generatedAlternatives).toBe(1);
+    expect(body.generatedAlternatives).toBe(2);
 
     const alternatives = listStageAlternatives(deck.id);
-    expect(alternatives).toHaveLength(1);
+    expect(alternatives).toHaveLength(2);
     expect(alternatives[0].decision?.action).toBe('replace-slide');
     const composed = composeStageSlides(deck, alternatives);
-    expect(composed[1]).toMatchObject({
+    expect(composed[0]).toMatchObject({
       source: 'alternative',
       sourceAlternativeRef: alternatives[0].ref
     });
