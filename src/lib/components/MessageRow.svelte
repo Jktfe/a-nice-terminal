@@ -22,7 +22,9 @@
   import MessageRowActions from './MessageRowActions.svelte';
   import { renderMarkdown } from '$lib/chat/renderMarkdown';
   import { extractPollRefs } from '$lib/chat/pollRefs';
+  import { extractStatusRefs } from '$lib/chat/statusRefs';
   import PollWidget from './PollWidget.svelte';
+  import StatusBoard from './StatusBoard.svelte';
   import { resolveAddressedKind, type AddressedKind } from '$lib/chat/addressedToViewer';
   import type { MessageReadReceipt } from '$lib/server/messageReadReceiptStore';
 
@@ -124,8 +126,13 @@
   // <PollWidget> per referenced voteId alongside the message HTML.
   // Vote-create receipts carry the fence, so a vote surfaces as a poll
   // in-thread. JWPK msg_7nqg8oaufo.
+  // Inline status boards (`/status-poll`): the same rail, a second fence.
+  // Chain the extractors — pull ant-poll first, then ant-status from what's
+  // left — so both fences are stripped before markdown and both widgets
+  // mount alongside the message. JWPK msg_39mnm7blal.
   const poll = $derived(extractPollRefs(message.body));
-  const renderedBody = $derived(renderMarkdown(poll.body));
+  const status = $derived(extractStatusRefs(poll.body));
+  const renderedBody = $derived(renderMarkdown(status.body));
 </script>
 
 {#if message.kind === 'system-break'}
@@ -134,11 +141,14 @@
   </div>
 {:else if message.kind === 'system'}
   <div class="system-row" class:has-read-receipts={isAnsweredAskReceipt}>
-    {#if poll.body}
-      <span class="system-text">{poll.body}</span>
+    {#if status.body}
+      <span class="system-text">{status.body}</span>
     {/if}
     {#each poll.voteIds as voteId (voteId)}
       <PollWidget {voteId} roomId={message.roomId} {asHandle} />
+    {/each}
+    {#each status.boardIds as boardId (boardId)}
+      <StatusBoard {boardId} roomId={message.roomId} {asHandle} />
     {/each}
     {#if isAnsweredAskReceipt}
       <MessageReadIndicator
@@ -192,11 +202,14 @@
         <em>Message deleted{message.deletedByHandle ? ` by ${message.deletedByHandle}` : ''}{message.deletedAtMs ? ` at ${describeDeletedAt(message.deletedAtMs)}` : ''}.</em>
       </div>
     {:else}
-      {#if poll.body}
+      {#if status.body}
         <div class="message-body">{@html renderedBody}</div>
       {/if}
       {#each poll.voteIds as voteId (voteId)}
         <PollWidget {voteId} roomId={message.roomId} {asHandle} />
+      {/each}
+      {#each status.boardIds as boardId (boardId)}
+        <StatusBoard {boardId} roomId={message.roomId} {asHandle} />
       {/each}
     {/if}
     {#if deleteError}
