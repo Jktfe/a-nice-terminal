@@ -6,6 +6,8 @@
   /api/chat-rooms/:roomId/artefacts (GET/POST/DELETE) — shipped 5ac765c.
 -->
 <script lang="ts">
+  import { hrefForRoomArtefact } from '$lib/chat/artefactLinks';
+
   type ArtefactKind = 'html' | 'deck' | 'stage' | 'spreadsheet' | 'doc' | 'mockup' | 'tracker' | 'other';
 
   type RoomArtefact = {
@@ -153,7 +155,7 @@
   }
 
   function artefactHref(entry: RoomArtefact): string {
-    return `/artefacts/${encodeURIComponent(entry.id)}`;
+    return hrefForRoomArtefact(entry);
   }
 
   // Browsers refuse to navigate to file:// from a regular http(s) page (XSS
