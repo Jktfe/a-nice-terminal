@@ -37,16 +37,17 @@ export const POST: RequestHandler = async ({ params, request }) => {
     throw error(400, 'Send a JSON body with bytes (base64), takenBy, pidChain.');
   }
 
-  resolveCallerIdentityStrict(params.roomId, request, rawBody);
+  // Attribution must come from the AUTHENTICATED identity, never a body field.
+  // Previously `takenBy` was read from the request body, so any authenticated
+  // caller could attribute a screenshot to ANY handle (incl. the operator
+  // @JWPK) — attribution spoofing. resolveCallerIdentityStrict returns the
+  // caller's resolved handle (or 403s); use it as takenBy and ignore body.takenBy.
+  const takenBy = resolveCallerIdentityStrict(params.roomId, request, rawBody);
 
   const body = rawBody as Record<string, unknown>;
   const bytesB64 = body.bytes;
-  const takenBy = body.takenBy;
   if (typeof bytesB64 !== 'string' || bytesB64.length === 0) {
     throw error(400, 'bytes (non-empty base64 string) is required.');
-  }
-  if (typeof takenBy !== 'string' || takenBy.length === 0) {
-    throw error(400, 'takenBy (string) is required.');
   }
 
   let buffer: Buffer;
