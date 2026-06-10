@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { getDeck } from '$lib/server/deckStore';
 import { requireStagePresenterAuth } from '$lib/server/stagePresenterAuth';
 import { appendPlanEvent } from '$lib/server/planModeStore';
-import { postSystemMessage } from '$lib/server/chatMessageStore';
+import { postMessage } from '$lib/server/chatMessageStore';
 import { broadcastToRoom } from '$lib/server/eventBroadcast';
 import { fanoutMessageToRoomTerminals } from '$lib/server/pty-inject-fanout';
 import { createArtefactInRoom } from '$lib/server/chatRoomArtefactStore';
@@ -232,12 +232,29 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
   });
   const generatedAlternatives = processStageAlternatives(deck.id, auth.handle);
 
-  const roomMessage = postSystemMessage({
+  // The "magic" is that Stage feedback reaches the agents' terminals directly so
+  // they can draft new slides on the fly — no "did you see my comments?" round-trip.
+  // It MUST post as a human-kind message authored by the presenter: the fanout's
+  // FANOUT_KINDS_ALLOWED gate ({human, agent}) silently drops 'system' messages,
+  // so postSystemMessage() landed this in room history but never injected it into
+  // any terminal. postMessage({kind:'human'}) is on the delivered side of that gate.
+  const roomMessage = postMessage({
     roomId: deck.roomId,
-    body: `Stage feedback: ${deck.title}\n\n${label}\n\n${feedbackText}\n\nAlternative track: ${proposalRef}`
+    authorHandle: auth.handle,
+    kind: 'human',
+    body:
+      `Stage feedback on "${deck.title}" — slide ${slideIndex + 1} (${slide.title})\n\n` +
+      `${feedbackText}\n\n` +
+      `Seeded an Alternative Track (${proposalRef}) with ${proposalTasks.length} draft tasks. ` +
+      `You have autonomy to draft the replacement/new slide directly from this — no need to wait for a go-ahead.`
   });
   try {
-    fanoutMessageToRoomTerminals(deck.roomId, roomMessage);
+    // forceBroadcastToAll: Stage feedback is inherently room-wide — ANY agent in
+    // the room should be able to pick it up and draft a slide, not just an
+    // @-mentioned one or the operator's own broadcast. Without this, a non-operator
+    // presenter's feedback with no explicit @ would reach nobody (delivery loop
+    // skips untargeted members). Focus/shield/solo + room-mode gates still apply.
+    fanoutMessageToRoomTerminals(deck.roomId, roomMessage, { forceBroadcastToAll: true });
   } catch { /* best-effort */ }
   try {
     broadcastToRoom(deck.roomId, { type: 'message_added', message: roomMessage });
