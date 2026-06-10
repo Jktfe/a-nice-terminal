@@ -42,6 +42,10 @@ const POLL_MAX_MS = 60_000;
 const POLL_DEFAULT_MS = 10_000;
 const POLL_MAX_TERMINALS_DEFAULT = 5;
 const HOOK_FRESH_MS = 30_000;
+// Stop-drop backstop window. A volatile (working/thinking) status whose last
+// write is older than this with no refreshing signal is treated as a lost
+// Stop event and decayed to idle. See reconcileStaleVolatileStatuses.
+const STALE_VOLATILE_DECAY_DEFAULT_MS = 90_000;
 const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
 const CWD_CACHE_TTL_MS = 5_000;
 
@@ -102,6 +106,61 @@ function maxTerminalsPerTick(): number {
 
 function isVolatileAgentStatus(status: AgentStatus): boolean {
   return status === 'working' || status === 'thinking';
+}
+
+function staleVolatileDecayMs(): number {
+  const raw = Number(process.env.ANT_AGENT_STATUS_STALE_DECAY_MS);
+  const requested = Number.isFinite(raw) && raw > 0 ? raw : STALE_VOLATILE_DECAY_DEFAULT_MS;
+  // Never decay faster than the hook-fresh window or we'd undo a still-fresh
+  // hook write before the fingerprint/hook paths get a chance to re-confirm it.
+  return Math.max(HOOK_FRESH_MS, requested);
+}
+
+/**
+ * reconcileStaleVolatileStatuses — the Stop-drop backstop (JWPK, Agents Agents
+ * 2026-06-10: "you'd stopped but your ant didn't").
+ *
+ * agent_status flips to working/thinking via a hook POST, but the Stop hook
+ * that should flip it back to idle is FIRE-AND-FORGET (curl … || true to prod
+ * :6174). On any server blip the Stop POST silently drops and nothing ever
+ * clears the volatile status — the agent "crawls" forever.
+ *
+ * Status truth must not depend on a single best-effort POST landing. This
+ * sweep decays any volatile status whose last write (agent_status_at_ms) is
+ * older than the decay window back to idle. The fingerprint path already
+ * REFRESHES agent_status_at_ms every tick for genuinely-active PANED terminals
+ * (so they never go stale here), which is why this matters most for remote /
+ * paneless terminals the fingerprint path cannot sample at all.
+ *
+ * Sweeps ALL live terminals (not the per-tick fingerprint slice) because the
+ * stuck terminal may not be in the sampled window. Per-terminal isolation so
+ * one bad write does not abort the sweep.
+ */
+export function reconcileStaleVolatileStatuses(nowMs: number = Date.now()): void {
+  const decayMs = staleVolatileDecayMs();
+  for (const terminal of listAllTerminals()) {
+    if (terminal.status !== 'live') continue;
+    const current = getAgentStatus(terminal.id);
+    if (!current || !isVolatileAgentStatus(current.agent_status)) continue;
+    if (!(current.agent_status_at_ms > 0)) continue;
+    const staleForMs = nowMs - current.agent_status_at_ms;
+    if (staleForMs < decayMs) continue;
+    try {
+      setAgentStatus({
+        terminalId: terminal.id,
+        newStatus: 'idle',
+        source: 'default',
+        nowMs,
+        evidence: {
+          via: 'stale-volatile-decay',
+          decayedFrom: current.agent_status,
+          previousSource: current.agent_status_source,
+          staleForMs,
+          decayWindowMs: decayMs
+        }
+      });
+    } catch { /* per-terminal failure does not block the sweep */ }
+  }
 }
 
 function defaultTmuxCwdFn(terminal: TerminalRow): string | null {
@@ -262,6 +321,11 @@ export function startPoller(input: StartPollerInput = {}): PollerController {
         try { setTerminalStatus(t.id, 'archived'); } catch { /* per-terminal failure does not block sweep */ }
       }
     }
+    // Stop-drop backstop: decay any volatile status whose last write has gone
+    // stale (a dropped fire-and-forget Stop POST) back to idle. Runs LAST so a
+    // fingerprint/hook refresh earlier this tick already kept active terminals
+    // fresh — only genuinely-stuck statuses remain to be decayed.
+    try { reconcileStaleVolatileStatuses(); } catch { /* sweep isolation */ }
   };
 
   const tick = (): void => { if (!stopped) void runOnce(); };

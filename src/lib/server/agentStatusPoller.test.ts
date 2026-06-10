@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { resetIdentityDbForTests, getIdentityDb } from './db';
 import { upsertTerminal } from './terminalsStore';
 import { getAgentStatus, listEventsForTerminal, setAgentStatus } from './agentStatusStore';
-import { startPoller, defaultTmuxCaptureFn, _testResetPoller } from './agentStatusPoller';
+import { startPoller, defaultTmuxCaptureFn, reconcileStaleVolatileStatuses, _testResetPoller } from './agentStatusPoller';
 import { hashCaptureOutput } from './fingerprintHasher';
 import { setSpawnImplForTests, resetBridgeStateForTests } from './pty-inject-bridge';
 import { _clearStateReaderCache } from './agentStateReader';
@@ -325,6 +325,96 @@ describe('agentStatusPoller — runOnce per-terminal', () => {
 
     expect(getAgentStatus(tid)?.agent_status).toBe('idle');
     expect(listEventsForTerminal(tid)).toHaveLength(0);
+  });
+});
+
+// JWPK (Agents Agents 2026-06-10): "you'd stopped but your ant didn't". The
+// Stop hook's fire-and-forget POST drops on any :6174 blip, leaving a volatile
+// status stuck forever with no reconciler. reconcileStaleVolatileStatuses is
+// the time-based backstop — it decays stale working/thinking → idle even for
+// the remote/paneless terminals the fingerprint path never samples.
+describe('agentStatusPoller — stale volatile decay (Stop-drop backstop)', () => {
+  it('decays a paneless terminal stuck on hook-working past the decay window to idle', async () => {
+    // The core bug: remote/paneless terminal, working written by a hook, Stop
+    // POST dropped. Fingerprint path can never sample it (no pane), so without
+    // this sweep it stays working forever.
+    const tid = makeAgentTerminal('t-stuck-working', 'claude_code', null);
+    setAgentStatus({
+      terminalId: tid,
+      newStatus: 'working',
+      source: 'hook',
+      nowMs: Date.now() - 120_000, // 2 min stale, past the 90s default window
+      evidence: { hookEventName: 'PreToolUse' }
+    });
+    const c = startPoller({ captureFn: () => null, intervalMs: 5000 });
+    await c.runOnce();
+    c.stop();
+    const status = getAgentStatus(tid);
+    expect(status?.agent_status).toBe('idle');
+    expect(status?.agent_status_source).toBe('default');
+    const events = listEventsForTerminal(tid);
+    expect(JSON.parse(events[0].evidence_json ?? '{}').via).toBe('stale-volatile-decay');
+  });
+
+  it('does NOT decay a volatile status still inside the decay window', () => {
+    const tid = makeAgentTerminal('t-fresh-volatile', 'claude_code', null);
+    setAgentStatus({
+      terminalId: tid,
+      newStatus: 'working',
+      source: 'hook',
+      nowMs: Date.now() - 10_000, // only 10s stale
+      evidence: { hookEventName: 'PreToolUse' }
+    });
+    reconcileStaleVolatileStatuses();
+    expect(getAgentStatus(tid)?.agent_status).toBe('working');
+    expect(listEventsForTerminal(tid)).toHaveLength(1); // no decay event added
+  });
+
+  it('never decays a non-volatile status (response-required stays put even when old)', () => {
+    const tid = makeAgentTerminal('t-response-required', 'claude_code', null);
+    setAgentStatus({
+      terminalId: tid,
+      newStatus: 'response-required',
+      source: 'hook',
+      nowMs: Date.now() - 600_000, // 10 min old — but not volatile
+      evidence: { hookEventName: 'Notification' }
+    });
+    reconcileStaleVolatileStatuses();
+    expect(getAgentStatus(tid)?.agent_status).toBe('response-required');
+    expect(listEventsForTerminal(tid)).toHaveLength(1);
+  });
+
+  it('does not touch archived terminals', () => {
+    const tid = makeAgentTerminal('t-archived-volatile', 'remote', null);
+    setAgentStatus({
+      terminalId: tid,
+      newStatus: 'working',
+      source: 'hook',
+      nowMs: Date.now() - 300_000,
+      evidence: { hookEventName: 'PreToolUse' }
+    });
+    getIdentityDb().prepare(`UPDATE terminals SET status = 'archived' WHERE id = ?`).run(tid);
+    reconcileStaleVolatileStatuses();
+    expect(getAgentStatus(tid)?.agent_status).toBe('working'); // untouched
+    expect(listEventsForTerminal(tid)).toHaveLength(1);
+  });
+
+  it('honours ANT_AGENT_STATUS_STALE_DECAY_MS override', () => {
+    process.env.ANT_AGENT_STATUS_STALE_DECAY_MS = '40000'; // 40s window
+    try {
+      const tid = makeAgentTerminal('t-custom-window', 'claude_code', null);
+      setAgentStatus({
+        terminalId: tid,
+        newStatus: 'thinking',
+        source: 'hook',
+        nowMs: Date.now() - 50_000, // 50s stale > 40s window → decays
+        evidence: { hookEventName: 'ThinkingStart' }
+      });
+      reconcileStaleVolatileStatuses();
+      expect(getAgentStatus(tid)?.agent_status).toBe('idle');
+    } finally {
+      delete process.env.ANT_AGENT_STATUS_STALE_DECAY_MS;
+    }
   });
 });
 
