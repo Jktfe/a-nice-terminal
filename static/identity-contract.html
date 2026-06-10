@@ -162,11 +162,11 @@ S.push({name:"Power cut", steps:[
  {t:"The desk goes vacant — nothing else moves", p:"Binding tombstoned. @dave is vacant. Look right: both rooms untouched. Memberships never lived on the pane.",
   panes:[], desks:[D("@dave",null,["@JWPK"],false,true,null,true)],
   rooms:[R("#big-ant",["@JWPK"],false,["@dave","@speedy"],[]),R("#fix-build",["@speedy","@JWPK"],false,["@dave"],[])],
-  led:["<span class='ka'>VACATE</span>    @dave                         tombstone, grace window open"]},
- {t:"A new pane, the same desk", p:"Pane 2 boots, resumes the work session, claims the vacant desk. No token carried, no memory required — the vacancy plus the claim is the whole protocol.",
+  led:["<span class='ka'>VACATE</span>    @dave                         tombstone · reclaim/rebind open"]},
+ {t:"A new pane, the same desk", p:"Pane 2 boots, resumes the work session, claims the vacant desk. No token carried, no memory required — the vacancy plus the claim is the whole protocol. Claims are loud: owners are notified.",
   panes:[P("pane 2","claude","live")], desks:[D("@dave","pane 2 · claude",["@JWPK"],false,false,null,true)],
   rooms:[R("#big-ant",["@JWPK"],false,["@dave","@speedy"],[]),R("#fix-build",["@speedy","@JWPK"],false,["@dave"],[])],
-  led:["<span class='k'>SPAWN</span>     pane 2                        witness: daemon","<span class='k'>CLAIM</span>     @dave ⇐ pane 2                vacant → bound"]},
+  led:["<span class='k'>SPAWN</span>     pane 2                        witness: daemon","<span class='k'>CLAIM</span>     @dave ⇐ pane 2                vacant → bound","<span class='ka'>NOTIFY</span>    owners[@JWPK]                  vacant-claim"]},
  {t:"Nothing to rejoin", p:"whoami → @dave. Both rooms, full history, same member. The conversation carries on mid-sentence.",
   panes:[P("pane 2","claude","live")], desks:[D("@dave","pane 2 · claude",["@JWPK"],false)],
   rooms:[R("#big-ant",["@JWPK"],false,["@dave","@speedy"],[],null,true),R("#fix-build",["@speedy","@JWPK"],false,["@dave"],[],null,true)],
@@ -256,7 +256,7 @@ function render(){
     || `<div class="ln" style="color:#56657a;font-family:var(--mono);font-size:12px">— none alive —</div>`;
   $("lDesks").innerHTML = step.desks.map(d=>`<div class="card${d.fl?(d.bad?' flash bad':' flash'):''}">
     <div class="nm">${d.n}</div>
-    ${d.vac?chip("VACANT · grace open","vac"):d.occ?chip("⇐ "+d.occ,"ok"):""}
+    ${d.vac?chip("VACANT · reclaim/rebind open","vac"):d.occ?chip("⇐ "+d.occ,"ok"):""}
     <div class="ln">owners: [${d.ow.join(", ")}] · approval: ${d.ap?'<span class="hold">ON</span>':'off'}</div></div>`).join("")
     || `<div class="ln" style="color:#56657a;font-family:var(--mono);font-size:12px">— no desks yet —</div>`;
   $("lRooms").innerHTML = step.rooms.map(r=>`<div class="card${r.fl?' flash':''}">
