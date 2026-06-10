@@ -30,6 +30,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getOperatorHandle } from './operatorHandle';
 
 export type HandleValidationOk = { ok: true; canonicalHandle: string };
 export type HandleValidationFail = { ok: false; reason: HandleValidationReason; message: string };
@@ -194,6 +195,20 @@ export function validateHandleForRegistration(handle: unknown): HandleValidation
       reason: 'invalid_characters',
       message:
         "handle may contain only letters, digits, '_', '-', '.', and must not start or end with '.' or '-'."
+    };
+  }
+  // JWPK msg_1iff57erwg (2026-06-10): the operator handle is the SERVER's
+  // identity — no agent may claim or change it via registration. Reserved
+  // dynamically off getOperatorHandle() (configurable via ANT_OPERATOR_HANDLE)
+  // so it tracks the configured operator, not a stale static list entry. The
+  // operator's own @handle comes from operator config + room leases, not this
+  // register path, so reserving it here locks out impostors without locking
+  // out the operator.
+  if (canonical.toLowerCase() === getOperatorHandle().toLowerCase()) {
+    return {
+      ok: false,
+      reason: 'reserved',
+      message: `handle '${canonical}' is the operator handle and cannot be registered by anyone but the operator.`
     };
   }
   if (isReservedHandle(canonical)) {

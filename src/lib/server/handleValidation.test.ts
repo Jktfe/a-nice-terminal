@@ -221,3 +221,19 @@ describe('handleValidation — normaliseHandle helper', () => {
     expect(normaliseHandle('   ')).toBe('');
   });
 });
+
+describe('operator-handle reservation (JWPK msg_1iff57erwg)', () => {
+  it('rejects the configured operator handle (@JWPK) from registration', () => {
+    const prev = process.env.ANT_OPERATOR_HANDLE;
+    delete process.env.ANT_OPERATOR_HANDLE; // default = @JWPK
+    const r = validateHandleForRegistration('@JWPK');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe('reserved');
+    const rLower = validateHandleForRegistration('@jwpk');
+    expect(rLower.ok).toBe(false); // case-insensitive
+    if (prev === undefined) delete process.env.ANT_OPERATOR_HANDLE; else process.env.ANT_OPERATOR_HANDLE = prev;
+  });
+  it('still allows a normal agent handle', () => {
+    expect(validateHandleForRegistration('@oiresearch').ok).toBe(true);
+  });
+});
