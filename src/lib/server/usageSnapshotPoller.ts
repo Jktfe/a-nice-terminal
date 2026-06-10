@@ -46,7 +46,10 @@ async function tickOnce(): Promise<void> {
     // a fresh upstream sample, not the cached value from the last UI
     // burst-read.
     const payload = await fetchUsage({ bypassCache: true });
-    if (!payload.daemonReachable) return;
+    // JWPK 2026-06-10: ANT-local providers (qwen, ollama) are real
+    // samples even when the open-usage daemon is down, so the gate is
+    // "any providers at all" rather than daemonReachable. A fully empty
+    // payload is still skipped — failure ticks would muddy the trend.
     if (payload.providers.length === 0) return;
     insertUsageSnapshot(payload);
   } catch {

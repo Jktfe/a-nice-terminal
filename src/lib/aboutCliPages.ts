@@ -10,11 +10,20 @@ export type AboutCliSource = {
 
 export type AboutCliPage = {
   slug: string;
+  sourcePage: string;
   fileName: string;
   name: string;
   shortName: string;
   badge: string;
   summary: string;
+  character: {
+    handle: string;
+    title: string;
+    opener: string;
+    voice: string;
+    command: string;
+    artifact: string;
+  };
   theme: {
     accent: string;
     accent2: string;
@@ -32,12 +41,22 @@ export type AboutCliPage = {
 export const aboutCliPages: AboutCliPage[] = [
   {
     slug: 'claude-code',
+    sourcePage: '/about-cli-originals/claude-code.html',
     fileName: 'ABOUT-CLAUDE-CODE',
     name: 'Claude Code',
     shortName: 'Claude',
     badge: 'Lifecycle hooks',
     summary:
       'A repository coding CLI with a deep lifecycle surface: prompts, tools, hooks, subagents, transcripts, and stop events can all become part of an observable engineering loop.',
+    character: {
+      handle: '@claudes-claude',
+      title: "The operator's console",
+      opener: 'I turn repository rules into a working control surface.',
+      voice:
+        'Warm, rigorous, and instrumented: Claude Code feels less like a chat box and more like a command desk with rails.',
+      command: 'claude --hook SessionStart --hook PreToolUse --hook Stop',
+      artifact: 'hook ledger / subagent fan-out / transcript-backed handoff'
+    },
     theme: {
       accent: '#c05621',
       accent2: '#f97316',
@@ -80,12 +99,22 @@ export const aboutCliPages: AboutCliPage[] = [
   },
   {
     slug: 'codex-cli',
+    sourcePage: '/about-cli-originals/codex-cli.html',
     fileName: 'ABOUT-CODEX-CLI',
     name: 'OpenAI Codex CLI',
     shortName: 'Codex',
     badge: 'Terminal coding agent',
     summary:
       'A local terminal coding agent for reading files, editing code, running commands, checking tests, and leaving a clear trail of what changed.',
+    character: {
+      handle: '@codexs-codex',
+      title: 'The terminal pair programmer',
+      opener: 'I read first, patch second, and prove the result in the shell.',
+      voice:
+        'Sparse, pragmatic, and repo-native: Codex belongs beside the diff, the test command, and the handoff note.',
+      command: 'codex --cwd . --ask-for-approval on-request',
+      artifact: 'audited diff / command transcript / verification receipt'
+    },
     theme: {
       accent: '#0f766e',
       accent2: '#22c55e',
@@ -131,68 +160,88 @@ export const aboutCliPages: AboutCliPage[] = [
     ]
   },
   {
-    slug: 'gemini-cli',
-    fileName: 'ABOUT-GEMINI-CLI',
-    name: 'Gemini CLI',
-    shortName: 'Gemini',
-    badge: 'ReAct workbench',
+    slug: 'antigravity',
+    sourcePage: '/about-cli-originals/antigravity.html',
+    fileName: 'ABOUT-ANTIGRAVITY',
+    name: 'Google Antigravity',
+    shortName: 'Antigravity',
+    badge: 'Agentic command centre',
     summary:
-      'Google Gemini in the terminal: local project context, built-in tools, Google Search grounding where available, and MCP extension points.',
+      'Google Antigravity is the agent-first development platform and CLI lane for orchestrating agents across editor, terminal, browser, tasks, artifacts, hooks, skills, and plugins.',
+    character: {
+      handle: '@antigravitys-agy',
+      title: 'The mission-control deck',
+      opener: 'I launch agent work from idea to verified artifact.',
+      voice:
+        'Fast, luminous, and orchestration-first: Antigravity should feel like a flight deck for coding agents, not a generic Gemini page.',
+      command: 'antigravity run --agent --artifacts --verify',
+      artifact: 'plan / task list / screenshot / browser recording'
+    },
     theme: {
       accent: '#2563eb',
-      accent2: '#7c3aed',
+      accent2: '#00a8c7',
       bg: '#0b1020',
       panel: '#eff6ff'
     },
-    loop: ['Prompt', 'Reason', 'Act', 'Observe', 'Extend'],
+    loop: ['Launch', 'Plan', 'Act', 'Artifact', 'Verify'],
     capabilities: [
       {
-        name: 'Reason and act loop',
+        name: 'Agent orchestration',
         detail:
-          'Use a tool loop to inspect, act, observe results, and continue until the task resolves or blocks.'
+          'Coordinate agent work across a command-centre style platform instead of treating the model as a single editor autocomplete.'
       },
       {
-        name: 'Built-in tools',
+        name: 'Editor, terminal, and browser',
         detail:
-          'Use file operations, shell commands, web fetching, and grounding where the account and setup allow it.'
+          'Let agents work across development surfaces and return artifacts that show what happened.'
       },
       {
-        name: 'MCP extension',
+        name: 'Antigravity CLI continuity',
         detail:
-          'Add local or remote MCP servers through settings to connect external tools.'
+          'The Antigravity CLI direction keeps critical Gemini CLI-style capabilities such as skills, hooks, subagents, and extensions/plugins.'
       }
     ],
     goodFit: [
-      'Large-context code understanding.',
-      'Bug fixes, feature work, and test coverage improvements.',
-      'Research and task management from the command line.'
+      'Agent-managed feature work where planning, execution, and verification need to stay visible.',
+      'Workflows that benefit from a manager view, artifacts, and multi-surface orchestration.',
+      'Teams moving from Gemini CLI into the Antigravity CLI/platform lane.'
     ],
     boundaries: [
-      'Not every workflow is offline-only.',
-      'Enterprise privacy depends on the edition and account configuration.',
-      'Tool access should match repository trust.'
+      'Do not call it just Gemini CLI; Antigravity is the product/lane.',
+      'Not every Gemini CLI feature has one-to-one parity during transition.',
+      'Agent autonomy still needs artifacts, review, and permission boundaries.'
     ],
-    signals: ['Prompt', 'Reason', 'Tools', 'MCP', 'Verify'],
+    signals: ['Agents', 'Artifacts', 'Skills', 'Hooks', 'Plugins'],
     sources: [
-      { label: 'Gemini CLI GitHub repository', href: 'https://github.com/google-gemini/gemini-cli' },
+      { label: 'Google Antigravity', href: 'https://antigravity.google/' },
       {
-        label: 'Gemini CLI on Google Cloud',
-        href: 'https://docs.cloud.google.com/gemini/docs/codeassist/gemini-cli'
+        label: 'Antigravity CLI overview',
+        href: 'https://antigravity.google/docs/cli-overview'
       },
       {
-        label: 'Gemini CLI MCP docs',
-        href: 'https://google-gemini.github.io/gemini-cli/docs/tools/mcp-server.html'
+        label: 'Transitioning Gemini CLI to Antigravity CLI',
+        href: 'https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/'
       }
     ]
   },
   {
     slug: 'github-copilot-cli',
+    sourcePage: '/about-cli-originals/github-copilot-cli.html',
     fileName: 'ABOUT-GITHUB-COPILOT-CLI',
     name: 'GitHub Copilot CLI',
     shortName: 'Copilot',
     badge: 'GitHub-native terminal agent',
     summary:
       'Copilot in the terminal, built around trusted directories, tool approval prompts, repository instructions, GitHub context, and resumable sessions.',
+    character: {
+      handle: '@copilots-copilot',
+      title: 'The pull-request co-pilot',
+      opener: 'I live where issues, branches, reviews, and terminal work meet.',
+      voice:
+        'Polished, GitHub-native, and review-aware: Copilot should feel like a PR cockpit with an approval switch in reach.',
+      command: 'copilot --trusted-directory . --resume',
+      artifact: 'issue context / patch proposal / PR-ready summary'
+    },
     theme: {
       accent: '#0969da',
       accent2: '#8250df',
@@ -238,12 +287,22 @@ export const aboutCliPages: AboutCliPage[] = [
   },
   {
     slug: 'qwen-code',
+    sourcePage: '/about-cli-originals/qwen-code.html',
     fileName: 'ABOUT-QWEN-CODE',
     name: 'Qwen Code',
     shortName: 'Qwen',
     badge: 'Configurable coding CLI',
     summary:
       'An open source coding-agent CLI optimized for Qwen models, with settings layers, project files, hooks, skills, and MCP for external tools.',
+    character: {
+      handle: '@qwens-qwen',
+      title: 'The configurable workshop',
+      opener: 'I make the repo itself part of the agent setup.',
+      voice:
+        'Precise, bright, and configurable: Qwen Code should feel like a lab bench where settings, hooks, and skills are laid out in reach.',
+      command: 'qwen --settings .qwen/settings.json --hooks on',
+      artifact: 'settings stack / hook event / MCP tool bridge'
+    },
     theme: {
       accent: '#0369a1',
       accent2: '#9333ea',
@@ -290,12 +349,22 @@ export const aboutCliPages: AboutCliPage[] = [
   },
   {
     slug: 'pi-local',
+    sourcePage: '/about-cli-originals/pi-local.html',
     fileName: 'ABOUT-PI-LOCAL',
     name: 'Pi local runtime',
     shortName: 'Pi',
     badge: 'Local runtime lane',
     summary:
       'A small-context local runtime pattern for ANT-friendly model work. It is a lane around local models and transcript adapters, not a single vendor CLI.',
+    character: {
+      handle: '@pis-pi',
+      title: 'The local bench',
+      opener: 'I keep small jobs close to the development environment and make their evidence portable.',
+      voice:
+        'Compact, practical, and grounded: Pi is the bench runtime for local models, narrow tasks, and transcript adapters.',
+      command: 'ollama run gemma3 --keepalive 10m',
+      artifact: 'local transcript / usage line / adapter event'
+    },
     theme: {
       accent: '#9a5b00',
       accent2: '#f59e0b',
@@ -307,7 +376,7 @@ export const aboutCliPages: AboutCliPage[] = [
       {
         name: 'Local model execution',
         detail:
-          'Run supported models on the developer machine through a local runtime such as Ollama.'
+          'Run supported models in a developer-controlled environment through a local runtime such as Ollama.'
       },
       {
         name: 'Constrained work',
@@ -341,4 +410,3 @@ export const aboutCliPages: AboutCliPage[] = [
 export function getAboutCliPage(slug: string): AboutCliPage | undefined {
   return aboutCliPages.find((page) => page.slug === slug);
 }
-

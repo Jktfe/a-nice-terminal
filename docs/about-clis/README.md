@@ -4,7 +4,7 @@ This folder contains OSS-ready `ABOUT-[CLI]` drafts derived from the Task 1
 agent pages in `static/`, but rewritten for a generic public audience.
 
 The goal is to keep the visual, capability-led feel of the original pages while
-removing room-specific claims, model-version claims, and private workflow
+removing workspace-specific claims, model-version claims, and private workflow
 language that would not belong in an open source repository.
 
 ## Drafts
@@ -13,7 +13,7 @@ language that would not belong in an open source repository.
 |---|---|
 | Claude Code | [ABOUT-CLAUDE-CODE.md](ABOUT-CLAUDE-CODE.md) |
 | OpenAI Codex CLI | [ABOUT-CODEX-CLI.md](ABOUT-CODEX-CLI.md) |
-| Gemini CLI | [ABOUT-GEMINI-CLI.md](ABOUT-GEMINI-CLI.md) |
+| Google Antigravity | [ABOUT-ANTIGRAVITY.md](ABOUT-ANTIGRAVITY.md) |
 | GitHub Copilot CLI | [ABOUT-GITHUB-COPILOT-CLI.md](ABOUT-GITHUB-COPILOT-CLI.md) |
 | Qwen Code | [ABOUT-QWEN-CODE.md](ABOUT-QWEN-CODE.md) |
 | Pi local runtime | [ABOUT-PI-LOCAL.md](ABOUT-PI-LOCAL.md) |
@@ -34,4 +34,3 @@ These drafts draw visual tone and section shape from:
 The drafts cite public sources inside each page. They should be fact-checked
 again before being copied into external OSS repositories because CLI surfaces
 change quickly.
-

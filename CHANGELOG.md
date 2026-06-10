@@ -8,6 +8,22 @@ All notable changes to ANT are documented here. Format follows
 
 ### Added
 
+- **Qwen + Ollama usage stats without the open-usage daemon.** The /terminals
+  usage strip now shows two ANT-local providers alongside the daemon's:
+  - **Qwen Code** — auth detection from `~/.qwen/settings.json` (Coding Plan /
+    API key / discontinued OAuth badge) plus request + token counts parsed
+    from local session logs under `~/.qwen/projects` (qwen-code has no quota
+    API; its own Insight feature reads the same files). Coding Plan users get
+    a rolling 5-hour progress bar against the 6,000-requests/5h quota.
+  - **Ollama** — live server status from `/api/tags` + `/api/ps`, plus a new
+    `local_usage_events` SQLite ledger recording token counts wherever ANT
+    already observes Ollama traffic (pi transcript tail is the first feed).
+    Ollama exposes no usage API, so observed-at-source is the only way.
+  - Local providers merge into every `/api/usage` payload (daemon wins on id
+    clash), ride the existing 12 h trend snapshots, and stand alone when the
+    open-usage daemon is down or not installed. Disable with
+    `ANT_LOCAL_USAGE_PROVIDERS=off`.
+
 - **Session recovery after a reboot.** A Mac restart kills the tmux server and
   every agent CLI process (the SQLite DB and the launchd-managed server
   survive), leaving every session archived and forcing an operator to rebuild

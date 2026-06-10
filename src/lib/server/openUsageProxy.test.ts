@@ -11,6 +11,36 @@ import {
   fetchUsage,
   resetOpenUsageCacheForTests
 } from './openUsageProxy';
+import type { UsageProvider } from '$lib/usage/types';
+
+// Local providers (qwen/ollama probes, JWPK 2026-06-10) are stubbed so
+// these tests stay deterministic: no fs reads of ~/.qwen, no HTTP to
+// :11434. Tests opt in by pushing into testLocalProviders.
+const localProviderTestState = vi.hoisted(() => ({
+  providers: [] as unknown[]
+}));
+
+vi.mock('./localUsage/localProviders', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./localUsage/localProviders')>();
+  return {
+    ...actual,
+    collectLocalUsageProviders: vi.fn(
+      async () => localProviderTestState.providers as UsageProvider[]
+    )
+  };
+});
+
+function fakeLocalProvider(providerId: string): UsageProvider {
+  return {
+    providerId,
+    displayName: providerId,
+    plan: 'Local',
+    lines: [
+      { type: 'text', label: 'Today', value: '1.2K tokens · 3 calls', color: null, subtitle: null }
+    ],
+    fetchedAt: '2026-06-10T09:00:00.000Z'
+  };
+}
 
 const VALID_PAYLOAD = [
   {
@@ -40,6 +70,7 @@ function mockFetch(impl: (input: string, init?: RequestInit) => Promise<Response
 describe('fetchUsage', () => {
   beforeEach(() => {
     resetOpenUsageCacheForTests();
+    localProviderTestState.providers = [];
   });
 
   afterEach(() => {
@@ -107,5 +138,37 @@ describe('fetchUsage', () => {
     const payload = await fetchUsage();
     expect(payload.daemonReachable).toBe(false);
     expect(payload.providers).toEqual([]);
+  });
+
+  // --- ANT-local providers (qwen + ollama, JWPK 2026-06-10) ---
+
+  it('appends local providers after the daemon providers', async () => {
+    localProviderTestState.providers = [fakeLocalProvider('qwen'), fakeLocalProvider('ollama')];
+    mockFetch(async () => new Response(JSON.stringify(VALID_PAYLOAD), { status: 200 }));
+    const payload = await fetchUsage();
+    expect(payload.daemonReachable).toBe(true);
+    expect(payload.providers.map((p) => p.providerId)).toEqual(['claude', 'qwen', 'ollama']);
+  });
+
+  it('prefers the daemon provider when ids clash', async () => {
+    localProviderTestState.providers = [fakeLocalProvider('claude'), fakeLocalProvider('qwen')];
+    mockFetch(async () => new Response(JSON.stringify(VALID_PAYLOAD), { status: 200 }));
+    const payload = await fetchUsage();
+    const claudeProviders = payload.providers.filter((p) => p.providerId === 'claude');
+    expect(claudeProviders).toHaveLength(1);
+    // Daemon copy survives — it carries the plan from upstream.
+    expect(claudeProviders[0].plan).toBe('Max 20x');
+    expect(payload.providers.map((p) => p.providerId)).toEqual(['claude', 'qwen']);
+  });
+
+  it('serves local providers alone when the daemon was never reachable', async () => {
+    localProviderTestState.providers = [fakeLocalProvider('ollama')];
+    mockFetch(async () => {
+      throw new TypeError('fetch failed');
+    });
+    const payload = await fetchUsage();
+    expect(payload.daemonReachable).toBe(false);
+    expect(payload.proxyFetchedAt).toBeNull();
+    expect(payload.providers.map((p) => p.providerId)).toEqual(['ollama']);
   });
 });

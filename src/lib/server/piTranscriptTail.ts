@@ -21,6 +21,7 @@ import { broadcastTerminalEvent } from './terminalEventBroadcast';
 import { transcriptEventKey } from './transcriptEventId';
 import { fanoutMessageToLinkedChatRoom } from './transcriptToChatFanout';
 import { contextFillFromTokens, numberValue, type ContextFillReading } from './contextFillTelemetry';
+import { recordLocalUsageEvent } from './localUsage/ollamaLedger';
 import { setAgentContextFill } from './terminalsStore';
 import type { ClassifiedKind } from './classifiers/types';
 import type { TerminalRunEventTrust } from './terminalRunEventsStore';
@@ -46,8 +47,11 @@ type PiContentItem = {
 type PiMessage = {
   role?: string;
   content?: PiContentItem[];
+  provider?: string;
+  model?: string;
   usage?: {
     input?: number;
+    output?: number;
     cacheRead?: number;
     cacheWrite?: number;
   };
@@ -120,6 +124,15 @@ export function ingestPiTranscriptLine(sessionId: string, rawLine: string): numb
     }
   }
 
+  // Local-usage ledger feed (JWPK 2026-06-10): pi-cli rides on Ollama,
+  // and Ollama has no usage API — these transcript usage objects are
+  // the only durable token evidence we get. Best-effort by design.
+  try {
+    recordOllamaUsageFromPiLine(rawLine);
+  } catch {
+    // The ledger must never block transcript ingestion.
+  }
+
   const events = parsePiTranscriptLine(rawLine);
   let nativeId: string | null = null;
   try { nativeId = (JSON.parse(rawLine.trim()) as { id?: string }).id ?? null; } catch { /* hash fallback */ }
@@ -163,6 +176,36 @@ export function readContextFillFromPiUsageLine(rawLine: string): ContextFillRead
   } catch {
     return null;
   }
+}
+
+/** Record one ledger event when a pi transcript line carries usage
+ *  tokens. Input = prompt-side tokens (fresh + cache); output = the
+ *  assistant's generated tokens when the transcript reports them. */
+export function recordOllamaUsageFromPiLine(rawLine: string): void {
+  const trimmed = rawLine.trim();
+  if (trimmed.length === 0) return;
+  let parsed: PiJsonlEvent;
+  try {
+    parsed = JSON.parse(trimmed) as PiJsonlEvent;
+  } catch {
+    return;
+  }
+  const message = parsed.message;
+  const usage = message?.usage;
+  if (!usage) return;
+  // Pi rides whichever local backend is configured (ollama, lmstudio, …) and
+  // records it on `message.provider`. Attribute to that provider so non-ollama
+  // traffic isn't mis-counted as ollama; default to 'ollama' only when the
+  // transcript omits it.
+  const provider = (message?.provider ?? 'ollama').toLowerCase();
+  recordLocalUsageEvent({
+    provider,
+    model: message?.model,
+    source: 'pi-transcript',
+    inputTokens:
+      numberValue(usage.input) + numberValue(usage.cacheRead) + numberValue(usage.cacheWrite),
+    outputTokens: numberValue(usage.output)
+  });
 }
 
 export function readCwdFromPiSessionLine(rawLine: string): string | null {

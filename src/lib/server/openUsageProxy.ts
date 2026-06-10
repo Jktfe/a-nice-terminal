@@ -25,6 +25,7 @@ import {
   type UsagePayload,
   type UsageProvider
 } from '$lib/usage/types';
+import { collectLocalUsageProviders, mergeProviders } from './localUsage/localProviders';
 
 const DAEMON_URL = process.env.ANT_OPEN_USAGE_URL ?? 'http://127.0.0.1:6736/v1/usage';
 const DEFAULT_CACHE_TTL_MS = 30_000;
@@ -123,7 +124,10 @@ export async function fetchUsage(options: FetchUsageOptions = {}): Promise<Usage
   try {
     const providers = await fetchDaemonOnce(options.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS);
     const payload: UsagePayload = {
-      providers,
+      // JWPK 2026-06-10: ANT-local providers (qwen, ollama) ride along
+      // with every daemon payload. Daemon wins on id clash so a future
+      // upstream plugin supersedes our local probe automatically.
+      providers: mergeProviders(providers, await collectLocalUsageProviders(now)),
       proxyFetchedAt: new Date(now).toISOString(),
       daemonReachable: true
     };
@@ -133,11 +137,21 @@ export async function fetchUsage(options: FetchUsageOptions = {}): Promise<Usage
     if (slot.value) {
       // Soft-fail: serve the last known good payload with
       // daemonReachable flipped to false so the UI can show a
-      // stale-cache indicator.
+      // stale-cache indicator. Local providers are already baked into
+      // the cached payload, so the strip keeps them too.
       const stale = slot.value.payload;
       return { ...stale, daemonReachable: false };
     }
-    return emptyPayload();
+    // Daemon never reached: local providers still stand on their own —
+    // a machine without open-usage installed still gets qwen + ollama
+    // stats rather than an empty strip.
+    const localProviders = await collectLocalUsageProviders(now);
+    if (localProviders.length === 0) return emptyPayload();
+    return {
+      providers: localProviders,
+      proxyFetchedAt: null,
+      daemonReachable: false
+    };
   }
 }
 

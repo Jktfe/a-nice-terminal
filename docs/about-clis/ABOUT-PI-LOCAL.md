@@ -4,14 +4,14 @@
 
 Pi local runtime is the local, small-context lane: an ANT-friendly shell harness
 for running local or locally-routed models through tools such as Ollama. It is
-not a single vendor CLI in the same way as Codex, Claude Code, Gemini CLI,
+not a single vendor CLI in the same way as Codex, Claude Code, Antigravity,
 Copilot CLI, or Qwen Code. Treat it as a local runtime pattern.
 
 ## What It Is Good At
 
 | Capability | What it means in a repo |
 |---|---|
-| Local model execution | Run supported models on the developer machine through a local runtime. |
+| Local model execution | Run supported models in a developer-controlled environment through a local runtime. |
 | Privacy-aware loops | Keep suitable prompts and outputs local when the selected model and runtime support it. |
 | Fast constrained work | Handle small, well-scoped tasks where shorter context and lower latency matter. |
 | Adapter-friendly telemetry | Project transcript, usage, and terminal events into the same evidence model as cloud CLIs. |
@@ -47,4 +47,3 @@ The right job is narrow, inspectable, and easy to verify:
 - Ollama's CLI reference documents running models and launching integrations from the terminal: <https://docs.ollama.com/cli>
 - Google's Gemma with Ollama guide documents setting up Ollama to run Gemma models locally: <https://ai.google.dev/gemma/docs/integrations/ollama>
 - The existing ANT Task 1 Pi page is local project evidence for the visual and operating style: `static/pi-about.html`
-
