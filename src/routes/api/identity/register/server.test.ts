@@ -708,6 +708,16 @@ describe('POST /api/identity/register', () => {
       expect(response.status).toBe(201);
     });
 
+    it('rejects fresh attempts to register as the server handle', async () => {
+      const response = await callPost(JSON.stringify({
+        name: 'fake-jwpk',
+        handle: '@JWPK',
+        pids: [{ pid: 105, pid_start: 's' }]
+      }));
+      expect(response.status).toBe(400);
+      expect(getTerminalByName('fake-jwpk')).toBeNull();
+    });
+
     it('Option A: live-handle collision -> 201 + suffixed @x-N, clean @x untouched (supersedes the old 409, 2026-06-04)', async () => {
       // Pre-2026-06-04 this path threw 409 — but it rejected BEFORE the session
       // token + lease were minted, so the caller walked away TOKENLESS = mute

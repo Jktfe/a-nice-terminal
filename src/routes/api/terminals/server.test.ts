@@ -30,6 +30,7 @@ import { resetIdentityDbForTests } from '$lib/server/db';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
+const previousAdminToken = process.env.ANT_ADMIN_TOKEN;
 
 type AnyHandler = (event: unknown) => unknown;
 
@@ -64,6 +65,8 @@ describe('/api/terminals POST SPAWN-LOCALITY-GATE', () => {
     rmSync(tmpDir, { recursive: true, force: true });
     if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
     else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
+    if (previousAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = previousAdminToken;
   });
 
   it('rejects Bearer rbt_* (remote-bridge token) with 403', async () => {
@@ -158,6 +161,8 @@ describe('/api/terminals POST sec-iter2 Fix #2: API-layer handle validation', ()
     rmSync(tmpDir, { recursive: true, force: true });
     if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
     else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
+    if (previousAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = previousAdminToken;
   });
 
   it('rejects { handle: "@admin" } with 400 (the exact iter2-review exploit)', async () => {
@@ -205,6 +210,17 @@ describe('/api/terminals POST sec-iter2 Fix #2: API-layer handle validation', ()
       eventFor('POST', '/api/terminals', {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ sessionId: 't_short', handle: '@' })
+      })
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it('rejects attempts to spawn or attach a terminal as the server handle', async () => {
+    const response = await runHandler(
+      terminalsPost as unknown as AnyHandler,
+      eventFor('POST', '/api/terminals', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 't_server_handle_claim', handle: '@JWPK' })
       })
     );
     expect(response.status).toBe(400);

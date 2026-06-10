@@ -34,6 +34,7 @@ import {
   isCandidateStale
 } from '$lib/server/roomMembershipsStore';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
+import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle';
 import {
   findActiveTerminalRecordByHandle,
   lowestFreeTerminalHandle
@@ -159,6 +160,17 @@ export const POST: RequestHandler = async ({ request }) => {
   const callerSession = sessionTokenFromCaller ? getSession(sessionTokenFromCaller) : null;
   const callerOwnsExistingTerminal =
     existing !== null && callerSession?.terminal_id === existing.id;
+  if (handleValue && isOperatorHandle(handleValue)) {
+    const existingRecord = existing ? getTerminalRecord(existing.id) : null;
+    const idempotentOperatorReregister =
+      callerOwnsExistingTerminal &&
+      existingRecord?.handle !== null &&
+      existingRecord?.handle !== undefined &&
+      isOperatorHandle(existingRecord.handle);
+    if (!idempotentOperatorReregister) {
+      throw error(403, `${getOperatorHandle()} is the server handle and can only be re-registered by its existing terminal.`);
+    }
+  }
   // Phase A2 (JWPK A Team msg_7uvr35x0xr 2026-05-29, design Q2 default B —
   // helpful error w/ exact recovery command). Two 409 rejections layered
   // over the existing upsert path:

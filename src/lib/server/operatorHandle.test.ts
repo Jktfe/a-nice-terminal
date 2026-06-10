@@ -6,7 +6,7 @@ import {
 } from './operatorHandle';
 import { OPERATOR_SENTINEL } from '$lib/operatorSentinel';
 
-describe('operatorHandle — single configurable operator identity', () => {
+describe('operatorHandle — locked operator identity', () => {
   const prior = process.env.ANT_OPERATOR_HANDLE;
   beforeEach(() => {
     delete process.env.ANT_OPERATOR_HANDLE;
@@ -23,9 +23,11 @@ describe('operatorHandle — single configurable operator identity', () => {
     expect(canonicaliseOperatorHandle('@JWPK')).toBe('@JWPK');
   });
 
-  it('reads the configured operator handle from the env', () => {
-    process.env.ANT_OPERATOR_HANDLE = '@JWPK';
+  it('does not let ANT_OPERATOR_HANDLE change the server handle', () => {
+    process.env.ANT_OPERATOR_HANDLE = '@minimaxs-codex';
     expect(getOperatorHandle()).toBe('@JWPK');
+    expect(canonicaliseOperatorHandle('@you')).toBe('@JWPK');
+    expect(isOperatorHandle('@minimaxs-codex')).toBe(false);
   });
 
   it('canonicalises legacy operator aliases to the configured handle, passes others through', () => {

@@ -8,20 +8,20 @@
  * them. This module makes that rule ONE configurable value applied
  * CONSISTENTLY at every structural seam.
  *
- * Source of truth: `ANT_OPERATOR_HANDLE` (set in `~/.ant/secrets.env`).
- * Defaults to `OPERATOR_SENTINEL` (`@JWPK`) when unset.
+ * Source of truth: `OPERATOR_SENTINEL` (`@JWPK`).
  *
- * `getOperatorHandle()` is the ONE place the value is decided. Swapping to a
- * per-user / DB-derived source later (multi-tenant) is a change to this single
- * function — every caller already routes through it.
+ * This used to read `ANT_OPERATOR_HANDLE`, which meant changing process env
+ * changed the server's structural identity. That is exactly the wrong default:
+ * no agent shell, stale env file, or config edit should be able to move the
+ * operator identity. A future multi-tenant model must add an authenticated
+ * owner-controlled setting instead of reintroducing ambient env control.
  */
 
 import { OPERATOR_SENTINEL } from '$lib/operatorSentinel';
 
 /** The configured structural handle of the operator (default: `@JWPK`). */
 export function getOperatorHandle(): string {
-  const configured = process.env.ANT_OPERATOR_HANDLE?.trim();
-  return configured && configured.length > 0 ? configured : OPERATOR_SENTINEL;
+  return OPERATOR_SENTINEL;
 }
 
 /** Add a leading `@` and trim; no operator mapping. */

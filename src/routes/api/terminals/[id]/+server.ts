@@ -10,6 +10,8 @@ import type { RequestHandler } from './$types';
 import { getTerminalRecord, updateTerminalRecord, parseAllowlist, deriveHandle } from '$lib/server/terminalRecordsStore';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { listTerminals } from '$lib/server/ptyClient';
+import { resolveTerminalCallerHandle } from '$lib/server/authGate';
+import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle';
 
 export const GET: RequestHandler = async ({ params }) => {
   const sessionId = params.id ?? '';
@@ -39,6 +41,8 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   if (sessionId.length === 0) throw error(400, 'sessionId required.');
   const raw = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!raw) throw error(400, 'body must be a JSON object.');
+  const existing = getTerminalRecord(sessionId);
+  if (!existing) throw error(404, 'terminal not found');
   const patch: Record<string, unknown> = {};
   if (typeof raw.name === 'string') patch.name = raw.name;
   if (raw.autoForwardRoomId === null || typeof raw.autoForwardRoomId === 'string') patch.autoForwardRoomId = raw.autoForwardRoomId;
@@ -71,7 +75,19 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
       if (!validation.ok) {
         throw error(400, validation.message);
       }
-      patch.handle = trimmed;
+      patch.handle = validation.canonicalHandle;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'handle')) {
+    const nextHandle = patch.handle as string | null;
+    const touchesOperatorHandle =
+      (existing.handle !== null && isOperatorHandle(existing.handle)) ||
+      (nextHandle !== null && isOperatorHandle(nextHandle));
+    if (touchesOperatorHandle) {
+      const callerHandle = resolveTerminalCallerHandle(request);
+      if (!callerHandle || !isOperatorHandle(callerHandle)) {
+        throw error(403, `${getOperatorHandle()} is the server handle and can only be changed by the operator.`);
+      }
     }
   }
   // Session recovery: let the operator set/correct the launch command (e.g. for

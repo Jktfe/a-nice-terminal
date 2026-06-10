@@ -199,9 +199,9 @@ export function validateHandleForRegistration(handle: unknown): HandleValidation
   }
   // JWPK msg_1iff57erwg (2026-06-10): the operator handle is the SERVER's
   // identity — no agent may claim or change it via registration. Reserved
-  // dynamically off getOperatorHandle() (configurable via ANT_OPERATOR_HANDLE)
-  // so it tracks the configured operator, not a stale static list entry. The
-  // operator's own @handle comes from operator config + room leases, not this
+  // dynamically off getOperatorHandle() so it tracks the structural operator,
+  // not a stale static list entry. The operator's own @handle comes from
+  // operator config + room leases, not this
   // register path, so reserving it here locks out impostors without locking
   // out the operator.
   if (canonical.toLowerCase() === getOperatorHandle().toLowerCase()) {

@@ -22,7 +22,8 @@ import {
 } from '$lib/server/terminalRecordsStore';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { createChatRoom, findChatRoomById } from '$lib/server/chatRoomStore';
-import { getOperatorHandle } from '$lib/server/operatorHandle';
+import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle';
+import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 import {
   autoRegisterTerminalForSpawnedSession,
   listTerminalModelsByIds
@@ -30,6 +31,14 @@ import {
 
 function makeSessionId(): string {
   return 't_' + Math.random().toString(36).slice(2, 12);
+}
+
+function requireOperatorForOperatorHandle(request: Request, handle: string | undefined): void {
+  if (handle === undefined || !isOperatorHandle(handle)) return;
+  const callerHandle = resolveTerminalCallerHandle(request);
+  if (!callerHandle || !isOperatorHandle(callerHandle)) {
+    throw error(403, `${getOperatorHandle()} is the server handle and can only be assigned by the operator.`);
+  }
 }
 
 export const GET: RequestHandler = async () => {
@@ -129,6 +138,7 @@ export const POST: RequestHandler = async ({ request }) => {
     if (!validation.ok) {
       throw error(400, validation.message);
     }
+    requireOperatorForOperatorHandle(request, validation.canonicalHandle);
   }
 
   const result = await spawnTerminal(sessionId, { cwd, cols, rows });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetIdentityDbForTests } from '\$lib/server/db';
+import { getIdentityDb, resetIdentityDbForTests } from '\$lib/server/db';
 import { createTerminalRecord } from '\$lib/server/terminalRecordsStore';
 import { GET, PATCH } from './+server';
 
@@ -8,15 +8,18 @@ vi.mock('\$lib/server/ptyClient', () => ({
 }));
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
 
 type AnyHandler = (event: unknown) => unknown;
 
-function eventFor(id: string, method: 'GET' | 'PATCH', body?: unknown) {
+function eventFor(id: string, method: 'GET' | 'PATCH', body?: unknown, headers: Record<string, string> = {}) {
   const url = new URL(`http://localhost/api/terminals/${id}`);
   const init: RequestInit = { method };
   if (body !== undefined) {
-    init.headers = { 'content-type': 'application/json' };
+    init.headers = { 'content-type': 'application/json', ...headers };
     init.body = JSON.stringify(body);
+  } else if (Object.keys(headers).length > 0) {
+    init.headers = headers;
   }
   return {
     request: new Request(url, init),
@@ -47,6 +50,8 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
 describe('/api/terminals/:id', () => {
@@ -172,6 +177,58 @@ describe('/api/terminals/:id', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.handle).toBe('@alice-pv');
+    });
+
+    it('PATCH rejects unauthenticated claims of the server handle', async () => {
+      createTerminalRecord({ sessionId: 't-patch-server-claim', name: 'claim', handle: null });
+      const res = await run(
+        PATCH as unknown as AnyHandler,
+        eventFor('t-patch-server-claim', 'PATCH', { handle: '@JWPK' })
+      );
+      expect(res.status).toBe(400);
+      const getRes = await run(GET as unknown as AnyHandler, eventFor('t-patch-server-claim', 'GET'));
+      const body = await getRes.json();
+      expect(body.handle).toBeNull();
+    });
+
+    it('PATCH rejects unauthenticated clearing or changing of the server handle', async () => {
+      createTerminalRecord({ sessionId: 't-patch-server-clear', name: 'server', handle: null });
+      getIdentityDb()
+        .prepare(`UPDATE terminal_records SET handle = ? WHERE session_id = ?`)
+        .run('@JWPK', 't-patch-server-clear');
+      const clear = await run(
+        PATCH as unknown as AnyHandler,
+        eventFor('t-patch-server-clear', 'PATCH', { handle: null })
+      );
+      expect(clear.status).toBe(403);
+      const change = await run(
+        PATCH as unknown as AnyHandler,
+        eventFor('t-patch-server-clear', 'PATCH', { handle: '@someone-else' })
+      );
+      expect(change.status).toBe(403);
+      const getRes = await run(GET as unknown as AnyHandler, eventFor('t-patch-server-clear', 'GET'));
+      const body = await getRes.json();
+      expect(body.handle).toBe('@JWPK');
+    });
+
+    it('PATCH allows the operator-authenticated path to change the server handle', async () => {
+      process.env.ANT_ADMIN_TOKEN = 'terminals-patch-operator-token';
+      createTerminalRecord({ sessionId: 't-patch-server-operator', name: 'server', handle: null });
+      getIdentityDb()
+        .prepare(`UPDATE terminal_records SET handle = ? WHERE session_id = ?`)
+        .run('@JWPK', 't-patch-server-operator');
+      const res = await run(
+        PATCH as unknown as AnyHandler,
+        eventFor(
+          't-patch-server-operator',
+          'PATCH',
+          { handle: '@jwpk-renamed-by-operator' },
+          { authorization: 'Bearer terminals-patch-operator-token' }
+        )
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.handle).toBe('@jwpk-renamed-by-operator');
     });
 
     it('PATCH does not validate handle when field is omitted', async () => {
