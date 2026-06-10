@@ -75,7 +75,9 @@ node_modules
 # Internal ANT working docs / coordination — created OUTSIDE the OSS repo (2026-06-01).
 # Kept on disk locally, never committed: prevents accidental confidential pushes
 # + accidental commits of others' internal notes.
-docs/
+docs/*
+!docs/about-clis/
+!docs/about-clis/**
 agents-pitch/
 POSITIONING.md
 _pending-slices/

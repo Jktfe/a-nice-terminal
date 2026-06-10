@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">GitHub Copilot CLI support line</title>
+  <desc id="desc">A terminal and GitHub workflow line from issue to branch to pull request.</desc>
+  <rect width="1200" height="420" rx="28" fill="#0d1117"/>
+  <rect x="46" y="42" width="1108" height="336" rx="22" fill="#111827" stroke="#58a6ff" stroke-opacity=".55"/>
+  <text x="78" y="96" fill="#c9d1d9" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="32" font-weight="700">github copilot cli</text>
+  <text x="78" y="132" fill="#8b949e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">terminal work with GitHub context and approval checkpoints</text>
+  <path d="M110 286 C260 156 390 156 540 286 S820 386 1088 144" fill="none" stroke="#58a6ff" stroke-width="5" stroke-linecap="round"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="middle">
+    <g fill="#161b22" stroke="#58a6ff">
+      <circle cx="132" cy="270" r="48"/><circle cx="362" cy="170" r="48"/><circle cx="592" cy="290" r="48"/><circle cx="822" cy="250" r="48"/><circle cx="1052" cy="154" r="48"/>
+    </g>
+    <g fill="#f0f6fc" font-size="16">
+      <text x="132" y="276">ISSUE</text>
+      <text x="362" y="176">PLAN</text>
+      <text x="592" y="296">PATCH</text>
+      <text x="822" y="256">REVIEW</text>
+      <text x="1052" y="160">PR</text>
+    </g>
+  </g>
+</svg>
+

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">Claude Code hook lattice</title>
+  <desc id="desc">A lifecycle lattice showing prompts, tools, hooks, subagents, and stop events.</desc>
+  <rect width="1200" height="420" rx="28" fill="#19120d"/>
+  <rect x="46" y="42" width="1108" height="336" rx="22" fill="#221711" stroke="#d97706" stroke-opacity=".55"/>
+  <text x="78" y="96" fill="#fed7aa" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="32" font-weight="700">claude code</text>
+  <text x="78" y="132" fill="#fdba74" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">lifecycle hooks make the agent observable</text>
+  <g stroke="#fb923c" stroke-width="3" stroke-opacity=".75">
+    <path d="M160 260 C300 120 430 120 570 260 S840 400 1040 180" fill="none"/>
+    <path d="M160 180 C310 330 460 330 610 180 S850 40 1040 260" fill="none"/>
+  </g>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="middle">
+    <g fill="#2f1d13" stroke="#f97316">
+      <circle cx="160" cy="260" r="52"/><circle cx="360" cy="160" r="52"/><circle cx="570" cy="260" r="52"/>
+      <circle cx="780" cy="160" r="52"/><circle cx="1040" cy="180" r="52"/>
+    </g>
+    <g fill="#ffedd5" font-size="16">
+      <text x="160" y="266">PROMPT</text>
+      <text x="360" y="166">PRE TOOL</text>
+      <text x="570" y="266">POST TOOL</text>
+      <text x="780" y="166">SUBAGENT</text>
+      <text x="1040" y="186">STOP</text>
+    </g>
+  </g>
+</svg>
+

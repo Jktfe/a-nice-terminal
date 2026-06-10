@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">Qwen Code configuration layers</title>
+  <desc id="desc">A layered terminal stack showing settings, hooks, skills, MCP, and project code.</desc>
+  <rect width="1200" height="420" rx="28" fill="#08111f"/>
+  <rect x="46" y="42" width="1108" height="336" rx="22" fill="#0f172a" stroke="#38bdf8" stroke-opacity=".55"/>
+  <text x="78" y="96" fill="#e0f2fe" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="32" font-weight="700">qwen code</text>
+  <text x="78" y="132" fill="#7dd3fc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">settings + hooks + skills turn behavior into repo structure</text>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace">
+    <g fill="#102a43" stroke="#38bdf8">
+      <rect x="120" y="292" width="960" height="48" rx="12"/>
+      <rect x="170" y="236" width="860" height="48" rx="12"/>
+      <rect x="220" y="180" width="760" height="48" rx="12"/>
+      <rect x="270" y="124" width="660" height="48" rx="12"/>
+    </g>
+    <g fill="#e0f2fe" font-size="18">
+      <text x="148" y="323">PROJECT CODE</text>
+      <text x="198" y="267">.qwen/settings.json</text>
+      <text x="248" y="211">HOOKS</text>
+      <text x="298" y="155">SKILLS + MCP</text>
+    </g>
+  </g>
+</svg>
+

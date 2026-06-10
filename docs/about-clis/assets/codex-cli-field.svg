@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">OpenAI Codex CLI field diagram</title>
+  <desc id="desc">A terminal cockpit showing files, patches, approvals, and tests flowing through Codex CLI.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#07120f"/>
+      <stop offset="1" stop-color="#10251f"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" x2="1">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#22c55e"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="420" rx="28" fill="url(#bg)"/>
+  <rect x="46" y="42" width="1108" height="336" rx="22" fill="#0c1714" stroke="#2dd4bf" stroke-opacity=".35"/>
+  <text x="78" y="96" fill="#d1fae5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="32" font-weight="700">codex</text>
+  <text x="78" y="132" fill="#99f6e4" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">read -> patch -> approve -> test -> handoff</text>
+  <g fill="none" stroke="url(#line)" stroke-width="5" stroke-linecap="round">
+    <path d="M170 250 H340"/>
+    <path d="M440 250 H610"/>
+    <path d="M710 250 H880"/>
+    <path d="M980 250 H1060"/>
+  </g>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="middle">
+    <g transform="translate(120 250)">
+      <rect x="-68" y="-42" width="136" height="84" rx="14" fill="#12332d" stroke="#2dd4bf"/>
+      <text y="6" fill="#ccfbf1" font-size="18">FILES</text>
+    </g>
+    <g transform="translate(390 250)">
+      <rect x="-68" y="-42" width="136" height="84" rx="14" fill="#12332d" stroke="#2dd4bf"/>
+      <text y="6" fill="#ccfbf1" font-size="18">PATCH</text>
+    </g>
+    <g transform="translate(660 250)">
+      <rect x="-78" y="-42" width="156" height="84" rx="14" fill="#12332d" stroke="#2dd4bf"/>
+      <text y="6" fill="#ccfbf1" font-size="18">APPROVAL</text>
+    </g>
+    <g transform="translate(930 250)">
+      <rect x="-68" y="-42" width="136" height="84" rx="14" fill="#12332d" stroke="#2dd4bf"/>
+      <text y="6" fill="#ccfbf1" font-size="18">TESTS</text>
+    </g>
+    <g transform="translate(1090 250)">
+      <circle r="42" fill="#14532d" stroke="#86efac"/>
+      <text y="6" fill="#dcfce7" font-size="18">DONE</text>
+    </g>
+  </g>
+</svg>
+
