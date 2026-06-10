@@ -6,7 +6,7 @@
  * captured into arrays so we can assert on what the CLI told the operator.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { makeCliRunner } from './ant-cli.mjs';
 
 function makeJsonResponse(body, status = 200) {
@@ -20,7 +20,7 @@ function makeTextResponse(text, status) {
   return new Response(text, { status });
 }
 
-function setupRunner({ fetchReplies = [], throwOnFetch = null, serverUrl = 'http://localhost:4321' } = {}) {
+function setupRunner({ fetchReplies = [], throwOnFetch = null, serverUrl = 'http://localhost:4321', config = {} } = {}) {
   const writtenOut = [];
   const writtenErr = [];
   const fetchCalls = [];
@@ -38,7 +38,7 @@ function setupRunner({ fetchReplies = [], throwOnFetch = null, serverUrl = 'http
     writeOut: (line) => writtenOut.push(line),
     writeErr: (line) => writtenErr.push(line),
     serverUrl,
-    config: {}
+    config
   });
 
   return { runner, writtenOut, writtenErr, fetchCalls };
@@ -129,6 +129,16 @@ describe('ant-cli', () => {
   });
 
   describe('rooms post', () => {
+    const previousAntSessionId = process.env.ANT_SESSION_ID;
+    const previousTmuxPane = process.env.TMUX_PANE;
+
+    afterEach(() => {
+      if (previousAntSessionId === undefined) delete process.env.ANT_SESSION_ID;
+      else process.env.ANT_SESSION_ID = previousAntSessionId;
+      if (previousTmuxPane === undefined) delete process.env.TMUX_PANE;
+      else process.env.TMUX_PANE = previousTmuxPane;
+    });
+
     it('rejects an empty message', async () => {
       const { runner, writtenErr } = setupRunner();
       const exitCode = await runner.run(['rooms', 'post', 'r1']);
@@ -148,6 +158,24 @@ describe('ant-cli', () => {
       expect(body.authorHandle).toBeUndefined();
       expect(Array.isArray(body.pidChain)).toBe(true);
       expect(body.pidChain.length).toBeGreaterThan(0);
+    });
+
+    it('attaches durable session identity from the current pane when posting', async () => {
+      process.env.TMUX_PANE = '%roompost';
+      const { runner, fetchCalls } = setupRunner({
+        fetchReplies: [makeJsonResponse({ message: { id: 'm1' } }, 201)],
+        config: {
+          antSessions: {
+            byPane: {
+              '%roompost': 'sess-roompost-1'
+            }
+          }
+        }
+      });
+      const exitCode = await runner.run(['rooms', 'post', 'r1', 'hello']);
+      expect(exitCode).toBe(0);
+      expect(fetchCalls[0].init.headers['x-ant-session-id']).toBe('sess-roompost-1');
+      expect(JSON.parse(fetchCalls[0].init.body).sessionId).toBe('sess-roompost-1');
     });
   });
 

@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resetIdentityDbForTests } from './db';
+import { resetIdentityDbForTests, getIdentityDb } from './db';
 import { upsertTerminal, updatePaneTarget, getTerminalById } from './terminalsStore';
 import {
   setSpawnImplForTests,
@@ -132,6 +132,20 @@ describe('verifyPaneTargetState', () => {
     const t = registerPaneTerminal('codex-test', 'codex');
     expect(verifyPaneTargetState(t)).toBe('verified');
   });
+
+  it('returns unknown for qwen panes currently accepting input as shell commands', () => {
+    setSpawnImplForTests(fakeSpawnReturning('x Shell Command [ANT room Agents id=r msg=m]\nbash: -c: unexpected EOF while looking for matching `]\'', 0));
+    const t = registerPaneTerminal('qwen-shell-mode', 'qwen');
+    expect(verifyPaneTargetState(t)).toBe('unknown');
+    expect(getTerminalById(t.id)?.pane_status).not.toBe('verified');
+  });
+
+  it('returns unknown for qwen panes advertising shell mode before any command runs', () => {
+    setSpawnImplForTests(fakeSpawnReturning('Working                         10.9% context used\nshell mode enabled (esc to disable)\n> ', 0));
+    const t = registerPaneTerminal('qwen-shell-mode-banner', 'qwen');
+    expect(verifyPaneTargetState(t)).toBe('unknown');
+    expect(getTerminalById(t.id)?.pane_status).not.toBe('verified');
+  });
 });
 
 describe('twoCallSubmit', () => {
@@ -247,5 +261,68 @@ describe('injectToTerminal end-to-end (no real tmux)', () => {
       (room, handle, reason) => markerCalls.push({ room, handle, reason }));
     expect(outcome.kind).toBe('paste');
     expect(markerCalls.length).toBe(0);
+  });
+
+  it('resolves null agent_kind from terminal_records and bracket-pastes multiline input for pi', () => {
+    const t = registerPaneTerminal('null-kind-pi', null);
+    expect(t.agent_kind).toBeNull();
+
+    const db = getIdentityDb();
+    db.prepare(`INSERT INTO terminal_records (session_id, name, agent_kind, tmux_target_pane, auto_forward_chat, created_at_ms, updated_at_ms)
+      VALUES (?, ?, ?, ?, 1, ?, ?)`).run(t.id, t.name, 'pi', t.tmux_target_pane, Date.now(), Date.now());
+
+    const { calls, impl } = captureSpawnCalls();
+    setSpawnImplForTests(impl);
+
+    const scheduler = (cb: () => void) => { cb(); return 0 as any; };
+    twoCallSubmit(t.tmux_target_pane!, 'line 1\nline 2', null, () => {}, scheduler);
+
+    const loadBufferCall = calls.find((c) => c.args[0] === 'load-buffer');
+    expect(loadBufferCall).toBeDefined();
+    expect(loadBufferCall!.input).toBe('line 1\nline 2');
+
+    const pasteCall = calls.find((c) => c.args[0] === 'paste-buffer');
+    expect(pasteCall?.args).toContain('-p');
+  });
+
+  it('bracket-pastes multiline input and does double enter for copilot', () => {
+    const { calls, impl } = captureSpawnCalls();
+    setSpawnImplForTests(impl);
+
+    const scheduler = (cb: () => void) => { cb(); return 0 as any; };
+    twoCallSubmit('%1', 'line 1\nline 2', 'copilot', () => {}, scheduler);
+
+    const loadBufferCall = calls.find((c) => c.args[0] === 'load-buffer');
+    expect(loadBufferCall).toBeDefined();
+    expect(loadBufferCall!.input).toBe('line 1\nline 2');
+
+    const pasteCall = calls.find((c) => c.args[0] === 'paste-buffer');
+    expect(pasteCall?.args).toContain('-p');
+
+    const enterCalls = calls.filter((c) => c.args[0] === 'send-keys' && c.args.includes('Enter'));
+    expect(enterCalls.length).toBe(2);
+  });
+
+  it('guards Antigravity bracket envelope and bracket-pastes multiline input', () => {
+    const { calls, impl } = captureSpawnCalls();
+    setSpawnImplForTests(impl);
+
+    const scheduler = (cb: () => void) => { cb(); return 0 as any; };
+    twoCallSubmit(
+      '%1',
+      '[ANT room Agents id=r msg=m] @you: line 1\nline 2\n\n[ANT reply instruction: respond with: ant chat reply m --stdin]',
+      'antigravity',
+      () => {},
+      scheduler
+    );
+
+    const loadBufferCall = calls.find((c) => c.args[0] === 'load-buffer');
+    expect(loadBufferCall).toBeDefined();
+    expect(loadBufferCall!.input).toContain('(ANT room Agents id=r msg=m)');
+    expect(loadBufferCall!.input).toContain('(ANT reply instruction: respond with: ant chat reply m --stdin)');
+    expect(loadBufferCall!.input).toMatch(/\r?\n/);
+
+    const pasteCall = calls.find((c) => c.args[0] === 'paste-buffer');
+    expect(pasteCall?.args).toContain('-p');
   });
 });

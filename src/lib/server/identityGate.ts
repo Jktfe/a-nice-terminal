@@ -29,6 +29,7 @@
  */
 import { lookupTerminalByPidChain, type PidChainEntry } from './terminalsStore';
 import { getRoomScopedHandle } from './roomMembershipsStore';
+import { isMember as hasActiveLease, displayHandleForSession } from './roomHandleLeaseClean';
 import { getTerminalRecord, deriveHandle } from './terminalRecordsStore';
 import { resolveByBearer } from './remoteMappingStore';
 
@@ -59,6 +60,21 @@ export function resolveServerSideHandle(
   if (!terminal) return null;
   const membershipHandle = getRoomScopedHandle(roomId, terminal.id);
   if (membershipHandle) return membershipHandle;
+  // LEASE-AS-IDENTITY (JWPK 2026-06-10, "one shot"): the room_membership table
+  // and the room_handle_lease table are two surfaces for the same fact, and they
+  // drift — leaving a terminal with a VALID active lease but NO room_memberships
+  // row, so the resolver above returns null and the caller 403s "identity could
+  // not be resolved". This is what left the room OWNER (@JWPK) unable to post to
+  // his own room. The lease IS the clean-model binding truth, so honour it here:
+  // if this terminal holds an active lease in the room, resolve to its leased
+  // handle. Spoof-safe — the lease is keyed on session_id and we look it up by
+  // the caller's pidChain-resolved terminal id, so a caller can only resolve to a
+  // handle whose lease is genuinely theirs; and we return the lease's stored
+  // handle (claimHandle-protected), never deriveHandle's @slug(name) fallback.
+  if (hasActiveLease(roomId, terminal.id)) {
+    const leaseHandle = displayHandleForSession(roomId, terminal.id);
+    if (leaseHandle) return leaseHandle;
+  }
   // FINDING-3 LINKEDCHAT-SELF-HANDLE (2026-05-15): a terminal with a 1:1
   // linked_chat_room_id has NO room_memberships row (linked-chat is a
   // separate concept — see linkedRoomTerminalLookup.ts). Without this

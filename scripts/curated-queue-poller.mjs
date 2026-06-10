@@ -81,7 +81,18 @@ let observedBusySinceDelivery = false;
 
 function deliverToPane(text) {
   if (!LIVE) { log('[dry-run] would send to', PANE, '→', JSON.stringify(text.slice(0, 80))); return; }
-  execFileSync('tmux', ['-L', TMUX_SOCKET, 'send-keys', '-t', PANE, text]);
+  const needsNewlineStrip = [
+    'pi',
+    'qwen',
+    'qwen-cli',
+    'antigravity',
+    'agy',
+    'copilot',
+    'copilot-cli',
+    'github-copilot-cli'
+  ].includes(STATE_CLI);
+  const deliveredText = needsNewlineStrip ? text.replace(/\r?\n/g, ' ') : text;
+  execFileSync('tmux', ['-L', TMUX_SOCKET, 'send-keys', '-t', PANE, deliveredText]);
   execFileSync('tmux', ['-L', TMUX_SOCKET, 'send-keys', '-t', PANE, 'Enter']);
   log('[live] sent to', PANE);
 }

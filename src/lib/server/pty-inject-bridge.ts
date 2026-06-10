@@ -26,6 +26,7 @@ import {
   markPaneVerified,
   markPaneStale
 } from './terminalsStore';
+import { getIdentityDb } from './db';
 
 const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
 const STALE_MARKER_WINDOW_SECONDS = 60 * 60;
@@ -64,11 +65,29 @@ function runScrubbedTmux(args: string[], stdinData?: string | Buffer): SpawnSync
 
 export type PaneVerifyOutcome = 'verified' | 'stale' | 'unknown';
 
+function isQwenShellCommandMode(captured: string): boolean {
+  const tail = captured
+    .split('\n')
+    .slice(-20)
+    .join('\n');
+  return (
+    /\bshell mode enabled\s*\(\s*esc to disable\s*\)/i.test(tail)
+    || /^\s*[x✗]\s+Shell Command\b/im.test(tail)
+    || /\bbash:\s+-c:\s+unexpected EOF\b/i.test(tail)
+    || /^\s*\[ANT:\s+command not found\b/im.test(tail)
+    || /\bcommand not found:\s+\[ANT\b/i.test(tail)
+  );
+}
+
 function matchReadyStateFor(agentKind: string | null, captured: string): boolean {
-  if (agentKind === 'claude_code') {
+  const normalized = normalizeAgentKind(agentKind);
+  if (normalized === 'claude-code') {
     const hasPromptIndicator = captured.includes('│ >') || captured.includes('❯');
     const isStreaming = captured.includes('esc to interrupt');
     return hasPromptIndicator && !isStreaming;
+  }
+  if (normalized === 'qwen' || normalized === 'qwen-cli') {
+    return !isQwenShellCommandMode(captured);
   }
   // T1c (2026-05-14): non-claude_code agents have no per-CLI ready-state
   // semantics. Default to "ready" so fanout delivery proceeds for bare
@@ -89,7 +108,23 @@ export function verifyPaneTargetState(terminal: TerminalRow): PaneVerifyOutcome 
   }
   const captured = (result.stdout ?? Buffer.alloc(0)).toString('utf8');
   if (captured.length === 0) return 'unknown';
-  if (matchReadyStateFor(terminal.agent_kind, captured)) {
+
+  let agentKind = terminal.agent_kind;
+  if (!agentKind && terminal.id) {
+    try {
+      const db = getIdentityDb();
+      const row = db
+        .prepare(`SELECT agent_kind FROM terminal_records WHERE session_id = ? AND superseded_at_ms IS NULL`)
+        .get(terminal.id) as { agent_kind: string | null } | undefined;
+      if (row && row.agent_kind) {
+        agentKind = row.agent_kind;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (matchReadyStateFor(agentKind, captured)) {
     markPaneVerified(terminal.id);
     return 'verified';
   }
@@ -98,7 +133,7 @@ export function verifyPaneTargetState(terminal: TerminalRow): PaneVerifyOutcome 
 
 class InjectTmuxFailure extends Error {}
 
-function pasteBufferToTarget(pane: string, text: string): void {
+function pasteBufferToTarget(pane: string, text: string, options: { bracketedPaste?: boolean } = {}): void {
   const bufferName = `ant-inject-${process.pid}-${Date.now()}`;
   const loadResult = runScrubbedTmux(['load-buffer', '-b', bufferName, '-'], text);
   if (loadResult.status !== 0) {
@@ -106,7 +141,10 @@ function pasteBufferToTarget(pane: string, text: string): void {
   }
   let pasteFailed: InjectTmuxFailure | null = null;
   try {
-    const pasteResult = runScrubbedTmux(['paste-buffer', '-b', bufferName, '-t', pane]);
+    const pasteArgs = options.bracketedPaste
+      ? ['paste-buffer', '-p', '-b', bufferName, '-t', pane]
+      : ['paste-buffer', '-b', bufferName, '-t', pane];
+    const pasteResult = runScrubbedTmux(pasteArgs);
     if (pasteResult.status !== 0) {
       pasteFailed = new InjectTmuxFailure(`tmux paste-buffer failed: status ${pasteResult.status}`);
     }
@@ -129,32 +167,64 @@ function sendEnterToTarget(pane: string): void {
 export { InjectTmuxFailure };
 
 /**
- * JWPK msg_q8g79255t9 (2026-05-19): Pi treats each \n in pasted input as a
- * SEPARATE submission — multi-line envelopes get split into shed-loads of
- * messages instead of one coherent prompt. Strip newlines for pi agents
- * (replace with single space). Other CLIs (claude_code / codex / gemini)
- * handle multi-line paste fine; the existing claude-double-Enter logic is
- * specifically for the TUI's two-stage submit, not a multi-line problem.
+ * JWPK msg_q8g79255t9 (2026-05-19) + msg_90rkzmqc3v (2026-06-10): some CLIs
+ * treat pasted newlines as separate submissions or get stuck in a multi-line
+ * compose buffer. Use tmux bracketed paste for those agents so the receiving
+ * TUI treats the payload as one paste instead of per-line submits. Keep
+ * Codex/Claude on plain paste because their TUIs already handle multiline
+ * paste-buffer payloads.
  *
  * Pattern mirrors the gemini bracket-strip transform JWPK referenced in
  * the same message — per-CLI message-mangle table. Extend here as more
  * CLIs grow their own quirks.
  */
+function normalizeAgentKind(agentKind: string | null): string | null {
+  if (!agentKind) return null;
+  return agentKind.trim().toLowerCase().replace(/_/g, '-');
+}
+
+function isNewlineFragileAgent(agentKind: string | null): boolean {
+  return new Set([
+    'pi',
+    'qwen',
+    'qwen-cli',
+    'antigravity',
+    'agy',
+    'gemini',
+    'gemini-cli',
+    'copilot',
+    'copilot-cli',
+    'github-copilot-cli'
+  ]).has(agentKind ?? '');
+}
+
+function needsBracketGuard(agentKind: string | null): boolean {
+  return new Set(['gemini', 'gemini-cli', 'antigravity', 'agy']).has(agentKind ?? '');
+}
+
+function needsBracketedPaste(agentKind: string | null): boolean {
+  return isNewlineFragileAgent(agentKind);
+}
+
+function needsDoubleEnter(agentKind: string | null): boolean {
+  return new Set(['claude-code', 'copilot', 'copilot-cli', 'github-copilot-cli'])
+    .has(agentKind ?? '');
+}
+
 function transformBodyForAgent(text: string, agentKind: string | null): string {
-  if (agentKind === 'pi') {
-    return text.replace(/\r?\n/g, ' ');
-  }
+  const normalized = normalizeAgentKind(agentKind);
+  let transformed = text;
   // JWPK msg_jt41dxztok (2026-05-19): Gemini CLI treats leading `[` as a
   // slash/command-mode trigger and gets wedged in a weird terminal state
   // after every envelope. Convert leading `[ANT ...]` to `(ANT ...)` so
   // it renders as plain prose. The trailing `[ANT reply instruction: ...]`
   // suffix gets the same treatment for consistency.
-  if (agentKind === 'gemini' || agentKind === 'gemini-cli') {
-    return text
+  if (needsBracketGuard(normalized)) {
+    transformed = transformed
       .replace(/^\[ANT ([^\]]+)\]/m, '(ANT $1)')
       .replace(/\[ANT reply instruction: ([^\]]+)\]/g, '(ANT reply instruction: $1)');
   }
-  return text;
+  return transformed;
 }
 
 export function twoCallSubmit(
@@ -164,12 +234,45 @@ export function twoCallSubmit(
   onScheduledFailure: (cause: unknown) => void = () => {},
   scheduler: (cb: () => void, ms: number) => void = setTimeout
 ): void {
-  const transformed = transformBodyForAgent(text, agentKind);
-  pasteBufferToTarget(pane, transformed);
+  let resolvedAgentKind = normalizeAgentKind(agentKind);
+  if (!resolvedAgentKind && pane) {
+    try {
+      const db = getIdentityDb();
+      const recordRow = db
+        .prepare(
+          `SELECT agent_kind FROM terminal_records
+            WHERE tmux_target_pane = ?
+              AND superseded_at_ms IS NULL
+            LIMIT 1`
+        )
+        .get(pane) as { agent_kind: string | null } | undefined;
+      if (recordRow && recordRow.agent_kind) {
+        resolvedAgentKind = normalizeAgentKind(recordRow.agent_kind);
+      } else {
+        const termRow = db
+          .prepare(
+            `SELECT agent_kind FROM terminals
+              WHERE tmux_target_pane = ?
+            LIMIT 1`
+          )
+          .get(pane) as { agent_kind: string | null } | undefined;
+        if (termRow && termRow.agent_kind) {
+          resolvedAgentKind = normalizeAgentKind(termRow.agent_kind);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const transformed = transformBodyForAgent(text, resolvedAgentKind);
+  pasteBufferToTarget(pane, transformed, { bracketedPaste: needsBracketedPaste(resolvedAgentKind) });
   scheduler(() => {
     try {
       sendEnterToTarget(pane);
-      if (agentKind === 'claude_code') {
+      if (
+        needsDoubleEnter(resolvedAgentKind)
+      ) {
         scheduler(() => {
           try { sendEnterToTarget(pane); }
           catch (cause) { onScheduledFailure(cause); }
