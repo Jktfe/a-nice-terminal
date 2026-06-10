@@ -43,7 +43,10 @@ import { backfillActiveLeasesFromRoomMemberships } from '$lib/server/roomHandleL
 import { reclaimCleanHandleIfStale } from '$lib/server/roomHandleLeaseClean';
 import { listRoomsForHandle, rebindMemberSessionIfStale } from '$lib/server/membershipStore';
 import { resolveOrNull } from '$lib/server/sessionResolver';
-import { bindHandle } from '$lib/server/handleBindingsStore';
+import { bindHandle, getLiveBinding } from '$lib/server/handleBindingsStore';
+import { appendLedger } from '$lib/server/identityLedgerStore';
+import { corroboratePaneFact } from '$lib/server/paneFactCorroboration';
+import { readIdentityReadMode } from '$lib/server/callerIdentityResolver';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
 
@@ -105,7 +108,8 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error(400, 'name must be a non-empty string.');
   }
 
-  const leafPid = parsePidsList(rawBody.pids)[0];
+  const pidsList = parsePidsList(rawBody.pids);
+  const leafPid = pidsList[0];
   const ttlRaw = rawBody.ttl_seconds;
   const ttlSeconds = typeof ttlRaw === 'number' && Number.isFinite(ttlRaw) ? ttlRaw : undefined;
   const sourceRaw = rawBody.source;
@@ -240,6 +244,12 @@ export const POST: RequestHandler = async ({ request }) => {
   //     the PR-B auto-rebind block below handles it by superseding the
   //     prior row + moving memberships. Without this exemption the
   //     legitimate "shell restart under same handle" flow 409s.
+  // Third-adopter shadow (msg_i5mnwve57r): remember what the caller ASKED
+  // for and what the witness shows BEFORE any suffix/dual-write mutates
+  // either — the AC3 comparison is requested-vs-granted against what
+  // refuse-or-claim would have done at claim time.
+  const requestedHandle = handleValue;
+  const witnessBindingAtClaim = requestedHandle ? getLiveBinding(requestedHandle) : null;
   if (handleValue) {
     const claimedBy = findActiveTerminalRecordByHandle(handleValue);
     if (
@@ -319,14 +329,51 @@ export const POST: RequestHandler = async ({ request }) => {
   // nothing witnessed = no binding. Best-effort: never blocks a 201.
   if (handleValue && paneValue) {
     try {
-      bindHandle({
-        handle: handleValue,
-        pane: paneValue,
-        pid: leafPid.pid,
-        pidStart: leafPid.pid_start,
-        terminalId: terminal.id
-      });
+      // Corroboration gate (msg_fjbp2o97h9, applies in EVERY mode): register
+      // WRITES the witness table, so an uncorroborated pane must never feed
+      // it — that would poison the very data the cutover flatline measures.
+      // corroboratePaneFact ledgers the spoof signature itself; registration
+      // responses are unaffected.
+      const { pane: corroboratedPane } = corroboratePaneFact(paneValue, pidsList);
+      if (corroboratedPane) {
+        bindHandle({
+          handle: handleValue,
+          pane: corroboratedPane,
+          pid: leafPid.pid,
+          pidStart: leafPid.pid_start,
+          terminalId: terminal.id
+        });
+      }
     } catch { /* clean-core write failure must not break registration */ }
+  }
+  // AC3 outcome shadow (third adopter, msg_i5mnwve57r): in SHADOW mode,
+  // ledger every registration whose LEGACY outcome diverges from what the
+  // contract's refuse-or-claim would have done. Registration behaviour is
+  // untouched in LEGACY and SHADOW — the flip happens at cutover only.
+  //  - witness had a LIVE binding for the requested handle → contract REFUSES;
+  //    legacy granting anything (suffix or inherit) is a divergence.
+  //  - witness vacant/unknown → contract CLAIMS the requested handle; legacy
+  //    granting a SUFFIX instead (terminal_records incumbent) is a divergence.
+  if (requestedHandle && readIdentityReadMode() === 'shadow') {
+    try {
+      const contractOutcome = witnessBindingAtClaim !== null ? 'refuse' : 'claim';
+      const diverged =
+        contractOutcome === 'refuse' || handleValue !== requestedHandle;
+      if (diverged) {
+        appendLedger({
+          kind: 'resolver.disagreement',
+          handle: requestedHandle,
+          actor: 'resolver',
+          detail: {
+            surface: 'register',
+            requested_handle: requestedHandle,
+            granted_handle: handleValue,
+            contract_outcome: contractOutcome,
+            witness_pane: witnessBindingAtClaim?.pane ?? null
+          }
+        });
+      }
+    } catch { /* proving-mode write failure never blocks a 201 */ }
   }
   // PR-B v0.2 (JWPK enterprise-concern #5 — @speedyc dual-bind 2026-05-29).
   // After the new registration completes, sweep any OTHER live terminals

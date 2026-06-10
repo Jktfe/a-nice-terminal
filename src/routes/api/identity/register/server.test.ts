@@ -27,7 +27,9 @@ import {
   resolveMember as resolveCleanMember,
   isMember as isCleanMember
 } from '$lib/server/roomHandleLeaseClean';
-import { getLiveBinding, getHandleRow } from '$lib/server/handleBindingsStore';
+import { bindHandle, getLiveBinding, getHandleRow } from '$lib/server/handleBindingsStore';
+import { listLedger } from '$lib/server/identityLedgerStore';
+import { setListPanePidsForTests } from '$lib/server/paneFactCorroboration';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
@@ -889,6 +891,13 @@ describe('POST /api/identity/register', () => {
   });
 
   describe('clean-core dual-write (AC3 Step 1)', () => {
+    beforeEach(() => {
+      // Corroboration gate (third-adopter slice): pane %77 genuinely hosts
+      // the registering caller's pid in this fixture.
+      setListPanePidsForTests(() => ({ status: 0, stdout: '%77 4242\n', stderr: '' }));
+    });
+    afterEach(() => setListPanePidsForTests(null));
+
     it('register with handle + pane dual-writes a live handle binding and a non-vacant handles row', async () => {
       const response = await POST(eventForPost(JSON.stringify({
         name: 'BindingDualWrite',
@@ -914,4 +923,103 @@ describe('POST /api/identity/register', () => {
       expect(getLiveBinding('@paneless')).toBeNull();
     });
   });
+
+  describe('register on the seam (third adopter — AC3 outcome shadow)', () => {
+    const prevMode = process.env.ANT_IDENTITY_READ;
+
+    beforeEach(() => { delete process.env.ANT_IDENTITY_READ; });
+
+    afterEach(() => {
+      if (prevMode === undefined) delete process.env.ANT_IDENTITY_READ;
+      else process.env.ANT_IDENTITY_READ = prevMode;
+      setListPanePidsForTests(null);
+    });
+
+    function corroborate(pane: string, pid: number) {
+      setListPanePidsForTests(() => ({ status: 0, stdout: `${pane} ${pid}\n`, stderr: '' }));
+    }
+
+    it('uncorroborated pane writes NO binding in ANY mode and ledgers the spoof signature; registration still 201', async () => {
+      // pane exists but hosts a different process tree
+      setListPanePidsForTests(() => ({ status: 0, stdout: '%88 1\n', stderr: '' }));
+      const response = await POST(eventForPost(JSON.stringify({
+        name: 'UncorroboratedReg', pids: [{ pid: 5101, pid_start: 'reg-uncorr' }],
+        pane: '%88', handle: '@uncorr'
+      })));
+      expect(response.status).toBe(201);
+      expect(getLiveBinding('@uncorr')).toBeNull();
+      expect(listLedger({}).filter((e) => e.kind === 'pane.uncorroborated')).toHaveLength(1);
+    });
+
+    it('LEGACY: occupied-handle register suffixes exactly as before and writes no seam comparison rows', async () => {
+      // live incumbent terminal holds @taken
+      const incumbent = upsertTerminal({ pid: 5200, pid_start: 'reg-incumbent', name: 'IncumbentReg' });
+      createTerminalRecord({ sessionId: incumbent.id, handle: '@taken' });
+      corroborate('%90', 5201);
+      const response = await POST(eventForPost(JSON.stringify({
+        name: 'SuffixSeeker', pids: [{ pid: 5201, pid_start: 'reg-suffix' }],
+        pane: '%90', handle: '@taken'
+      })));
+      expect(response.status).toBe(201);
+      expect(listLedger({}).filter((e) => e.kind === 'resolver.disagreement')).toHaveLength(0);
+    });
+
+    it('SHADOW: free handle registers cleanly — no disagreement row, binding written', async () => {
+      process.env.ANT_IDENTITY_READ = 'shadow';
+      corroborate('%91', 5301);
+      const response = await POST(eventForPost(JSON.stringify({
+        name: 'FreeReg', pids: [{ pid: 5301, pid_start: 'reg-free' }],
+        pane: '%91', handle: '@freshhandle'
+      })));
+      expect(response.status).toBe(201);
+      expect(getLiveBinding('@freshhandle')?.pane).toBe('%91');
+      expect(listLedger({}).filter((e) => e.kind === 'resolver.disagreement')).toHaveLength(0);
+    });
+
+    it('SHADOW: witness-occupied handle granted via the stale-inherit path ledgers the would-refuse divergence (behaviour unchanged)', async () => {
+      process.env.ANT_IDENTITY_READ = 'shadow';
+      // witness-occupied: a live binding holds @wanted on another pane
+      bindHandle({ handle: '@wanted', pane: '%70', pid: 5400, pidStart: 'other', terminalId: 't_other' });
+      // legacy-occupied too: live incumbent terminal_record
+      const incumbent = upsertTerminal({ pid: 5400, pid_start: 'other', name: 'WantedIncumbent' });
+      createTerminalRecord({ sessionId: incumbent.id, handle: '@wanted' });
+      corroborate('%92', 5401);
+      const response = await POST(eventForPost(JSON.stringify({
+        name: 'WantedSeeker', pids: [{ pid: 5401, pid_start: 'reg-wanted' }],
+        pane: '%92', handle: '@wanted'
+      })));
+      expect(response.status).toBe(201);
+      const granted = (await response.json()) as { session_id: string };
+      expect(granted).toBeTruthy();
+      const rows = listLedger({}).filter((e) => e.kind === 'resolver.disagreement');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].detail).toMatchObject({
+        surface: 'register',
+        requested_handle: '@wanted',
+        contract_outcome: 'refuse'
+      });
+      // The incumbent terminal_record is heartbeat-stale, so legacy granted
+      // the CLEAN handle through the silent stale-inherit path — the exact
+      // register-by-handle spoof shape. The witness still showed a live
+      // binding, so the contract verdict is refuse: divergence recorded.
+      const grantedHandle = (rows[0].detail as { granted_handle?: string }).granted_handle;
+      expect(grantedHandle).toBe('@wanted');
+    });
+
+    it('SHADOW: reclaiming a witness-vacant handle agrees with the contract — no divergence row', async () => {
+      process.env.ANT_IDENTITY_READ = 'shadow';
+      bindHandle({ handle: '@comeback', pane: '%71', pid: 5500, pidStart: 'old', terminalId: 't_old' });
+      const { tombstoneBinding } = await import('$lib/server/handleBindingsStore');
+      tombstoneBinding('@comeback', 'pane-not-found');
+      corroborate('%93', 5501);
+      const response = await POST(eventForPost(JSON.stringify({
+        name: 'ComebackReg', pids: [{ pid: 5501, pid_start: 'reg-comeback' }],
+        pane: '%93', handle: '@comeback'
+      })));
+      expect(response.status).toBe(201);
+      expect(listLedger({}).filter((e) => e.kind === 'resolver.disagreement')).toHaveLength(0);
+      expect(getLiveBinding('@comeback')?.pane).toBe('%93');
+    });
+  });
+
 });
