@@ -240,8 +240,9 @@ export function persistAlternatives(
   const written: string[] = [];
 
   for (const alt of alternatives) {
-    const eventId = `evt-alt-${tsMillis}-${Math.random().toString(36).slice(2, 8)}`;
-    const alternativeRef = `alt:${deckId}:slide:${alt.slideIndex}:${tsMillis}`;
+    const nonce = Math.random().toString(36).slice(2, 8);
+    const eventId = `evt-alt-${tsMillis}-${nonce}`;
+    const alternativeRef = `alt:${deckId}:slide:${alt.slideIndex}:${tsMillis}:${nonce}`;
 
     appendPlanEvent({
       id: eventId,

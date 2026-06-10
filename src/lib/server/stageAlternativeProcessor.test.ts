@@ -1,12 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   generateAlternatives,
   findUnprocessedFeedbackEvents,
-  processStageAlternatives
+  processStageAlternatives,
+  persistAlternatives
 } from './stageAlternativeProcessor';
 import type { DeckSlide } from './deckStore';
 import { getIdentityDb } from './db';
-import { appendPlanEvent } from './planModeStore';
+import { listStageAlternatives } from './stageAlternativeStore';
 
 describe('stageAlternativeProcessor', () => {
   const db = getIdentityDb();
@@ -85,6 +86,35 @@ describe('stageAlternativeProcessor', () => {
     it('returns 0 when deck does not exist', () => {
       const count = processStageAlternatives('fake-deck-123');
       expect(count).toBe(0);
+    });
+  });
+
+  describe('persistAlternatives', () => {
+    it('keeps same-slide alternatives uniquely addressable inside one millisecond', () => {
+      vi.spyOn(Date, 'now').mockReturnValue(1234);
+      try {
+        const baseAlternative = {
+          slideIndex: 0,
+          originalTitle: 'Original',
+          proposedTitle: 'First rewrite',
+          proposedContent: 'First body',
+          proposedSpeakerNotes: 'Say first',
+          rationale: 'First agent-authored rewrite.'
+        };
+
+        persistAlternatives('deck-same-ms', 'feedback-a', [baseAlternative], '@agent-a');
+        persistAlternatives(
+          'deck-same-ms',
+          'feedback-b',
+          [{ ...baseAlternative, proposedTitle: 'Second rewrite', rationale: 'Second agent-authored rewrite.' }],
+          '@agent-b'
+        );
+
+        const refs = listStageAlternatives('deck-same-ms').map((alternative) => alternative.ref);
+        expect(new Set(refs).size).toBe(refs.length);
+      } finally {
+        vi.restoreAllMocks();
+      }
     });
   });
 });
