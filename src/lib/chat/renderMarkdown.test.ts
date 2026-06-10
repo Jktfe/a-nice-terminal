@@ -87,10 +87,10 @@ describe('renderMarkdown', () => {
     expect(result).toContain('&lt;img src=x onerror=alert(1)&gt;');
   });
 
-  it('renders markdown images for Stage decks and manual screenshots', () => {
-    const result = renderMarkdown('![Rooms list](/manual/rooms-index.png "Rooms")');
+  it('renders markdown images for Stage decks and external manual screenshots', () => {
+    const result = renderMarkdown('![Rooms list](/api/assets/manual/rooms-index.png "Rooms")');
     expect(result).toContain('<img');
-    expect(result).toContain('src="/manual/rooms-index.png"');
+    expect(result).toContain('src="/api/assets/manual/rooms-index.png"');
     expect(result).toContain('alt="Rooms list"');
     expect(result).toContain('title="Rooms"');
     expect(result).toContain('loading="lazy"');

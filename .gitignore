@@ -84,13 +84,12 @@ _pending-slices/
 .claude/
 test-api.cjs
 
-# External asset policy (JWPK msg_7nqg8oaufo): served images must NOT live
-# in the repo (OSS-leak risk); they live in ~/.ant/asset-folders.json
-# pointed at an external folder, and a user can add files by hand.
-# Hard-blocks new commits of image binaries at the repo root + in
-# static/ (the static/ fallback chain's last layer is allowed; existing
-# files are fine, but new top-level/ root .jp[e]g/.png/.gif/.webp/.avif
-# commits are denied to stop accidental re-eviction).
+# External asset policy (JWPK msg_7nqg8oaufo): served/generated images
+# must NOT live in the repo (OSS-leak risk); they live in
+# ~/.ant/asset-folders.json pointed at an external folder, and a user can
+# add files by hand.
+# Hard-blocks new generated image commits while preserving checked-in
+# brand assets that are source material.
 /*.jpeg
 /*.jpg
 /*.png
@@ -118,6 +117,14 @@ test-api.cjs
 /static/output/
 # (existing /static/captures/ kept, not duplicated; existing
 # /static/artefacts/ kept, not duplicated)
+# generated manual screenshots, served via /api/assets/manual/
+/static/manual/
+# generated deck exports, served via /api/assets/decks/
+/static/decks/**/*.png
+# generated codex-about hero, served via /api/assets/codex-about-assets/
+/static/codex-about-assets/*.png
+# generated root output, served via /api/assets/output/
+/output/*.png
 
 # Format hole: the existing `/*.<ext>` list above covers jpeg/jpg/png/
 # gif/webp/avif. Add the remaining binary image formats that can land at

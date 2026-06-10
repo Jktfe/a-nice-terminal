@@ -39,14 +39,14 @@
   <p class="tile-plain">{tile.plain}</p>
 
   <!-- Real Playwright-harvested screenshot via scripts/manual-
-       harvest.mjs (slice 3). PNG lives in /static/manual/<slug>.png
-       at 2560×1600 (retina). object-fit:contain so the image
+       harvest.mjs (slice 3). PNG lives in external asset root at
+       manual/<slug>.png, served by /api/assets. object-fit:contain so the image
        respects the placeholder box without distortion. The
        fallback for any tile whose harvest failed is the dashed
        placeholder block below. -->
   <div class="tile-screenshot">
     <img
-      src={`/manual/${tile.slug}.png`}
+      src={`/api/assets/manual/${tile.slug}.png`}
       alt={`Screenshot of ${tile.title}`}
       loading="lazy"
       onerror={(e) => {

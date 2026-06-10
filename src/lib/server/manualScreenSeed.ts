@@ -4,7 +4,8 @@
  * Idempotent seed for the /rooms default-state annotations. Runs on
  * first boot when manual_screen_states is empty; subsequent boots
  * skip. Hand-authored coordinates against the existing 2560×1600
- * screenshot at static/manual/rooms-index.png. Auto-extract (slice 5)
+ * screenshot at external asset manual/rooms-index.png, served through
+ * /api/assets/manual/rooms-index.png. Auto-extract (slice 5)
  * will replace this seed path with a Playwright-driven generator.
  */
 
@@ -16,7 +17,7 @@ const ROOMS_INDEX_SEED = {
   stateSlug: 'default',
   stateLabel: 'Default (no rooms / first visit)',
   description: 'The rooms-index landing page in its quiet initial state — title card visible, create-form ready, your-rooms list rendered.',
-  screenshotPath: '/manual/rooms-index.png',
+  screenshotPath: '/api/assets/manual/rooms-index.png',
   viewportW: 2560,
   viewportH: 1600
 };

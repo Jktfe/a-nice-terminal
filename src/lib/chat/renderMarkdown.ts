@@ -38,7 +38,7 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedSchemesAppliedToAttributes: ['href', 'src'],
   allowProtocolRelative: false,
   allowedIframeHostnames: [],
-  // Allow repo-local static assets such as `/manual/rooms-index.png` in
+  // Allow repo-local/external served assets such as `/api/assets/manual/rooms-index.png` in
   // Stage decks without allowing protocol-relative or javascript URLs.
   allowedScriptHostnames: [],
   // HTML5 void elements, not XHTML — emit `<br>` not `<br />`. Matches

@@ -34,7 +34,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
   const screenshotPath = typeof body.screenshotPath === 'string' && body.screenshotPath.trim().length > 0
     ? body.screenshotPath.trim()
-    : '/manual/placeholder.png';
+    : '/api/assets/manual/placeholder.png';
 
   const viewportW = typeof body.viewportW === 'number' && body.viewportW > 0 ? body.viewportW : 2560;
   const viewportH = typeof body.viewportH === 'number' && body.viewportH > 0 ? body.viewportH : 1600;

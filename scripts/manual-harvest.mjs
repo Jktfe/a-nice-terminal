@@ -3,8 +3,8 @@
  *
  * Playwright-driven screenshot harvester for the /manual canvas.
  * Captures each route at a fixed laptop viewport (1280×800) and writes
- * PNGs into static/manual/<slug>.png so the manual page can paste them
- * in as tile backgrounds.
+ * PNGs into the external asset root at manual/<slug>.png so the manual
+ * page can load them through /api/assets/manual/<slug>.png.
  *
  * Usage:
  *   ANT_HARVEST_BASE_URL=http://localhost:6174 \
@@ -25,11 +25,13 @@
 
 import { chromium } from 'playwright';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const BASE_URL = process.env.ANT_HARVEST_BASE_URL ?? 'http://localhost:6174';
 const COOKIE = process.env.ANT_BROWSER_SESSION ?? '';
-const OUT_DIR = join(process.cwd(), 'static', 'manual');
+const OUT_DIR =
+  process.env.ANT_MANUAL_ASSETS_DIR ?? join(homedir(), 'ant-assets', 'a-nice-terminal', 'manual');
 
 // Same slugs as the manual canvas tiles. Each slug → route to capture
 // + an optional "tweak" function that lets us hover/click before

@@ -26,8 +26,8 @@
  * GitHub Actions job can fail the run.
  *
  * Pairs with scripts/manual-harvest.mjs (same capture pipeline,
- * different sink — manual-harvest writes static/manual/, this writes
- * the dated-snapshot dir).
+ * different sink — manual-harvest writes external assets under
+ * ~/ant-assets/a-nice-terminal/manual, this writes the dated-snapshot dir).
  */
 
 import { chromium } from 'playwright';
