@@ -88,4 +88,34 @@ describe('ant delivery wrappers (M3.5a)', () => {
     expect(code).toBe(0);
     expect(calls[0].url).toBe('http://test.local/api/terminals/t1/delivery');
   });
+
+  it('D7: set --mode patches terminal deliveryMode through settings with admin bearer', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ ok: true }));
+    const code = await handleDeliveryVerb(
+      'set',
+      ['--terminal', 'term-a', '--mode', 'queue-raw', '--admin-token', 'admin-secret'],
+      runtime,
+      { CliInputError }
+    );
+
+    expect(code).toBe(0);
+    expect(captured.requests[0].url).toBe('http://test.local/api/terminals/term-a/settings');
+    expect(captured.requests[0].init.method).toBe('PATCH');
+    expect(captured.requests[0].init.headers.authorization).toBe('Bearer admin-secret');
+    expect(JSON.parse(captured.requests[0].init.body)).toEqual({
+      field: 'deliveryMode',
+      value: 'queue_raw'
+    });
+    expect(captured.stdout[0]).toBe('Delivery mode for term-a set to queue_raw');
+  });
+
+  it('D8: set requires admin token before fetch', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ ok: true }));
+
+    await expect(
+      handleDeliveryVerb('set', ['--terminal', 'term-a', '--mode', 'queue+summarise'], runtime, { CliInputError })
+    ).rejects.toThrow('admin token required');
+
+    expect(captured.requests).toHaveLength(0);
+  });
 });
