@@ -149,10 +149,10 @@ describe('start-snapshot deployment hardening', () => {
   });
 
   it('launchd template supervises node directly instead of bun run start', () => {
-    const plist = readFileSync(join(process.cwd(), 'deploy', 'com.ant.fresh.plist'), 'utf8');
-    expect(plist).toContain('/Users/you/.nvm/versions/node/v22.22.1/bin');
-    expect(plist).toContain('<string>/Users/you/.nvm/versions/node/v22.22.1/bin/node</string>');
-    expect(plist).toContain('<string>--env-file=/Users/you/.ant/secrets.env</string>');
+    const plist = readFileSync(join(process.cwd(), 'deploy', 'com.ant.fresh.plist.template'), 'utf8');
+    expect(plist).toContain('{{ANT_NODE_BIN_DIR}}');
+    expect(plist).toContain('<string>{{ANT_NODE_BIN_DIR}}/node</string>');
+    expect(plist).toContain('<string>--env-file={{ANT_SECRETS_ENV}}</string>');
     expect(plist).toContain('<string>scripts/start-snapshot.mjs</string>');
     expect(plist).not.toContain('<string>/Users/you/.bun/bin/bun</string>');
     expect(plist).not.toContain('<string>/usr/bin/env</string>');

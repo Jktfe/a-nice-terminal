@@ -97,6 +97,7 @@ describe('POST /api/decks/:deckId/stage-feedback', () => {
     const messages = listMessagesInRoom(room.id);
     expect(messages.length).toBeGreaterThanOrEqual(1);
     expect(messages[0].kind).toBe('human');
+    expect(messages[0].authorHandle).toBe('@admin');
     expect(messages[0].body).toContain('Stage feedback');
     expect(messages[0].body).toContain('No, we do not do that');
     expect(messages[0].body).toContain('Alternative Track (/artefacts/');
