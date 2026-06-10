@@ -17,6 +17,7 @@
 import { getIdentityDb } from './db';
 import { getDeck, type DeckSlide } from './deckStore';
 import { appendPlanEvent, type EvidenceRef } from './planModeStore';
+import { appendStageAlternativeDecision } from './stageAlternativeStore';
 
 export type StageAlternative = {
   slideIndex: number;
@@ -220,6 +221,7 @@ export function persistAlternatives(
 
   for (const alt of alternatives) {
     const eventId = `evt-alt-${tsMillis}-${Math.random().toString(36).slice(2, 8)}`;
+    const alternativeRef = `alt:${deckId}:slide:${alt.slideIndex}:${tsMillis}`;
 
     appendPlanEvent({
       id: eventId,
@@ -234,7 +236,7 @@ export function persistAlternatives(
       evidence: [
         {
           kind: 'stage_alternative',
-          ref: `alt:${deckId}:slide:${alt.slideIndex}:${tsMillis}`,
+          ref: alternativeRef,
           label: `alt-for:${pauseContextRef}`,
           narration: JSON.stringify({
             originalTitle: alt.originalTitle,
@@ -245,6 +247,13 @@ export function persistAlternatives(
         }
       ],
       provenance: { source: 'stage-alternative-processor', section: deckId, author: handle }
+    });
+
+    appendStageAlternativeDecision({
+      deckId,
+      alternativeRef,
+      action: 'replace-slide',
+      decidedBy: handle
     });
 
     written.push(eventId);

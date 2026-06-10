@@ -7,6 +7,7 @@ import { resetPlanModeStoreForTests } from '$lib/server/planModeStore';
 import { listArtefactsInRoom, resetChatRoomArtefactStoreForTests } from '$lib/server/chatRoomArtefactStore';
 import { getArtefactContentByArtefactId, resetChatRoomArtefactContentStoreForTests } from '$lib/server/chatRoomArtefactContentStore';
 import { getTask, _resetTaskStoreForTests } from '$lib/server/taskStore';
+import { composeStageSlides, listStageAlternatives } from '$lib/server/stageAlternativeStore';
 
 const ADMIN_TOKEN_FOR_TESTS = 'stage-feedback-test-admin-token';
 const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
@@ -84,12 +85,21 @@ describe('POST /api/decks/:deckId/stage-feedback', () => {
     expect(body.proposal.taskIds).toHaveLength(3);
     expect(body.generatedAlternatives).toBe(1);
 
+    const alternatives = listStageAlternatives(deck.id);
+    expect(alternatives).toHaveLength(1);
+    expect(alternatives[0].decision?.action).toBe('replace-slide');
+    const composed = composeStageSlides(deck, alternatives);
+    expect(composed[1]).toMatchObject({
+      source: 'alternative',
+      sourceAlternativeRef: alternatives[0].ref
+    });
+
     const messages = listMessagesInRoom(room.id);
     expect(messages.length).toBeGreaterThanOrEqual(1);
-    expect(messages[0].kind).toBe('system');
+    expect(messages[0].kind).toBe('human');
     expect(messages[0].body).toContain('Stage feedback');
     expect(messages[0].body).toContain('No, we do not do that');
-    expect(messages[0].body).toContain('Alternative track: /artefacts/');
+    expect(messages[0].body).toContain('Alternative Track (/artefacts/');
 
     const artefacts = listArtefactsInRoom(room.id);
     expect(artefacts).toHaveLength(1);
