@@ -46,7 +46,12 @@ export const POST: RequestHandler = async ({ request }) => {
     }
   }
   const title = requiredString(body.title, 'title');
-  const options = readStringList(body.options);
+  // `statesOrdered` (status boards) preserves column order as given;
+  // `options` (votes) goes through readStringList which sorts. A status
+  // board's progression order is meaningful, so it must not be alphabetised.
+  const options = Array.isArray(body.statesOrdered)
+    ? orderedUnique(body.statesOrdered)
+    : readStringList(body.options);
   const explicitVoters = readStringList(body.eligibleVoters ?? body.voters);
   const eligibleVoters = explicitVoters.length > 0
     ? explicitVoters
@@ -61,14 +66,17 @@ export const POST: RequestHandler = async ({ request }) => {
       roomIds: boundRooms,
       createdByHandle
     });
-    // The trailing ant-poll fence makes the receipt render as a live inline
-    // poll in every bound room (pollRefs.ts → MessageRow → PollWidget). The
-    // text summary above it stays as the fallback for CLI/non-rendering
-    // clients. JWPK msg_7nqg8oaufo.
-    postVoteReceipts(
-      vote,
-      `🗳️ Vote opened by ${createdByHandle}: ${vote.title}\n${voteSummary(vote)}\n\n\`\`\`ant-poll\n${vote.id}\n\`\`\``
-    );
+    // The trailing fence makes the receipt render as a live inline widget in
+    // every bound room. `boardKind:'status'` (the /status-poll milestone
+    // tracker, JWPK msg_39mnm7blal) emits an ant-status fence → StatusBoard;
+    // otherwise an ant-poll fence → PollWidget (JWPK msg_7nqg8oaufo). The
+    // text summary above it is the CLI/non-rendering fallback either way. The
+    // board reuses the vote primitive — same store, different fence.
+    const isStatusBoard = body.boardKind === 'status';
+    const receipt = isStatusBoard
+      ? `📍 Status board opened by ${createdByHandle}: ${vote.title}\n${voteSummary(vote)}\n\n\`\`\`ant-status\n${vote.id}\n\`\`\``
+      : `🗳️ Vote opened by ${createdByHandle}: ${vote.title}\n${voteSummary(vote)}\n\n\`\`\`ant-poll\n${vote.id}\n\`\`\``;
+    postVoteReceipts(vote, receipt);
     return json({ vote }, { status: 201 });
   } catch (cause) {
     throw error(400, cause instanceof Error ? cause.message : 'Could not create vote.');
@@ -90,4 +98,18 @@ function inferEligibleVoters(roomIds: string[]): string[] {
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values.filter((value) => value.length > 0))).sort();
+}
+
+/** Dedupe + trim, PRESERVING order (no sort). For status-board state columns. */
+function orderedUnique(values: unknown[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
 }

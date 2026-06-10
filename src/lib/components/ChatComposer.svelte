@@ -16,7 +16,12 @@
   import ChatComposerSendButton from './ChatComposerSendButton.svelte';
   import ChatComposerErrorMessages from './ChatComposerErrorMessages.svelte';
   import { ensureBrowserSessionForRoom } from '$lib/browserSessionClient';
-  import { looksLikeBreakCommand, reasonFromBreakCommand } from '$lib/composer/composerSlashCommands';
+  import {
+    looksLikeBreakCommand,
+    reasonFromBreakCommand,
+    looksLikeStatusPollCommand,
+    parseStatusPollCommand
+  } from '$lib/composer/composerSlashCommands';
   import {
     detectMentionTrigger,
     rankMentionOptions,
@@ -247,12 +252,73 @@
     }, 0);
   }
 
+  async function submitStatusPoll(rawBody: string) {
+    const cmd = parseStatusPollCommand(rawBody);
+    if (!cmd) {
+      lastErrorMessage =
+        '/status-poll needs a "title". e.g. /status-poll [done/wip] "Ship it" --agents [@a @b]';
+      composerState = 'bodyBeingTyped';
+      return;
+    }
+    composerState = 'submittingToServer';
+    lastErrorMessage = '';
+    try {
+      const browserSessionResult = await ensureBrowserSessionForRoom({
+        roomId,
+        authorHandle: asHandle,
+        force: true
+      });
+      if (!browserSessionResult.ok) {
+        throw new Error(
+          browserSessionResult.reason === 'no-handle'
+            ? 'No handle resolved yet for this room — refresh and try again.'
+            : `Could not establish identity for ${asHandle} in this room: ${browserSessionResult.reason}`
+        );
+      }
+      const response = await fetch('/api/votes', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomId,
+          title: cmd.title,
+          // statesOrdered preserves the column order as typed (the server
+          // alphabetises plain `options`); a status board's progression
+          // order is meaningful, so it must not be sorted.
+          statesOrdered: cmd.states,
+          ...(cmd.agents.length > 0 && { eligibleVoters: cmd.agents }),
+          boardKind: 'status'
+        })
+      });
+      if (!response.ok) {
+        const failurePayload = await response.json().catch(() => ({ message: response.statusText }));
+        throw new Error(failurePayload.message ?? 'Could not open the status board.');
+      }
+      bodyBeingTyped = '';
+      persistDraftForRoom(roomId, '');
+      composerState = 'emptyComposerWaitingForBody';
+      clearAttachedChips();
+      onMessagePosted?.(undefined);
+    } catch (causeOfFailure) {
+      lastErrorMessage =
+        causeOfFailure instanceof Error ? causeOfFailure.message : 'Could not open the status board.';
+      composerState = 'bodyBeingTyped';
+    }
+  }
+
   async function submitMessage() {
     const trimmedBody = bodyBeingTyped.trim();
     if (trimmedBody.length === 0) return;
 
     if (looksLikeBreakCommand(trimmedBody)) {
       pendingBreakReason = reasonFromBreakCommand(trimmedBody);
+      return;
+    }
+
+    // /status-poll — open a milestone status board instead of posting the raw
+    // line (JWPK msg_39mnm7blal). Like /break, the command is consumed, not
+    // echoed; the board's receipt (ant-status fence) renders inline.
+    if (looksLikeStatusPollCommand(trimmedBody)) {
+      await submitStatusPoll(trimmedBody);
       return;
     }
 
