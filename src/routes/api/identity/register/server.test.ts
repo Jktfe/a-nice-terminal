@@ -708,13 +708,21 @@ describe('POST /api/identity/register', () => {
       expect(response.status).toBe(201);
     });
 
-    it('rejects fresh attempts to register as the server handle', async () => {
+    it('rejects ANY register of the server handle with 400 via the reserved gate (no idempotent allow-path)', async () => {
+      // The operator handle is rejected by validateHandleForRegistration as
+      // `reserved` BEFORE handleValue is set, so the route never reaches an
+      // operator-specific branch — there is deliberately NO idempotent
+      // operator-reregister allow-block (dropped as dead code 2026-06-10,
+      // @c4/@speedy review). Assert the REASON, not just the 400, so this test
+      // documents WHICH gate fires: the reserved/operator-handle reject.
       const response = await callPost(JSON.stringify({
         name: 'fake-jwpk',
         handle: '@JWPK',
         pids: [{ pid: 105, pid_start: 's' }]
       }));
       expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.message).toMatch(/operator handle/i);
       expect(getTerminalByName('fake-jwpk')).toBeNull();
     });
 

@@ -227,6 +227,252 @@ describe('ant_get_pending_mentions', () => {
   });
 });
 
+describe('ant_get_room', () => {
+  it('GETs /api/chat-rooms/{roomId} and returns {room}', async () => {
+    const { tools, calls } = buildServerWithMock([
+      { body: { chatRoom: { id: 'r1', name: 'Room One' } } }
+    ]);
+    const result = await invoke(tools, 'ant_get_room', { roomId: 'r1' });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      room: { id: 'r1', name: 'Room One' }
+    });
+    expect(calls[0].url).toBe('http://test-host:1234/api/chat-rooms/r1');
+    expect(calls[0].init.method).toBe('GET');
+  });
+
+  it('URI-encodes roomId', async () => {
+    const { tools, calls } = buildServerWithMock([{ body: { chatRoom: { id: 'a b' } } }]);
+    await invoke(tools, 'ant_get_room', { roomId: 'a b' });
+    expect(calls[0].url).toBe('http://test-host:1234/api/chat-rooms/a%20b');
+  });
+
+  it('404 carries an actionable discovery hint', async () => {
+    const { tools } = buildServerWithMock([
+      { status: 404, statusText: 'Not Found', body: 'Room not found.' }
+    ]);
+    const result = await invoke(tools, 'ant_get_room', { roomId: 'nope' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('404');
+    expect(result.content[0].text).toContain('ant_list_rooms');
+  });
+});
+
+describe('ant_get_room_messages', () => {
+  it('GETs /api/chat-rooms/{roomId}/messages with no params by default', async () => {
+    const { tools, calls } = buildServerWithMock([
+      {
+        body: {
+          messages: [{ id: 'msg_1', body: 'hi' }],
+          paging: { limit: 100, before: null, hasMore: false, nextBefore: null, sinceBreak: true }
+        }
+      }
+    ]);
+    const result = await invoke(tools, 'ant_get_room_messages', { roomId: 'r1' });
+    expect(result.isError).toBeFalsy();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.messages).toHaveLength(1);
+    expect(parsed.paging.hasMore).toBe(false);
+    expect(calls[0].url).toBe('http://test-host:1234/api/chat-rooms/r1/messages');
+    expect(calls[0].init.method).toBe('GET');
+  });
+
+  it('passes limit + before cursor + include_pre_break', async () => {
+    const { tools, calls } = buildServerWithMock([{ body: { messages: [], paging: {} } }]);
+    await invoke(tools, 'ant_get_room_messages', {
+      roomId: 'r1',
+      limit: 25,
+      before: 1024,
+      includePreBreak: true
+    });
+    expect(calls[0].url).toBe(
+      'http://test-host:1234/api/chat-rooms/r1/messages?limit=25&before=1024&include_pre_break=true'
+    );
+  });
+
+  it('returns isError on 403 with the grant hint', async () => {
+    const { tools } = buildServerWithMock([
+      { status: 403, statusText: 'Forbidden', body: 'denied' }
+    ]);
+    const result = await invoke(tools, 'ant_get_room_messages', { roomId: 'r1' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('403');
+    expect(result.content[0].text).toContain('ant mcp grant');
+  });
+});
+
+describe('ant_get_message', () => {
+  it('GETs /api/chat-rooms/messages/{messageId} and returns {message}', async () => {
+    const { tools, calls } = buildServerWithMock([
+      { body: { message: { id: 'msg_1', roomId: 'r1', body: 'hello' } } }
+    ]);
+    const result = await invoke(tools, 'ant_get_message', { messageId: 'msg_1' });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      message: { id: 'msg_1', roomId: 'r1', body: 'hello' }
+    });
+    expect(calls[0].url).toBe('http://test-host:1234/api/chat-rooms/messages/msg_1');
+    expect(calls[0].init.method).toBe('GET');
+  });
+
+  it('returns isError on 404', async () => {
+    const { tools } = buildServerWithMock([
+      { status: 404, statusText: 'Not Found', body: 'Message not found.' }
+    ]);
+    const result = await invoke(tools, 'ant_get_message', { messageId: 'msg_x' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('404');
+  });
+});
+
+describe('ant_search_room_messages', () => {
+  it('GETs /api/chat-rooms/{roomId}/search with q and returns matches', async () => {
+    const { tools, calls } = buildServerWithMock([
+      {
+        body: {
+          matches: [
+            { id: 'msg_1', postedAt: '2026-06-10T10:00:00Z', authorHandle: '@a', body: 'release blocker', postOrder: 7 }
+          ],
+          allContent: false
+        }
+      }
+    ]);
+    const result = await invoke(tools, 'ant_search_room_messages', {
+      roomId: 'r1',
+      query: 'release blocker'
+    });
+    expect(result.isError).toBeFalsy();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.matches).toHaveLength(1);
+    expect(parsed.allContent).toBe(false);
+    expect(calls[0].url).toBe(
+      'http://test-host:1234/api/chat-rooms/r1/search?q=release+blocker'
+    );
+  });
+
+  it('passes limit and allContent=1', async () => {
+    const { tools, calls } = buildServerWithMock([{ body: { matches: [], allContent: true } }]);
+    await invoke(tools, 'ant_search_room_messages', {
+      roomId: 'r1',
+      query: 'x',
+      limit: 5,
+      allContent: true
+    });
+    expect(calls[0].url).toBe(
+      'http://test-host:1234/api/chat-rooms/r1/search?q=x&limit=5&allContent=1'
+    );
+  });
+
+  it('returns isError on 400 (blank query rejected server-side)', async () => {
+    const { tools } = buildServerWithMock([
+      { status: 400, statusText: 'Bad Request', body: 'q parameter required.' }
+    ]);
+    const result = await invoke(tools, 'ant_search_room_messages', { roomId: 'r1', query: ' ' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('400');
+  });
+});
+
+describe('ant_list_agents', () => {
+  const tenAgents = Array.from({ length: 10 }, (_, i) => ({ handle: `@a${i}` }));
+
+  it('GETs /api/agents and pages client-side with total + nextOffset', async () => {
+    const { tools, calls } = buildServerWithMock([{ body: { agents: tenAgents } }]);
+    const result = await invoke(tools, 'ant_list_agents', { limit: 4, offset: 4 });
+    expect(result.isError).toBeFalsy();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.agents).toEqual([{ handle: '@a4' }, { handle: '@a5' }, { handle: '@a6' }, { handle: '@a7' }]);
+    expect(parsed.total).toBe(10);
+    expect(parsed.nextOffset).toBe(8);
+    expect(calls[0].url).toBe('http://test-host:1234/api/agents');
+  });
+
+  it('nextOffset is null on the final page', async () => {
+    const { tools } = buildServerWithMock([{ body: { agents: tenAgents } }]);
+    const result = await invoke(tools, 'ant_list_agents', { limit: 4, offset: 8 });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.agents).toHaveLength(2);
+    expect(parsed.nextOffset).toBeNull();
+  });
+
+  it('passes roomId as a query param', async () => {
+    const { tools, calls } = buildServerWithMock([{ body: { agents: [] } }]);
+    await invoke(tools, 'ant_list_agents', { roomId: 'r 1' });
+    expect(calls[0].url).toBe('http://test-host:1234/api/agents?roomId=r+1');
+  });
+});
+
+describe('ant_list_plans', () => {
+  it('GETs /api/plans with default state and pages client-side', async () => {
+    const plans = Array.from({ length: 3 }, (_, i) => ({ id: `plan_${i}` }));
+    const { tools, calls } = buildServerWithMock([{ body: { plans } }]);
+    const result = await invoke(tools, 'ant_list_plans', {});
+    expect(result.isError).toBeFalsy();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.plans).toHaveLength(3);
+    expect(parsed.total).toBe(3);
+    expect(parsed.nextOffset).toBeNull();
+    expect(calls[0].url).toBe('http://test-host:1234/api/plans');
+  });
+
+  it('passes state filter', async () => {
+    const { tools, calls } = buildServerWithMock([{ body: { plans: [] } }]);
+    await invoke(tools, 'ant_list_plans', { state: 'archived' });
+    expect(calls[0].url).toBe('http://test-host:1234/api/plans?state=archived');
+  });
+
+  it('returns isError on 500 with daemon-health hint', async () => {
+    const { tools } = buildServerWithMock([
+      { status: 500, statusText: 'Internal', body: 'boom' }
+    ]);
+    const result = await invoke(tools, 'ant_list_plans', {});
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('500');
+    expect(result.content[0].text).toContain('ANT_SERVER_URL');
+  });
+});
+
+describe('ant_get_plan', () => {
+  it('GETs /api/plans/{planId} and returns {plan}', async () => {
+    const { tools, calls } = buildServerWithMock([
+      { body: { plan: { id: 'plan_1', title: 'rV1' } } }
+    ]);
+    const result = await invoke(tools, 'ant_get_plan', { planId: 'plan_1' });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(result.content[0].text)).toEqual({ plan: { id: 'plan_1', title: 'rV1' } });
+    expect(calls[0].url).toBe('http://test-host:1234/api/plans/plan_1');
+    expect(calls[0].init.method).toBe('GET');
+  });
+
+  it('URI-encodes planId and surfaces 404', async () => {
+    const { tools, calls } = buildServerWithMock([
+      { status: 404, statusText: 'Not Found', body: 'plan not found' }
+    ]);
+    const result = await invoke(tools, 'ant_get_plan', { planId: 'p/x' });
+    expect(calls[0].url).toBe('http://test-host:1234/api/plans/p%2Fx');
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('404');
+  });
+});
+
+describe('error hints', () => {
+  it('network-level fetch failures explain the daemon may be unreachable', async () => {
+    const server = new McpServer({ name: 'test', version: '0.0.0' });
+    const fetchImpl = (async () => {
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch;
+    const client = new AntClient({ baseUrl: 'http://test-host:1234', fetchImpl });
+    registerAntTools(server, client);
+    const tools = (server as unknown as {
+      _registeredTools: RegisteredToolMap;
+    })._registeredTools;
+    const result = await invoke(tools, 'ant_list_rooms', {});
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('fetch failed');
+    expect(result.content[0].text).toContain('ANT_SERVER_URL');
+  });
+});
+
 describe('AntClient', () => {
   it('sends Authorization: Bearer <token> when ANT_DEVICE_TOKEN is configured', async () => {
     const { fetchImpl, calls } = makeMockFetch([{ body: { chatRooms: [] } }]);

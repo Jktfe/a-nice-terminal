@@ -4,7 +4,7 @@
  *   ant vote create --room ROOM --title TEXT --options a,b [--voters @a,@b] [--rooms R2,R3] [--json]
  *   ant vote list --room ROOM [--json]
  *   ant vote show VOTE_ID --room ROOM [--json]
- *   ant vote cast VOTE_ID --room ROOM --option OPTION_ID [--reason TEXT] [--json]
+ *   ant vote cast VOTE_ID --room ROOM --option OPTION (label or id) [--reason TEXT] [--json]
  *   ant vote close VOTE_ID --room ROOM [--json]
  */
 import { processIdentityChain } from './ant-cli-identity-chain.mjs';
@@ -105,18 +105,46 @@ async function runCast(args, runtime, CliInputError) {
   const voteId = positionals[0];
   if (!voteId) throw new CliInputError('vote cast needs VOTE_ID');
   const room = await resolveChatRoomIdentifier(runtime, requireFlag(flags, 'room', CliInputError), CliInputError);
+  const rawOption = requireFlag(flags, 'option', CliInputError);
+  // --option accepts an option id OR the visible label. Fetch the room-scoped
+  // vote (same authed read path as `show`) and map label -> option id before
+  // POSTing, because the server's castVoteBallot only accepts an option id.
+  const query = new URLSearchParams({ roomId: room.id });
+  query.set('pidChain', JSON.stringify(processIdentityChain()));
+  const voteView = await fetchJson(runtime, `/api/votes/${encodeURIComponent(voteId)}?${query.toString()}`);
+  const optionId = resolveOptionId(voteView && voteView.vote, rawOption, CliInputError);
   const payload = await fetchJson(runtime, `/api/votes/${encodeURIComponent(voteId)}/cast`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       roomId: room.id,
-      optionId: requireFlag(flags, 'option', CliInputError),
+      optionId,
       reason: flags.reason,
       pidChain: processIdentityChain()
     })
   });
   writeVote(runtime, flags, payload, `Cast vote ${payload.vote.id}: ${payload.vote.state}`);
   return 0;
+}
+
+/**
+ * Resolve a `--option` value to an option id. An exact option-id match wins
+ * (preserves the id path); otherwise a case-insensitive label match. Throws a
+ * helpful CliInputError listing the available options if neither matches.
+ */
+function resolveOptionId(vote, raw, CliInputError) {
+  const options = vote && Array.isArray(vote.options) ? vote.options : [];
+  const byId = options.find((o) => o.id === raw);
+  if (byId) return byId.id;
+  const lowered = String(raw).trim().toLowerCase();
+  const byLabel = options.find(
+    (o) => typeof o.label === 'string' && o.label.trim().toLowerCase() === lowered
+  );
+  if (byLabel) return byLabel.id;
+  const available = options.map((o) => `${o.label} (${o.id})`).join(', ');
+  throw new CliInputError(
+    `vote cast: option "${raw}" not found. Use an option id or label. Available: ${available || '(none)'}`
+  );
 }
 
 async function runClose(args, runtime, CliInputError) {
@@ -196,6 +224,6 @@ function writeUsage(runtime) {
   runtime.writeOut('  create --room ROOM --title TEXT --options a,b [--voters @a,@b] [--rooms R2,R3] [--json]');
   runtime.writeOut('  list --room ROOM [--json]');
   runtime.writeOut('  show VOTE_ID --room ROOM [--json]');
-  runtime.writeOut('  cast VOTE_ID --room ROOM --option OPTION_ID [--reason TEXT] [--json]');
+  runtime.writeOut('  cast VOTE_ID --room ROOM --option OPTION (label or id) [--reason TEXT] [--json]');
   runtime.writeOut('  close VOTE_ID --room ROOM [--json]');
 }

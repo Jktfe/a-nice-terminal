@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { createChatRoom } from '$lib/server/chatRoomStore';
+import { subscribeRoomEvents } from '$lib/server/eventBroadcast';
 import { GET as tasksGET, POST as tasksPOST } from './+server';
 import { GET as taskGET, PATCH as taskPATCH } from './[taskId]/+server';
 import { GET as terminalTasksGET } from '../terminals/[id]/tasks/+server';
@@ -105,6 +106,29 @@ describe('POST /api/tasks (JWPK shape)', () => {
     expect(t.assignedTo).toBe('@claude2');
     expect(t.assignedTerminalId).toBe('t_abc');
     expect(t.roomId).toBe(room.id);
+  });
+
+  it('emits a task_changed realtime event to the bound room on create', async () => {
+    // Regression: the JWPK POST branch returns early, so its realtime
+    // broadcast is a separate wiring from the Lane-D path. `ant task create`
+    // uses this shape — without the emission the room's Tasks panel never
+    // refreshes on creation.
+    const room = createChatRoom({ name: 'JWPK realtime room', whoCreatedIt: '@you' });
+    const events: Record<string, unknown>[] = [];
+    const stop = subscribeRoomEvents(room.id, (e) => events.push(e));
+    try {
+      const r = await call(tasksPOST, {
+        method: 'POST',
+        url: '/api/tasks',
+        body: { title: 'live status', room_id: room.id }
+      });
+      expect(r.status).toBe(201);
+      const taskId = (r.body.task as Record<string, unknown>).id;
+      const changed = events.find((e) => e.type === 'task_changed');
+      expect(changed).toMatchObject({ type: 'task_changed', action: 'created', taskId });
+    } finally {
+      stop();
+    }
   });
 
   it('201 with plan binding', async () => {

@@ -108,6 +108,8 @@ describe('ant vote CLI', () => {
     const posts = [];
     const { runtime } = makeRuntime({
       '/api/chat-rooms': rooms,
+      // cast now fetches the room-scoped vote first to resolve --option.
+      '/api/votes/vote_1': () => response(200, { vote, history: [] }),
       '/api/votes/vote_1/cast': ({ init }) => {
         posts.push(JSON.parse(init.body));
         return response(200, { vote: { ...vote, state: 'complete', complete: true, missingVoters: [] } });
@@ -124,6 +126,42 @@ describe('ant vote CLI', () => {
     expect(code).toBe(0);
     expect(posts[0]).toMatchObject({ roomId: 'room-a', optionId: 'opt_1', reason: 'green' });
     expect(Array.isArray(posts[0].pidChain)).toBe(true);
+  });
+
+  it('cast resolves --option by label to the matching option id (id path preserved)', async () => {
+    const posts = [];
+    const { runtime } = makeRuntime({
+      '/api/chat-rooms': rooms,
+      '/api/votes/vote_1': () => response(200, { vote, history: [] }),
+      '/api/votes/vote_1/cast': ({ init }) => {
+        posts.push(JSON.parse(init.body));
+        return response(200, { vote: { ...vote, state: 'complete', complete: true, missingVoters: [] } });
+      }
+    });
+
+    // --option by LABEL ("yes") resolves through the room-scoped vote to opt_1.
+    const byLabel = await handleVoteVerb('cast', ['vote_1', '--room', 'Alpha', '--option', 'yes'], runtime, {
+      CliInputError
+    });
+    expect(byLabel).toBe(0);
+    expect(posts[0]).toMatchObject({ roomId: 'room-a', optionId: 'opt_1' });
+
+    // --option by ID ("opt_2") still posts that id unchanged.
+    const byId = await handleVoteVerb('cast', ['vote_1', '--room', 'Alpha', '--option', 'opt_2'], runtime, {
+      CliInputError
+    });
+    expect(byId).toBe(0);
+    expect(posts[1]).toMatchObject({ roomId: 'room-a', optionId: 'opt_2' });
+  });
+
+  it('cast rejects an unknown --option with a helpful error', async () => {
+    const { runtime } = makeRuntime({
+      '/api/chat-rooms': rooms,
+      '/api/votes/vote_1': () => response(200, { vote, history: [] })
+    });
+    await expect(
+      handleVoteVerb('cast', ['vote_1', '--room', 'Alpha', '--option', 'maybe'], runtime, { CliInputError })
+    ).rejects.toThrow(/not found/);
   });
 
   it('show --json prints the raw server payload', async () => {

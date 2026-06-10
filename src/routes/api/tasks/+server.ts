@@ -20,6 +20,7 @@ import {
   type ListJwpkTasksFilter
 } from '$lib/server/tasksStore';
 import { dispatchPlanEvent } from '$lib/server/planTriggerDispatcher';
+import { broadcastTaskChanged } from '$lib/server/taskPlanRealtime';
 import { requireChatRoomMutationAuth, tryAdminBearer } from '$lib/server/chatRoomAuthGate';
 import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
@@ -114,6 +115,14 @@ export const POST: RequestHandler = async ({ request }) => {
       createdBy: typeof b.created_by === 'string' ? b.created_by : null,
       orderIndex: typeof b.order_index === 'number' ? b.order_index : 0
     });
+    // Realtime: refresh the Tasks panel in every room hosting this task.
+    // (JWPK tasks are usually room-scoped via room_id, resolved by
+    // roomIdsForTask's standalone branch.)
+    broadcastTaskChanged(created.id, {
+      action: 'created',
+      planId: created.planId,
+      status: created.status
+    });
     return json({ task: created }, { status: 201 });
   }
   if (typeof b.id !== 'string' || b.id.trim().length === 0) {
@@ -152,6 +161,12 @@ export const POST: RequestHandler = async ({ request }) => {
       status: created.status,
       assignedAgent: created.assignedAgent
     }
+  });
+  // Realtime: refresh the Tasks panel in every room that hosts this task.
+  broadcastTaskChanged(created.id, {
+    action: 'created',
+    planId: created.planId,
+    status: created.status
   });
   return json({ task: created }, { status: 201 });
 };
