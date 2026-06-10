@@ -13,6 +13,7 @@ import {
   getMessageById,
   resetChatMessageStoreForTests
 } from './chatMessageStore';
+import { openAskInRoom, findAskById } from './askStore';
 
 describe('chatMessageStore', () => {
   beforeEach(() => {
@@ -266,5 +267,37 @@ describe('softDeleteMessage — operator override + purge (JWPK msg_3535ek7e5p)'
 
     expect(deleted?.deletedAtMs).toBeTruthy();
     expect(deleted?.body).toBe('my words');
+  });
+
+  describe('operator delete purges the linked asks-as-pill copy (Tranche 0.3)', () => {
+    it('operator delete dismisses + blanks an ask derived from the message', () => {
+      const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
+      const msg = postMessage({ roomId: room.id, authorHandle: '@agent', body: 'leak the secret' });
+      const ask = openAskInRoom({
+        roomId: room.id, openedByHandle: '@agent', title: 'leak the secret',
+        body: 'leak the secret', sourceMessageId: msg.id
+      });
+
+      softDeleteMessage({ messageId: msg.id, byHandle: '@operator', asOperator: true });
+
+      const after = findAskById(ask.id);
+      expect(after?.status).toBe('dismissed');
+      expect(after?.body).toBe('');
+    });
+
+    it('a normal self-delete leaves the linked ask intact', () => {
+      const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
+      const msg = postMessage({ roomId: room.id, authorHandle: '@agent', body: 'keep me' });
+      const ask = openAskInRoom({
+        roomId: room.id, openedByHandle: '@agent', title: 'keep me',
+        body: 'keep me', sourceMessageId: msg.id
+      });
+
+      softDeleteMessage({ messageId: msg.id, byHandle: '@agent' });
+
+      const after = findAskById(ask.id);
+      expect(after?.status).toBe('open');
+      expect(after?.body).toBe('keep me');
+    });
   });
 });

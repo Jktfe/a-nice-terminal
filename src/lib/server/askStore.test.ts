@@ -8,6 +8,7 @@ import {
   listAllOpenAsks,
   listOpenAsksInRoom,
   openAskInRoom,
+  purgeOpenAsksForSourceMessage,
   resetAskStoreForTests,
   AskTargetNotHumanError,
   AskerNotInInboxError
@@ -467,6 +468,52 @@ describe('askStore', () => {
         body: 'b'
       });
       expect(ask.targetHandle).toBeUndefined();
+    });
+  });
+
+  describe('purgeOpenAsksForSourceMessage', () => {
+    it('dismisses + blanks open asks derived from the deleted message', () => {
+      const ask = openAskInRoom({
+        roomId: 'r1', openedByHandle: '@a', title: 'secret question',
+        body: 'leak the credentials please', sourceMessageId: 'msg-1'
+      });
+      const purged = purgeOpenAsksForSourceMessage('msg-1', '@operator');
+      expect(purged).toBe(1);
+      const after = findAskById(ask.id);
+      expect(after?.status).toBe('dismissed');
+      expect(after?.title).toBe('');
+      expect(after?.body).toBe('');
+    });
+
+    it('removes the purged ask from open-ask recall scans', () => {
+      openAskInRoom({
+        roomId: 'r1', openedByHandle: '@a', title: 'q', body: 'sensitive',
+        sourceMessageId: 'msg-2'
+      });
+      expect(listAllOpenAsks()).toHaveLength(1);
+      purgeOpenAsksForSourceMessage('msg-2', '@operator');
+      expect(listAllOpenAsks()).toHaveLength(0);
+    });
+
+    it('only touches asks linked to that message and still open', () => {
+      const keep = openAskInRoom({
+        roomId: 'r1', openedByHandle: '@a', title: 'keep', body: 'other message',
+        sourceMessageId: 'other-msg'
+      });
+      const answered = openAskInRoom({
+        roomId: 'r1', openedByHandle: '@a', title: 'answered', body: 'already done',
+        sourceMessageId: 'msg-3'
+      });
+      answerAsk({ askId: answered.id, answeredByHandle: '@b', answer: 'done' });
+
+      const purged = purgeOpenAsksForSourceMessage('msg-3', '@operator');
+      expect(purged).toBe(0); // the only match is already answered
+      expect(findAskById(keep.id)?.body).toBe('other message');
+      expect(findAskById(answered.id)?.body).toBe('already done');
+    });
+
+    it('is a no-op for a blank source id', () => {
+      expect(purgeOpenAsksForSourceMessage('   ', '@operator')).toBe(0);
     });
   });
 });

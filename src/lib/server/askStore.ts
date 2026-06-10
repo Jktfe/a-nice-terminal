@@ -283,6 +283,9 @@ export function openAskInRoom(input: {
   targetHandle?: string;
   title: string;
   body: string;
+  /** The chat message this ask was derived from (fanout path). Lets an
+   *  operator delete of that message purge the linked ask body too. */
+  sourceMessageId?: string;
 }): Ask {
   const trimmedRoomId = input.roomId.trim();
   if (trimmedRoomId.length === 0) throw new Error('A roomId is required to open an ask.');
@@ -340,14 +343,17 @@ export function openAskInRoom(input: {
     ? input.openedByDisplayName.trim()
     : trimmedHandle;
 
+  const sourceMessageId = input.sourceMessageId?.trim();
+  const sourceMessageIdForRow = sourceMessageId && sourceMessageId.length > 0 ? sourceMessageId : null;
+
   getIdentityDb().prepare(
     `INSERT INTO asks
      (id, room_id, opened_by_handle, opened_by_display_name, target_handle,
-      title, body, status, opened_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      title, body, status, opened_at_ms, source_message_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id, trimmedRoomId, trimmedHandle, openedByDisplayName, targetForRow,
-    trimmedTitle, trimmedBody, 'open', nowMs
+    trimmedTitle, trimmedBody, 'open', nowMs, sourceMessageIdForRow
   );
 
   const ask: Ask = {
@@ -356,6 +362,33 @@ export function openAskInRoom(input: {
   };
   if (targetForRow !== null) ask.targetHandle = targetForRow;
   return ask;
+}
+
+/**
+ * Purge any OPEN asks derived from a chat message that was just
+ * operator-deleted. memoryRecall only scans OPEN asks, so dismissing them
+ * removes the content from recall search; we also blank title+body so the
+ * durable copy of the deleted message no longer lives on in the asks table.
+ * Scoped to open asks: answered Q&A history is left intact (it is already
+ * excluded from recall and represents a real exchange, not raw chatter).
+ * Returns the number of asks purged.
+ */
+export function purgeOpenAsksForSourceMessage(
+  sourceMessageId: string,
+  byHandle: string,
+  nowMs: number = Date.now()
+): number {
+  const trimmedId = sourceMessageId.trim();
+  if (trimmedId.length === 0) return 0;
+  const result = getIdentityDb()
+    .prepare(
+      `UPDATE asks
+       SET title = '', body = '', status = 'dismissed',
+           dismissed_by_handle = ?, dismissed_at_ms = ?
+       WHERE source_message_id = ? AND status = 'open'`
+    )
+    .run(byHandle, nowMs, trimmedId);
+  return result.changes;
 }
 
 export function answerAsk(input: {

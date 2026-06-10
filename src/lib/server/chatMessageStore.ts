@@ -23,6 +23,7 @@
 
 import { findChatRoomById } from './chatRoomStore';
 import { getIdentityDb } from './db';
+import { purgeOpenAsksForSourceMessage } from './askStore';
 import { operatorDisplayHandle } from './operatorDisplayHandle';
 import { isOperatorHandle } from './operatorHandle';
 import type { MessageReactionSummary } from './messageReactionStore';
@@ -410,6 +411,10 @@ export function softDeleteMessage(input: {
     db.prepare(
       `UPDATE chat_messages SET deleted_at_ms = ?, deleted_by_handle = ?, body = '' WHERE id = ?`
     ).run(nowMs, input.byHandle, input.messageId);
+    // Purge-from-search must follow the body into its durable copies: a
+    // fanout-derived ask holds the same body and memoryRecall surfaces open
+    // asks (Tranche 0.3). Dismiss + blank the linked asks too.
+    purgeOpenAsksForSourceMessage(input.messageId, input.byHandle, nowMs);
   } else {
     db.prepare(
       `UPDATE chat_messages SET deleted_at_ms = ?, deleted_by_handle = ? WHERE id = ?`

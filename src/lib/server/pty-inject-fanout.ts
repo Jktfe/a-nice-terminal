@@ -99,7 +99,10 @@ function autoOpenAsksForHumanMentions(
         // Title = first ~80 chars of body; falls back to "Question" when
         // body opens with the @-mention and not much else (rare).
         title: makeAskTitle(message.body, handle),
-        body: message.body
+        body: message.body,
+        // Link back to the source message so an operator delete can purge
+        // this derived copy too (Tranche 0.3).
+        sourceMessageId: message.id
       });
       // Per-human inbox slice 6: broadcast ask_added into the askee's
       // inbox room so the inbox UI shows the new question immediately
