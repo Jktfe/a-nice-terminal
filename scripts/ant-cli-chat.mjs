@@ -460,12 +460,12 @@ function currentPane(runtime) {
   );
 }
 
-function withDurableSessionIdentity(runtime, roomId, payload) {
+export function withDurableSessionIdentity(runtime, roomId, payload) {
   const sessionId = durableSessionIdForRoom(runtime, roomId);
   return sessionId ? { ...payload, sessionId } : payload;
 }
 
-function durableSessionHeaders(runtime, roomId) {
+export function durableSessionHeaders(runtime, roomId) {
   const sessionId = durableSessionIdForRoom(runtime, roomId);
   return sessionId ? { 'x-ant-session-id': sessionId } : {};
 }

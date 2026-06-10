@@ -15,7 +15,7 @@ import { handleAttachVerb } from './ant-cli-attach.mjs';
 import { handleAuditVerb } from './ant-cli-audit.mjs';
 import { handleBindVerb } from './ant-cli-bind.mjs';
 import { handleChairVerb } from './ant-cli-chair.mjs';
-import { handleChatVerb } from './ant-cli-chat.mjs';
+import { handleChatVerb, withDurableSessionIdentity, durableSessionHeaders } from './ant-cli-chat.mjs';
 import { handleDeckVerb } from './ant-cli-deck.mjs';
 import { handleDecksVerb } from './ant-cli-decks.mjs';
 import { handleDeliveryVerb } from './ant-cli-delivery.mjs';
@@ -296,9 +296,18 @@ async function inviteAgent(roomId, agentHandle, runtime) {
 async function postMessage(roomId, body, runtime) {
   if (!roomId) throw new CliInputError('rooms post needs a roomId');
   if (!body || body.trim().length === 0) throw new CliInputError('rooms post needs a non-empty message');
+  // Present the durable session credential (x-ant-session-id header + body
+  // sessionId) FIRST, with pidChain only as fallback — mirroring `ant chat
+  // send`. Posting used to send pidChain ONLY, so it relied on the server
+  // guessing identity from the process tree, which is non-deterministic
+  // (the SAME command 403'd intermittently — "it failed but the message
+  // appeared"). The session token resolves deterministically via the
+  // mutation gate's clean-session path, so `rooms post` now matches the
+  // reliability of `chat send`. (@speedy 2026-06-10, one-shot delivery.)
   const response = await fetchFromServer(runtime, `/api/chat-rooms/${roomId}/messages`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ body, pidChain: processIdentityChain() })
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...durableSessionHeaders(runtime, roomId) },
+    body: JSON.stringify(withDurableSessionIdentity(runtime, roomId, { body, pidChain: processIdentityChain() }))
   });
   await throwIfNotOk(response, runtime);
   const stored = (await response.json()).message;
