@@ -59,6 +59,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { readFile, stat, open } from 'node:fs/promises';
+import type { Stats } from 'node:fs';
 import { basename, extname, isAbsolute, normalize, resolve, sep } from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -116,7 +117,7 @@ function etagFor(mtimeMs: number, size: number): string {
 async function findAsset(
   requestPath: string,
   roots: string[]
-): Promise<{ resolved: string; stat: Awaited<ReturnType<typeof stat>>; root: string } | null> {
+): Promise<{ resolved: string; stat: Stats; root: string } | null> {
   if (isAbsolute(requestPath)) throw error(400, 'Asset path must be relative.');
   for (const seg of requestPath.split('/')) {
     if (seg === '..' || seg === '.') throw error(400, 'Asset path may not contain .. or . segments.');
@@ -139,7 +140,7 @@ async function findAsset(
     if (!(realCandidate + sep).startsWith(realRootWithSep) && realCandidate !== realRoot) {
       continue;  // candidate resolved outside the root; try the next
     }
-    let st;
+    let st: Stats;
     try {
       st = await stat(candidate);
     } catch {
@@ -229,5 +230,6 @@ export const GET: RequestHandler = async ({ params, request, setHeaders }) => {
     'Accept-Ranges': 'bytes',
     ...(contentRange !== null && { 'Content-Range': contentRange })
   });
-  return new Response(slice, { status });
+  // Uint8Array view (zero-copy) — Buffer itself isn't assignable to BodyInit.
+  return new Response(new Uint8Array(slice.buffer, slice.byteOffset, slice.byteLength), { status });
 };
