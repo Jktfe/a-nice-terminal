@@ -21,6 +21,26 @@
  */
 
 import { getIdentityDb } from './db';
+import { getTelemetryDb, telemetrySidecarEnabled } from './telemetryDb';
+
+// Telemetry-sidecar handle selection (audit finding A) — same model as
+// terminalRunEventsStore: writes go to the telemetry DB when the sidecar is
+// on; reads union telemetry (new) + identity (old, not yet backfilled).
+type HookDb = ReturnType<typeof getIdentityDb>;
+function hookWriteDb(): HookDb {
+  return telemetrySidecarEnabled() ? getTelemetryDb() : getIdentityDb();
+}
+function hookReadDbs(): HookDb[] {
+  return telemetrySidecarEnabled() ? [getTelemetryDb(), getIdentityDb()] : [getIdentityDb()];
+}
+const HOOK_COLS = `id, source_cli, session_id, hook_event_name, received_at_ms,
+        transcript_path, cwd, permission_mode, effort_level,
+        tool_name, tool_use_id, payload`;
+function mergeRecentHookRows(rows: CliHookEventRow[], limit: number): CliHookEventRow[] {
+  return rows
+    .sort((a, b) => b.received_at_ms - a.received_at_ms || b.id - a.id)
+    .slice(0, limit);
+}
 
 export type CliHookEventInsert = {
   sourceCli?: string;            // defaults to 'claude-code' if omitted
@@ -61,7 +81,7 @@ export function insertCliHookEvent(input: CliHookEventInsert): CliHookEventRow {
     throw new Error('hookEventName cannot be blank.');
   }
 
-  const db = getIdentityDb();
+  const db = hookWriteDb();
   const receivedAtMs = input.receivedAtMs ?? Date.now();
   const sourceCli = input.sourceCli && input.sourceCli.trim().length > 0
     ? input.sourceCli.trim()
@@ -110,33 +130,21 @@ export function listCliHookEventsForSession(
   options?: { limit?: number }
 ): CliHookEventRow[] {
   const limit = options?.limit ?? 100;
-  return getIdentityDb()
-    .prepare(
-      `SELECT id, source_cli, session_id, hook_event_name, received_at_ms,
-              transcript_path, cwd, permission_mode, effort_level,
-              tool_name, tool_use_id, payload
+  const sql = `SELECT ${HOOK_COLS}
          FROM cli_hook_events
         WHERE session_id = ?
         ORDER BY received_at_ms DESC, id DESC
-        LIMIT ?`
-    )
-    .all(sessionId, limit) as CliHookEventRow[];
+        LIMIT ?`;
+  const rows = hookReadDbs().flatMap(
+    (db) => db.prepare(sql).all(sessionId, limit) as CliHookEventRow[]
+  );
+  return mergeRecentHookRows(rows, limit);
 }
 
 export function getLatestCliHookEventForSession(
   sessionId: string
 ): CliHookEventRow | undefined {
-  return getIdentityDb()
-    .prepare(
-      `SELECT id, source_cli, session_id, hook_event_name, received_at_ms,
-              transcript_path, cwd, permission_mode, effort_level,
-              tool_name, tool_use_id, payload
-         FROM cli_hook_events
-        WHERE session_id = ?
-        ORDER BY received_at_ms DESC, id DESC
-        LIMIT 1`
-    )
-    .get(sessionId) as CliHookEventRow | undefined;
+  return listCliHookEventsForSession(sessionId, { limit: 1 })[0];
 }
 
 export function listRecentCliHookEvents(options?: {
@@ -144,31 +152,21 @@ export function listRecentCliHookEvents(options?: {
   sourceCli?: string;
 }): CliHookEventRow[] {
   const limit = options?.limit ?? 100;
-  if (options?.sourceCli) {
-    return getIdentityDb()
-      .prepare(
-        `SELECT id, source_cli, session_id, hook_event_name, received_at_ms,
-                transcript_path, cwd, permission_mode, effort_level,
-                tool_name, tool_use_id, payload
-           FROM cli_hook_events
-          WHERE source_cli = ?
-          ORDER BY received_at_ms DESC, id DESC
-          LIMIT ?`
-      )
-      .all(options.sourceCli, limit) as CliHookEventRow[];
-  }
-  return getIdentityDb()
-    .prepare(
-      `SELECT id, source_cli, session_id, hook_event_name, received_at_ms,
-              transcript_path, cwd, permission_mode, effort_level,
-              tool_name, tool_use_id, payload
-         FROM cli_hook_events
-        ORDER BY received_at_ms DESC, id DESC
-        LIMIT ?`
-    )
-    .all(limit) as CliHookEventRow[];
+  const sql = options?.sourceCli
+    ? `SELECT ${HOOK_COLS} FROM cli_hook_events WHERE source_cli = ?
+        ORDER BY received_at_ms DESC, id DESC LIMIT ?`
+    : `SELECT ${HOOK_COLS} FROM cli_hook_events
+        ORDER BY received_at_ms DESC, id DESC LIMIT ?`;
+  const args = options?.sourceCli ? [options.sourceCli, limit] : [limit];
+  const rows = hookReadDbs().flatMap(
+    (db) => db.prepare(sql).all(...args) as CliHookEventRow[]
+  );
+  return mergeRecentHookRows(rows, limit);
 }
 
 export function resetCliHookEventsStoreForTests(): void {
-  getIdentityDb().prepare('DELETE FROM cli_hook_events').run();
+  // Clear both DBs — a test may have written to the telemetry sidecar.
+  for (const db of new Set<HookDb>([getIdentityDb(), getTelemetryDb()])) {
+    try { db.prepare('DELETE FROM cli_hook_events').run(); } catch { /* table may not exist */ }
+  }
 }
