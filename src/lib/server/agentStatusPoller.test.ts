@@ -356,6 +356,27 @@ describe('agentStatusPoller — stale volatile decay (Stop-drop backstop)', () =
     expect(JSON.parse(events[0].evidence_json ?? '{}').via).toBe('stale-volatile-decay');
   });
 
+  it('does NOT decay a stale status while pty bytes are still streaming (long-op guard)', () => {
+    // A long single operation (e.g. a 3-min build) writes 'working' once at
+    // the start, then streams pty bytes for minutes. Keying decay on the
+    // status-write age alone would falsely idle it mid-op; the evidence-max
+    // (pty byte) term must keep it 'working'.
+    const tid = makeAgentTerminal('t-long-op', 'claude_code', '%5');
+    setAgentStatus({
+      terminalId: tid,
+      newStatus: 'working',
+      source: 'hook',
+      nowMs: Date.now() - 120_000, // status written 2 min ago — well past window
+      evidence: { hookEventName: 'PreToolUse' }
+    });
+    // …but pty bytes flowed 5s ago: the agent is mid long-running tool.
+    getIdentityDb().prepare(`UPDATE terminals SET last_pty_byte_at_ms = ? WHERE id = ?`)
+      .run(Date.now() - 5_000, tid);
+    reconcileStaleVolatileStatuses();
+    expect(getAgentStatus(tid)?.agent_status).toBe('working'); // not idled mid-op
+    expect(listEventsForTerminal(tid)).toHaveLength(1);
+  });
+
   it('does NOT decay a volatile status still inside the decay window', () => {
     const tid = makeAgentTerminal('t-fresh-volatile', 'claude_code', null);
     setAgentStatus({

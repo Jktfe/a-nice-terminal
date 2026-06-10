@@ -42,10 +42,13 @@ const POLL_MAX_MS = 60_000;
 const POLL_DEFAULT_MS = 10_000;
 const POLL_MAX_TERMINALS_DEFAULT = 5;
 const HOOK_FRESH_MS = 30_000;
-// Stop-drop backstop window. A volatile (working/thinking) status whose last
-// write is older than this with no refreshing signal is treated as a lost
-// Stop event and decayed to idle. See reconcileStaleVolatileStatuses.
-const STALE_VOLATILE_DECAY_DEFAULT_MS = 90_000;
+// Stop-drop backstop window. A volatile (working/thinking) status with NO
+// fresh evidence of activity (status write / pty bytes / chat message) for
+// this long is treated as a lost Stop event and decayed to idle. See
+// reconcileStaleVolatileStatuses. Kept tight (45s) so a stopped agent's ant
+// stops crawling promptly — the evidence-max guard prevents false-idling a
+// genuinely-busy agent mid-operation.
+const STALE_VOLATILE_DECAY_DEFAULT_MS = 45_000;
 const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
 const CWD_CACHE_TTL_MS = 5_000;
 
@@ -120,17 +123,25 @@ function staleVolatileDecayMs(): number {
  * reconcileStaleVolatileStatuses — the Stop-drop backstop (JWPK, Agents Agents
  * 2026-06-10: "you'd stopped but your ant didn't").
  *
- * agent_status flips to working/thinking via a hook POST, but the Stop hook
- * that should flip it back to idle is FIRE-AND-FORGET (curl … || true to prod
- * :6174). On any server blip the Stop POST silently drops and nothing ever
- * clears the volatile status — the agent "crawls" forever.
+ * agent_status flips to working/thinking via a hook POST (or the agent-state
+ * SSE projection), but the Stop hook that should flip it back to idle is
+ * FIRE-AND-FORGET (curl … || true to prod :6174). On any server blip the Stop
+ * POST silently drops and nothing ever clears the volatile status — the agent
+ * "crawls" forever.
  *
  * Status truth must not depend on a single best-effort POST landing. This
- * sweep decays any volatile status whose last write (agent_status_at_ms) is
- * older than the decay window back to idle. The fingerprint path already
- * REFRESHES agent_status_at_ms every tick for genuinely-active PANED terminals
- * (so they never go stale here), which is why this matters most for remote /
- * paneless terminals the fingerprint path cannot sample at all.
+ * sweep decays a volatile status to idle once NO liveness signal has advanced
+ * for the decay window.
+ *
+ * Critically it keys on the freshest EVIDENCE of activity, not the status-WRITE
+ * time alone: a long single operation (e.g. a 3-minute build) writes 'working'
+ * exactly once at the start but keeps streaming pty bytes the whole time, so
+ * keying on agent_status_at_ms alone would falsely idle a genuinely-busy agent
+ * mid-op. We take max(status write, last pty byte, last chat message) and only
+ * decay when ALL of them have gone quiet — that distinguishes "stopped" from
+ * "mid long-running tool". (The fingerprint path also refreshes the status
+ * write for actively-sampled paned terminals; this is the broader backstop for
+ * the SSE/hook-driven and remote/paneless terminals it does not sample.)
  *
  * Sweeps ALL live terminals (not the per-tick fingerprint slice) because the
  * stuck terminal may not be in the sampled window. Per-terminal isolation so
@@ -140,10 +151,15 @@ export function reconcileStaleVolatileStatuses(nowMs: number = Date.now()): void
   const decayMs = staleVolatileDecayMs();
   for (const terminal of listAllTerminals()) {
     if (terminal.status !== 'live') continue;
-    const current = getAgentStatus(terminal.id);
-    if (!current || !isVolatileAgentStatus(current.agent_status)) continue;
-    if (!(current.agent_status_at_ms > 0)) continue;
-    const staleForMs = nowMs - current.agent_status_at_ms;
+    const status = terminal.agent_status;
+    if (!status || !isVolatileAgentStatus(status)) continue;
+    const lastEvidenceMs = Math.max(
+      terminal.agent_status_at_ms ?? 0,
+      terminal.last_pty_byte_at_ms ?? 0,
+      terminal.last_message_sent_at_ms ?? 0
+    );
+    if (lastEvidenceMs <= 0) continue;
+    const staleForMs = nowMs - lastEvidenceMs;
     if (staleForMs < decayMs) continue;
     try {
       setAgentStatus({
@@ -153,8 +169,8 @@ export function reconcileStaleVolatileStatuses(nowMs: number = Date.now()): void
         nowMs,
         evidence: {
           via: 'stale-volatile-decay',
-          decayedFrom: current.agent_status,
-          previousSource: current.agent_status_source,
+          decayedFrom: status,
+          previousSource: terminal.agent_status_source ?? null,
           staleForMs,
           decayWindowMs: decayMs
         }
