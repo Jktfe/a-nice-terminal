@@ -51,6 +51,7 @@ const PLAN_READ = 'scripts/ant-cli-plan-read.mjs';
 const CHAT = 'scripts/ant-cli-chat.mjs';
 const INV = 'scripts/ant-cli-invites.mjs';
 const REG = 'scripts/ant-cli-register.mjs';
+const CONNECT = 'scripts/ant-cli-connect.mjs';
 const MCP = 'scripts/ant-cli-mcp.mjs';
 const DP = 'ANT-Open-Slide/fresh-ant-rules-manual-2026-05-13/DELIVERY-PLAN.md';
 const MANUAL = 'ANT-Open-Slide/fresh-ant-rules-manual-2026-05-13/fresh-ant-rules-manual-2026-05-13.html';
@@ -181,6 +182,11 @@ export const manifestData: CliManifestVerb[] = [
     'Register the calling terminal with fresh-ANT (PID-chain default-on).',
     [f('handle', 'string', 'Caller handle to associate.'), f('name', 'string', 'Terminal name (required).'), f('ttl', 'string', 'Session TTL.', { default: '12h', constraint: 'Ns|Nm|Nh' }), f('pane', 'string', 'tmux/pty pane id.'), f('agent-kind', 'string', 'e.g. claude_code, codex_cli.'), f('mirror-v3', 'boolean', 'Also mirror to v3 :6458 (opt-in).')],
     'ant register --handle @researchant --name researchant-overnight --agent-kind claude_code', `${REG}:24-31,103-138`),
+  av('connect', 'connect', undefined,
+    'connect --handle @x --name terminalN [--pane PANE_ID] [--agent-kind K] [--room ROOM_ID] [--json]',
+    'Connect or refresh this terminal with a durable ANT session; reuses the pane-scoped session token when present and surfaces remote-bridge next steps for a room.',
+    [f('handle', 'string', 'Caller handle to associate.'), f('name', 'string', 'Terminal name (required).'), f('pane', 'string', 'tmux/pty pane id.'), f('agent-kind', 'string', 'e.g. claude_code, codex_cli.'), f('room', 'string', 'Room id for remote-bridge mapping summary and next steps.'), f('session-id', 'string', 'Explicit durable session token override.'), f('admin-token', 'string', 'Admin bearer for remote mapping summary.'), f('json', 'boolean', 'Emit JSON instead of human text.')],
+    `ant connect --handle @researchant --name researchant-overnight --room ${ROOM_ID_EX}`, CONNECT),
   av('add-session', 'add', 'session',
     'add session --pid PID --name NAME [--ttl 12h] [--pane PANE_ID] [--agent-kind K]',
     'Add a terminal session by explicit PID.',

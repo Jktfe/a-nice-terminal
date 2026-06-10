@@ -16,6 +16,7 @@ import { handleAuditVerb } from './ant-cli-audit.mjs';
 import { handleBindVerb } from './ant-cli-bind.mjs';
 import { handleChairVerb } from './ant-cli-chair.mjs';
 import { handleChatVerb, withDurableSessionIdentity, durableSessionHeaders } from './ant-cli-chat.mjs';
+import { handleConnectVerb } from './ant-cli-connect.mjs';
 import { handleDeckVerb } from './ant-cli-deck.mjs';
 import { handleDecksVerb } from './ant-cli-decks.mjs';
 import { handleDeliveryVerb } from './ant-cli-delivery.mjs';
@@ -68,7 +69,7 @@ const DEFAULT_SERVER_URL = 'http://127.0.0.1:6174';
 const ENV_SERVER_URL = process.env.ANT_SERVER_URL?.trim();
 
 const DISPATCH = {
-  plan: handlePlanVerb, ask: handleAskVerb, artefact: handleArtefactVerb, attach: handleAttachVerb, bind: handleBindVerb, invite: handleInviteVerb, chat: handleChatVerb, room: handleRoomVerb,
+  plan: handlePlanVerb, ask: handleAskVerb, artefact: handleArtefactVerb, attach: handleAttachVerb, bind: handleBindVerb, invite: handleInviteVerb, chat: handleChatVerb, connect: handleConnectVerb, room: handleRoomVerb,
   queue: handleQueueVerb, reaction: handleReactionVerb, reclaim: handleReclaimVerb, handle: handleHandleVerb, status: handleStatusVerb, delivery: handleDeliveryVerb, audit: handleAuditVerb, docs: handleDocsVerb,
   deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, tools: handleToolsVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, request: handleRequestVerb, task: handleTaskVerb, memory: handleMemoryVerb, brief: handleBriefVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, vote: handleVoteVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb, whoami: handleWhoamiVerb
 };
@@ -87,6 +88,9 @@ export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, server
     serverUrlSource,
     config: config ?? loadAntConfig(),
     envTmuxPane,
+    homeDir: homedir(),
+    cwd: process.cwd(),
+    processPpid: process.ppid,
     fallbackWarned: false,
     isInteractive: process.stdin.isTTY === true,
     promptImpl: async (q) => {
@@ -498,6 +502,7 @@ function printUsage({ writeOut, serverUrl }) {
 
 Verbs:
   rooms list|create|members|invite|post|break|messages   Manage rooms + post + breaks.
+  connect --handle @h --name NAME       Connect this terminal with a durable ANT session.
   bind --room ROOM --handle @h --terminal "Name"   Bind a friendly terminal to a room handle.
   room members|add-member|aliases     Manage room admission and aliases.
   reaction list|add|remove            Manage message reactions.
