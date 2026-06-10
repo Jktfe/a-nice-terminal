@@ -706,6 +706,32 @@ describe('POST /api/chat-rooms/:roomId/messages IDENTITY-GATE-POSTS (transition 
     expect(resolveMember(room.id, '@macxeno')).toBe(session.id);
   });
 
+  it('durable session may NOT claim the operator handle (@JWPK) via auto-join (JWPK 2026-06-10)', async () => {
+    // "No-one but me should be able to change the server's handle." A valid ant
+    // session cannot post AS the operator by sending authorHandle '@JWPK' into an
+    // open room where the operator's lease is free — the suffix rule only protects
+    // an actively-held handle, so the guard must reject the claim outright.
+    const room = createChatRoom({ name: 'operator-handle-spoof-guard', whoCreatedIt: '@you' });
+    setRoomPolicy(room.id, { joinPolicy: 'open', readPolicy: 'open' });
+    const terminal = upsertTerminal({ pid: 14_900, pid_start: 'op-guard-a', name: 'impostor-pane' });
+    const session = createSession({ kind: 'local-cli', label: 'impostor', terminalId: terminal.id });
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        body: 'I am totally the operator',
+        authorHandle: '@JWPK',
+        sessionId: session.id,
+        pidChain: [{ pid: 14_900, pid_start: 'op-guard-a' }]
+      })
+    });
+
+    expect(response.status).toBe(403);
+    expect(listMessagesInRoom(room.id)).toHaveLength(0);
+    // The impostor session must NOT have been granted the @JWPK lease.
+    expect(resolveMember(room.id, '@JWPK')).not.toBe(session.id);
+  });
+
   it('durable session posting to an open room receives the next free handle when preferred is taken', async () => {
     const room = createChatRoom({ name: 'durable-open-collision', whoCreatedIt: '@you' });
     setRoomPolicy(room.id, { joinPolicy: 'open', readPolicy: 'open' });

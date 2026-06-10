@@ -20,7 +20,8 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { postMessage, listMessagesInRoom, listMessagesPageInRoom, generateMessageId } from '$lib/server/chatMessageStore';
 import { resolveHumanOwnership, gateAndConsumeForWrite } from '$lib/server/consentGate';
-import { canonicaliseOperatorHandle, getOperatorHandle } from '$lib/server/operatorHandle';
+import { canonicaliseOperatorHandle, getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle';
+import { isReservedHandle } from '$lib/server/handleValidation';
 import { broadcastToRoom } from '$lib/server/eventBroadcast';
 import { doesChatRoomExist, ensureAgentMemberInRoom } from '$lib/server/chatRoomStore';
 import { fanoutMessageToRoomTerminals } from '$lib/server/pty-inject-fanout';
@@ -655,6 +656,19 @@ function resolveAntSessionAuthor(
   // (handle-keyed, no terminal_id). Already a member -> render the lease's
   // current display handle (incl. the @x-N suffix per JWPK's reuse rules).
   const preferredHandle = clientAuthorHandle ?? session.label ?? session.id;
+  // SECURITY (JWPK msg_1iff57erwg 2026-06-10: "No-one but me should be able to
+  // change the server's handle"). An ant-session may NOT claim the operator
+  // handle or any reserved handle via this post path. clientAuthorHandle is
+  // caller-supplied, so without this guard a valid agent token could post with
+  // authorHandle '@JWPK' into an open room where the operator's lease is free,
+  // and claimHandle would grant the CLEAN @JWPK lease — the @x-N suffix rule only
+  // protects an ACTIVELY-held handle, not a free one. This branch is always
+  // authPath 'ant-session'; the real operator posts via the browser-session path
+  // and never reaches here, so this cannot lock the operator out of their handle.
+  // Companion to the register-path reservation in validateHandleForRegistration.
+  if (isOperatorHandle(preferredHandle) || isReservedHandle(preferredHandle)) {
+    rejectMessageIdentity(roomId, 'ANT session may not post as the operator or a reserved handle.');
+  }
   if (isCleanMember(roomId, session.id)) {
     const display = displayHandleForSession(roomId, session.id);
     return { handle: display ?? preferredHandle, authPath: 'ant-session' };
