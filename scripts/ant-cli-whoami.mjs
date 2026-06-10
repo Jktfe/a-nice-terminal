@@ -57,10 +57,17 @@ export async function handleWhoamiVerb(action, args, runtime) {
 
   let response;
   try {
+    // Contract step 3 (blessed msg_6dtpw2o4pn): the CLI presents pane/pidChain
+    // FACTS; the daemon verifies. TMUX_PANE is the pane fact — absent outside
+    // tmux, in which case it is simply not presented (the server's SHADOW mode
+    // ledgers that gap as the adoption signal it is).
+    const paneFact = typeof process.env.TMUX_PANE === 'string' && process.env.TMUX_PANE.trim().length > 0
+      ? process.env.TMUX_PANE.trim()
+      : null;
     response = await fetchImpl(`${serverUrl}/api/identity/whoami`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pids: chain })
+      body: JSON.stringify(paneFact ? { pids: chain, pane: paneFact } : { pids: chain })
     });
   } catch (err) {
     if (!flags.quiet) writeErr(`ant whoami: server unreachable at ${serverUrl} (${err?.message ?? err}).`);
