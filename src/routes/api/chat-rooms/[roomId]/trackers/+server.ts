@@ -4,7 +4,7 @@ import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 import { createTracker, listTrackersForRoom, type TrackerColumnType } from '$lib/server/trackerStore';
-import { postTrackerCreateReceipt, parseColumnSpec } from '$lib/server/trackerRouteHelpers';
+import { postTrackerCreateReceipt, parseColumnSpec, registerTrackerArtefact } from '$lib/server/trackerRouteHelpers';
 
 const VALID_TYPES = new Set<TrackerColumnType>(['text', 'number', 'currency', 'date', 'bool', 'link']);
 
@@ -44,5 +44,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
   const tracker = createTracker({ roomId: params.roomId, title, columns, createdByHandle });
   postTrackerCreateReceipt(params.roomId, tracker.id, tracker.title, createdByHandle);
+  registerTrackerArtefact(params.roomId, tracker.id, tracker.title, createdByHandle);
   return json({ tracker }, { status: 201 });
 };

@@ -109,6 +109,26 @@ describe('/api/chat-rooms/:roomId/artefacts', () => {
     });
   });
 
+  it('POST creates a tracker artefact as a live standalone table pointer', async () => {
+    const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
+    const create = await runHandler(
+      POST,
+      eventFor('POST', room.id, '', {
+        kind: 'tracker',
+        title: 'GVPL4 test',
+        refUrl: `/rooms/${room.id}/trackers/trk_gvpl4`
+      })
+    );
+
+    expect(create.status).toBe(201);
+    const created = await create.json();
+    expect(created).toMatchObject({
+      kind: 'tracker',
+      title: 'GVPL4 test',
+      refUrl: `/rooms/${room.id}/trackers/trk_gvpl4`
+    });
+  });
+
   it('POST 400s for an unknown kind', async () => {
     const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
     const response = await runHandler(
@@ -116,6 +136,7 @@ describe('/api/chat-rooms/:roomId/artefacts', () => {
       eventFor('POST', room.id, '', { kind: 'mystery', title: 'thing' })
     );
     expect(response.status).toBe(400);
+    expect(await response.text()).toContain('tracker');
   });
 
   it('POST 400s when title is blank', async () => {

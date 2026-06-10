@@ -24,6 +24,7 @@ import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { issueToken, resetAntchatAuthTokensForTests } from '$lib/server/antchatAuthStore';
 import { resetAskStoreForTests } from '$lib/server/askStore';
 import { resetTrackerStoreForTests, getTrackerView, listTrackersForRoom } from '$lib/server/trackerStore';
+import { listArtefactsInRoom, resetChatRoomArtefactStoreForTests } from '$lib/server/chatRoomArtefactStore';
 import { listOpenAskCandidates } from '$lib/server/askCandidateStore';
 import {
   markMessageRead,
@@ -1501,6 +1502,7 @@ describe('POST /messages — server-side /tracker detection (JWPK msg_ujjxkn7zr6
     resetChatRoomStoreForTests();
     resetChatMessageStoreForTests();
     resetTrackerStoreForTests();
+    resetChatRoomArtefactStoreForTests();
   });
 
   it('a /tracker message creates a tracker (not a chat message) + posts the ant-tracker receipt', async () => {
@@ -1522,6 +1524,13 @@ describe('POST /messages — server-side /tracker detection (JWPK msg_ujjxkn7zr6
     // the tracker exists in the store
     expect(listTrackersForRoom(room.id)).toHaveLength(1);
     expect(getTrackerView(payload.tracker.id)).toBeTruthy();
+    expect(listArtefactsInRoom(room.id)).toEqual([
+      expect.objectContaining({
+        kind: 'tracker',
+        title: 'GVPL4 test',
+        refUrl: `/rooms/${room.id}/trackers/${payload.tracker.id}`
+      })
+    ]);
     // the literal /tracker command was NOT posted as a chat message; the only
     // new message is the ant-tracker create-receipt (renders the table).
     const msgs = listMessagesInRoom(room.id);

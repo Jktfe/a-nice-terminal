@@ -6,7 +6,7 @@
   /api/chat-rooms/:roomId/artefacts (GET/POST/DELETE) — shipped 5ac765c.
 -->
 <script lang="ts">
-  type ArtefactKind = 'html' | 'deck' | 'stage' | 'spreadsheet' | 'doc' | 'mockup' | 'other';
+  type ArtefactKind = 'html' | 'deck' | 'stage' | 'spreadsheet' | 'doc' | 'mockup' | 'tracker' | 'other';
 
   type RoomArtefact = {
     id: string;
@@ -37,6 +37,7 @@
     spreadsheet: 'Sheets',
     doc: 'Docs',
     mockup: 'Mockups',
+    tracker: 'Trackers',
     other: 'Other'
   };
 
@@ -47,6 +48,7 @@
     spreadsheet: '📊',
     doc: '📝',
     mockup: '🎨',
+    tracker: '📋',
     other: '📁'
   };
 

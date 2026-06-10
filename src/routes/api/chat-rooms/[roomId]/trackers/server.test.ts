@@ -6,6 +6,7 @@ import { PATCH as cellPatch } from './[trackerId]/rows/[rowId]/+server';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { resetTrackerStoreForTests } from '$lib/server/trackerStore';
 import { listMessagesInRoom, resetChatMessageStoreForTests } from '$lib/server/chatMessageStore';
+import { listArtefactsInRoom, resetChatRoomArtefactStoreForTests } from '$lib/server/chatRoomArtefactStore';
 
 const ADMIN = 'tracker-route-admin-token';
 const ORIG = process.env.ANT_ADMIN_TOKEN;
@@ -26,7 +27,7 @@ async function run(h: (e: AnyEvent)=>unknown, e: AnyEvent): Promise<Response> {
 }
 
 describe('tracker API', () => {
-  beforeEach(() => { resetChatRoomStoreForTests(); resetChatMessageStoreForTests(); resetTrackerStoreForTests(); });
+  beforeEach(() => { resetChatRoomStoreForTests(); resetChatMessageStoreForTests(); resetTrackerStoreForTests(); resetChatRoomArtefactStoreForTests(); });
 
   it('create → add row → set cell, with audit chat-events + store events', async () => {
     const room = createChatRoom({ name: 'gvpl4', whoCreatedIt: '@you' });
@@ -39,6 +40,11 @@ describe('tracker API', () => {
     expect(t.columns.map((c:{key:string})=>c.key)).toContain('paid');
     // create-receipt posted with ant-tracker fence
     expect(listMessagesInRoom(room.id).some(m => m.body.includes('```ant-tracker') && m.body.includes(t.id))).toBe(true);
+    // JWPK msg_g4ttgnn65i: tracker auto-registers as a room artefact (findable without scrolling)
+    const arts = listArtefactsInRoom(room.id).filter(a => a.kind === 'tracker');
+    expect(arts).toHaveLength(1);
+    expect(arts[0].title).toBe('GVPL4 payments');
+    expect(arts[0].refUrl).toBe(`/rooms/${room.id}/trackers/${t.id}`);
 
     const rowRes = await run(H(rowPost), ev({ roomId: room.id, trackerId: t.id }, {
       roomId: room.id, cells: { beneficiary: 'Acme Ltd', quantum: '12500', paid: '' }

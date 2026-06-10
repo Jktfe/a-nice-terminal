@@ -21,7 +21,7 @@ import type { RequestHandler } from './$types';
 import { postMessage, listMessagesInRoom, listMessagesPageInRoom, generateMessageId } from '$lib/server/chatMessageStore';
 import { parseTrackerCommand } from '$lib/composer/composerSlashCommands';
 import { createTracker } from '$lib/server/trackerStore';
-import { parseColumnSpec, postTrackerCreateReceipt } from '$lib/server/trackerRouteHelpers';
+import { parseColumnSpec, postTrackerCreateReceipt, registerTrackerArtefact } from '$lib/server/trackerRouteHelpers';
 import { resolveHumanOwnership, gateAndConsumeForWrite } from '$lib/server/consentGate';
 import { canonicaliseOperatorHandle, getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle';
 import { isReservedHandle } from '$lib/server/handleValidation';
@@ -329,6 +329,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
       createdByHandle: authorHandle
     });
     postTrackerCreateReceipt(params.roomId, tracker.id, tracker.title, authorHandle);
+    registerTrackerArtefact(params.roomId, tracker.id, tracker.title, authorHandle);
     return json({ tracker }, { status: 201, headers: cmdHeaders });
   }
 

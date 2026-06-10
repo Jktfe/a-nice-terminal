@@ -2,7 +2,8 @@
  * ant artefact — reference-an-artefact CLI (2026-05-22).
  *
  * Artefacts are POINTERS to first-class objects living in a room — HTML
- * files, decks, ANT Stage presentations, spreadsheets, docs, mockups. The file/object stays where
+ * files, decks, ANT Stage presentations, spreadsheets, docs, mockups,
+ * trackers. The file/object stays where
  * it lives; the room gets a card with title + refUrl + summary so
  * members can see + click through.
  *
@@ -15,7 +16,7 @@
  * Verbs:
  *   ant artefact add --room <roomId> --kind <kind> --title "..."
  *                    --ref-url file:///path [--summary "..."]
- *     One of: html | deck | stage | spreadsheet | doc | mockup | other.
+ *     One of: html | deck | stage | spreadsheet | doc | mockup | tracker | other.
  *     For a normal built deck, use --kind deck --ref-url /d/<slug>.
  *     For an ANT Stage presentation, use --kind stage --ref-url /decks/<deckId>?password=...
  *
@@ -35,7 +36,7 @@ import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 // `ant chat send` pattern (also literal-id only).
 
 const BOOLEAN_FLAGS = new Set(['json']);
-const VALID_KINDS = new Set(['html', 'deck', 'stage', 'spreadsheet', 'doc', 'mockup', 'other']);
+const VALID_KINDS = new Set(['html', 'deck', 'stage', 'spreadsheet', 'doc', 'mockup', 'tracker', 'other']);
 
 function parseFlags(rawArgs, CliInputError) {
   const flags = {};
@@ -65,10 +66,11 @@ function parseFlags(rawArgs, CliInputError) {
 
 function writeUsage(runtime) {
   runtime.writeOut('ant artefact <add|list|remove>');
-  runtime.writeOut('  artefact add    --room <id> --kind <html|deck|stage|spreadsheet|doc|mockup|other>');
+  runtime.writeOut('  artefact add    --room <id> --kind <html|deck|stage|spreadsheet|doc|mockup|tracker|other>');
   runtime.writeOut('                  --title "..." --ref-url <url-or-path> [--summary "..."]');
   runtime.writeOut('                  normal deck: --kind deck --ref-url /d/SLUG');
   runtime.writeOut('                  Stage presentation: --kind stage --ref-url /decks/DECK_ID?password=...');
+  runtime.writeOut('                  tracker: --kind tracker --ref-url /rooms/ROOM_ID/trackers/TRACKER_ID');
   runtime.writeOut('  artefact list   --room <id> [--json]');
   runtime.writeOut('  artefact remove --room <id> <artefactId>');
 }
@@ -76,7 +78,7 @@ function writeUsage(runtime) {
 async function runAdd(args, runtime, CliInputError) {
   const { flags } = parseFlags(args, CliInputError);
   if (!flags.room) throw new CliInputError('artefact add needs --room <id>');
-  if (!flags.kind) throw new CliInputError('artefact add needs --kind <html|deck|stage|spreadsheet|doc|mockup|other>');
+  if (!flags.kind) throw new CliInputError('artefact add needs --kind <html|deck|stage|spreadsheet|doc|mockup|tracker|other>');
   if (!VALID_KINDS.has(flags.kind)) {
     throw new CliInputError(`--kind must be one of: ${[...VALID_KINDS].join(', ')}`);
   }

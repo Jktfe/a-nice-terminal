@@ -18,6 +18,7 @@ describe('chatRoomArtefactStore', () => {
   it('rejects unknown artefact kinds at the type guard', () => {
     expect(isKnownArtefactKind('html')).toBe(true);
     expect(isKnownArtefactKind('deck')).toBe(true);
+    expect(isKnownArtefactKind('tracker')).toBe(true);
     expect(isKnownArtefactKind('not-a-kind')).toBe(false);
     expect(isKnownArtefactKind(42)).toBe(false);
   });
@@ -43,10 +44,22 @@ describe('chatRoomArtefactStore', () => {
       refUrl: 'https://example.com/landing.html',
       nowMs: 3
     });
+    const tracker = createArtefactInRoom({
+      roomId: room.id,
+      kind: 'tracker',
+      title: 'GVPL4 payments',
+      refUrl: `/rooms/${room.id}/trackers/trk_gvpl4`,
+      nowMs: 4
+    });
 
     const listed = listArtefactsInRoom(room.id);
-    expect(listed.map((entry) => entry.id)).toEqual([deckNewer.id, deckOlder.id, html.id]);
+    expect(listed.map((entry) => entry.id)).toEqual([deckNewer.id, deckOlder.id, html.id, tracker.id]);
     expect(listed[2].refUrl).toBe('https://example.com/landing.html');
+    expect(listed[3]).toMatchObject({
+      kind: 'tracker',
+      title: 'GVPL4 payments',
+      refUrl: `/rooms/${room.id}/trackers/trk_gvpl4`
+    });
   });
 
   it('blank titles are rejected', () => {

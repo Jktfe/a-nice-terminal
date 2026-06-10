@@ -9,6 +9,7 @@
  */
 
 import { postSystemMessage } from './chatMessageStore';
+import { createArtefactInRoom } from './chatRoomArtefactStore';
 import type { TrackerColumn } from './trackerStore';
 
 /** The create-receipt: a fenced ant-tracker block (id-only) → renders the live table inline. */
@@ -64,4 +65,20 @@ export function parseColumnSpec(spec: string): Array<{ label: string; type?: Tra
       }
       return { label: part };
     });
+}
+
+/**
+ * Register a tracker in the room's artefacts panel (JWPK msg_g4ttgnn65i:
+ * "attached as artefacts so you don't need to scroll through chats to find
+ * them"). The refUrl opens the standalone tracker view, which renders the
+ * live table via the same TrackerTable widget.
+ */
+export function registerTrackerArtefact(roomId: string, trackerId: string, title: string, byHandle: string): void {
+  createArtefactInRoom({
+    roomId,
+    kind: 'tracker',
+    title,
+    refUrl: `/rooms/${roomId}/trackers/${trackerId}`,
+    createdBy: byHandle
+  });
 }

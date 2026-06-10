@@ -825,7 +825,7 @@ const SCHEMA_DDL_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS chat_room_artefacts (
     id              TEXT PRIMARY KEY,
     room_id         TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
-    kind            TEXT NOT NULL CHECK (kind IN ('html','deck','stage','spreadsheet','doc','mockup','other')),
+    kind            TEXT NOT NULL CHECK (kind IN ('html','deck','stage','spreadsheet','doc','mockup','tracker','other')),
     title           TEXT NOT NULL,
     ref_url         TEXT,
     summary         TEXT,
@@ -2676,6 +2676,7 @@ function applySchemaMigrations(db: DatabaseInstance): void {
   }
   extendAsksStatusCheckForActiveStatuses(db);
   extendArtefactKindCheckForStage(db);
+  extendArtefactKindCheckForTracker(db);
   extendAgentStatusSourceCheckForPane(db);
   // v0.2 additive migration — see V02_SCHEMA_DDL_STATEMENTS comment block.
   // Runs after legacy schema so v0.2 tables can reference legacy tables in
@@ -2853,6 +2854,46 @@ function extendArtefactKindCheckForStage(db: DatabaseInstance): void {
       id              TEXT PRIMARY KEY,
       room_id         TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
       kind            TEXT NOT NULL CHECK (kind IN ('html','deck','stage','spreadsheet','doc','mockup','other')),
+      title           TEXT NOT NULL,
+      ref_url         TEXT,
+      summary         TEXT,
+      created_by      TEXT,
+      created_at_ms   INTEGER NOT NULL,
+      deleted_at_ms   INTEGER
+    )`).run();
+    db.prepare(`INSERT INTO chat_room_artefacts_new (
+      id, room_id, kind, title, ref_url, summary, created_by, created_at_ms, deleted_at_ms
+    ) SELECT
+      id, room_id, kind, title, ref_url, summary, created_by, created_at_ms, deleted_at_ms
+    FROM chat_room_artefacts`).run();
+    db.prepare(`DROP TABLE chat_room_artefacts`).run();
+    db.prepare(`ALTER TABLE chat_room_artefacts_new RENAME TO chat_room_artefacts`).run();
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_chat_room_artefacts_room_kind ON chat_room_artefacts (room_id, kind, created_at_ms DESC)`).run();
+  });
+  rebuild();
+}
+
+/**
+ * tracker-artefact (2026-06-10): widen the chat_room_artefacts.kind CHECK to
+ * admit 'tracker' so collaborative tracker tables can be pinned to the room's
+ * artefacts panel. SQLite cannot modify a CHECK in place; this is a TABLE-level
+ * constraint, so we rebuild via the new-table → copy → drop → rename dance.
+ * Idempotent and independent of the 'stage' migration above: that one
+ * short-circuits once 'stage' is present, so already-migrated DBs would never
+ * pick up 'tracker' — this one probes for 'tracker' specifically. Fresh DBs get
+ * the widened CHECK from SCHEMA_DDL_STATEMENTS and short-circuit here.
+ */
+function extendArtefactKindCheckForTracker(db: DatabaseInstance): void {
+  const existingSchema = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chat_room_artefacts'`)
+    .get() as { sql: string | null } | undefined;
+  if (!existingSchema || !existingSchema.sql || existingSchema.sql.includes("'tracker'")) return;
+
+  const rebuild = db.transaction(() => {
+    db.prepare(`CREATE TABLE chat_room_artefacts_new (
+      id              TEXT PRIMARY KEY,
+      room_id         TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+      kind            TEXT NOT NULL CHECK (kind IN ('html','deck','stage','spreadsheet','doc','mockup','tracker','other')),
       title           TEXT NOT NULL,
       ref_url         TEXT,
       summary         TEXT,

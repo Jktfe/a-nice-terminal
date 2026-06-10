@@ -20,6 +20,7 @@ export const ARTEFACT_KINDS = [
   'spreadsheet',
   'doc',
   'mockup',
+  'tracker',
   'other'
 ] as const;
 
