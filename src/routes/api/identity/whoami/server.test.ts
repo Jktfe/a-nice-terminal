@@ -12,6 +12,7 @@ import { createSession } from '$lib/server/antSessionStore';
 import { addMember, isMember } from '$lib/server/membershipStore';
 import { bindHandle } from '$lib/server/handleBindingsStore';
 import { listLedger } from '$lib/server/identityLedgerStore';
+import { setListPanePidsForTests } from '$lib/server/paneFactCorroboration';
 
 let tmpDir: string;
 const previousEnv = process.env.ANT_FRESH_DB_PATH;
@@ -236,6 +237,13 @@ describe('POST /api/identity/whoami', () => {
 });
 
 describe('whoami on the resolver seam (Step 2 adoption — first endpoint)', () => {
+  beforeEach(() => {
+    // Daemon corroboration (msg_fjbp2o97h9): pane %41 genuinely hosts the
+    // caller's pid 7100 in these fixtures.
+    setListPanePidsForTests(() => ({ status: 0, stdout: '%41 7100\n', stderr: '' }));
+  });
+  afterEach(() => setListPanePidsForTests(null));
+
   function boundFixture() {
     const terminal = upsertTerminal({ pid: 7100, pid_start: 'pstart-seam', name: 't-seam' });
     createTerminalRecord({ sessionId: terminal.id, handle: '@seamy' });
@@ -299,5 +307,25 @@ describe('whoami on the resolver seam (Step 2 adoption — first endpoint)', () 
     }));
     expect(response.status).toBe(422);
     expect((await response.json()).status).toBe('registered-no-handle');
+  });
+
+  it('an uncorroborated pane is treated as absent and ledgers the spoof signature', async () => {
+    process.env.ANT_IDENTITY_READ = 'shadow';
+    const terminal = boundFixture();
+    // The pane exists but hosts someone ELSE's process tree.
+    setListPanePidsForTests(() => ({ status: 0, stdout: '%41 9999\n', stderr: '' }));
+    bindHandle({ handle: '@victim', pane: '%41', pid: 9999, pidStart: null, terminalId: 't_v' });
+    const response = await callPost(JSON.stringify({
+      pids: [{ pid: 7100, pid_start: 'pstart-seam' }], pane: '%41'
+    }));
+    expect(response.status).toBe(200);
+    expect((await response.json()).handle).toBe('@seamy'); // legacy answer, untouched
+    const spoofs = listLedger({}).filter((e) => e.kind === 'pane.uncorroborated');
+    expect(spoofs).toHaveLength(1);
+    // And the witness comparison ran with pane ABSENT — so the disagreement
+    // row is the nothing-witnessed signature, NOT a witness hit for @victim.
+    const disagreements = listLedger({}).filter((e) => e.kind === 'resolver.disagreement');
+    expect(disagreements).toHaveLength(1);
+    expect(disagreements[0].detail).toMatchObject({ witness_handle: null });
   });
 });

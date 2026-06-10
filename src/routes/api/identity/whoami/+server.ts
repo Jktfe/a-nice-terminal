@@ -27,6 +27,7 @@ import { lookupTerminalByPidChain, type PidChainEntry } from '$lib/server/termin
 import { normalisePidStartToIso8601 } from '$lib/server/pidStartNormaliser';
 import { resolveHandleForTerminal } from '$lib/server/membershipStore';
 import { resolveCallerIdentity } from '$lib/server/callerIdentityResolver';
+import { corroboratePaneFact } from '$lib/server/paneFactCorroboration';
 
 type WhoamiBody = { pids?: unknown; pane?: unknown };
 
@@ -122,10 +123,16 @@ export const POST: RequestHandler = async ({ request }) => {
   // unresolved case maps onto the existing registered-no-handle status until
   // Step 3 introduces a distinct payload.
   const paneRaw = body.pane;
-  const paneValue = typeof paneRaw === 'string' && paneRaw.trim().length > 0 ? paneRaw.trim() : null;
+  const presentedPane = typeof paneRaw === 'string' && paneRaw.trim().length > 0 ? paneRaw.trim() : null;
+  // Daemon corroboration (msg_fjbp2o97h9): the presented pane is transport
+  // data, never an identity claim. It only feeds the witness lookup when
+  // tmux confirms the pane hosts a pid from the caller's own chain; a pane
+  // the caller does not occupy is treated as absent and ledgered as the
+  // spoof signature (pane.uncorroborated).
+  const { pane: corroboratedPane } = corroboratePaneFact(presentedPane, pidChain);
   const legacyHandle = handle;
   const resolution = resolveCallerIdentity({
-    pane: paneValue,
+    pane: corroboratedPane,
     legacy: () => (legacyHandle ? { handle: legacyHandle, terminalId: terminal.id } : null)
   });
 
