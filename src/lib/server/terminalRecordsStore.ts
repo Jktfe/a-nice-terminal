@@ -77,6 +77,22 @@ export type TerminalRecord = {
    * `POST /api/terminals/recover` to re-run the agent after a reboot.
    */
   boot_command: string | null;
+  /**
+   * Provenance of boot_command: 'operator' (POST/PATCH /api/terminals) vs
+   * 'auto' (mined from scrollback at SessionStart by /api/cli-hook). NULL =
+   * legacy row, treated as operator-set so auto-capture never clobbers it.
+   * Auto rows may be refreshed by later auto-captures; operator rows never.
+   */
+  boot_command_source: string | null;
+  /**
+   * Session capture (JWPK reboot-survival, 2026-06-10): the CLI's own
+   * session UUID (e.g. Claude Code session_id), captured from the first
+   * /api/cli-hook event of each CLI session. Durable resume target —
+   * recovery prefers `--resume <cli_session_id>` over resume-by-base-name.
+   */
+  cli_session_id: string | null;
+  /** Which CLI cli_session_id belongs to ('claude-code', 'codex', …). */
+  cli_session_source: string | null;
   created_at_ms: number;
   updated_at_ms: number;
   /**
@@ -99,6 +115,15 @@ export type TerminalRecordPatch = {
   allowlist?: string[] | null;
   handle?: string | null;
   bootCommand?: string | null;
+  /**
+   * Provenance of bootCommand. Defaults to 'operator' whenever bootCommand
+   * is set without an explicit source, so the existing POST/PATCH API paths
+   * mark operator intent with zero route changes. Only the /api/cli-hook
+   * auto-capture path passes 'auto'.
+   */
+  bootCommandSource?: 'operator' | 'auto';
+  cliSessionId?: string | null;
+  cliSessionSource?: string | null;
 };
 
 export function parseAllowlist(raw: string | null): string[] | null {
@@ -154,6 +179,10 @@ export type CreateInput = {
   allowlist?: string[] | null;
   handle?: string | null;
   bootCommand?: string | null;
+  /** See TerminalRecordPatch.bootCommandSource — defaults to 'operator'. */
+  bootCommandSource?: 'operator' | 'auto';
+  cliSessionId?: string | null;
+  cliSessionSource?: string | null;
 };
 
 /**
@@ -207,14 +236,19 @@ export function createTerminalRecord(input: CreateInput): TerminalRecord {
   const allowlistJson = serializeAllowlist(input.allowlist ?? null);
   const handle = input.handle ?? null;
   const bootCommand = normaliseBootCommand(input.bootCommand);
+  // Provenance defaults to 'operator' whenever a boot command is set — the
+  // POST /api/terminals path is operator input. NULL when no command.
+  const bootCommandSource = bootCommand === null ? null : (input.bootCommandSource ?? 'operator');
+  const cliSessionId = input.cliSessionId ?? null;
+  const cliSessionSource = cliSessionId === null ? null : (input.cliSessionSource ?? null);
   // Supersede prior rows claiming this pane BEFORE the insert — so if
   // they shared a unique-name constraint or future invariant fired,
   // the earlier rows are already marked stale.
   supersedePriorRecordsForPane(db, input.sessionId, tmuxTargetPane, now);
   db.prepare(
-    `INSERT INTO terminal_records (session_id, name, auto_forward_room_id, auto_forward_chat, agent_kind, tmux_target_pane, linked_chat_room_id, created_by, allowlist, handle, boot_command, created_at_ms, updated_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(input.sessionId, name, roomId, forwardChat, agentKind, tmuxTargetPane, linkedChatRoomId, createdBy, allowlistJson, handle, bootCommand, now, now);
+    `INSERT INTO terminal_records (session_id, name, auto_forward_room_id, auto_forward_chat, agent_kind, tmux_target_pane, linked_chat_room_id, created_by, allowlist, handle, boot_command, boot_command_source, cli_session_id, cli_session_source, created_at_ms, updated_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(input.sessionId, name, roomId, forwardChat, agentKind, tmuxTargetPane, linkedChatRoomId, createdBy, allowlistJson, handle, bootCommand, bootCommandSource, cliSessionId, cliSessionSource, now, now);
   projectAntRegistryFileBestEffort();
   // Per-human inbox (JWPK 2026-05-22): a terminal created by a human grants
   // its agent inhabitant membership in the human's inbox even before a
@@ -231,7 +265,7 @@ export function createTerminalRecord(input: CreateInput): TerminalRecord {
       /* recompute is a side-effect; never block the terminal write */
     }
   }
-  return { session_id: input.sessionId, name, auto_forward_room_id: roomId, auto_forward_chat: forwardChat, agent_kind: agentKind, tmux_target_pane: tmuxTargetPane, linked_chat_room_id: linkedChatRoomId, created_by: createdBy, allowlist: allowlistJson, handle, boot_command: bootCommand, created_at_ms: now, updated_at_ms: now, superseded_at_ms: null };
+  return { session_id: input.sessionId, name, auto_forward_room_id: roomId, auto_forward_chat: forwardChat, agent_kind: agentKind, tmux_target_pane: tmuxTargetPane, linked_chat_room_id: linkedChatRoomId, created_by: createdBy, allowlist: allowlistJson, handle, boot_command: bootCommand, boot_command_source: bootCommandSource, cli_session_id: cliSessionId, cli_session_source: cliSessionSource, created_at_ms: now, updated_at_ms: now, superseded_at_ms: null };
 }
 
 export function getTerminalRecord(sessionId: string): TerminalRecord | null {
@@ -263,6 +297,17 @@ export function updateTerminalRecord(sessionId: string, patch: TerminalRecordPat
   const allowlistJson = patch.allowlist !== undefined ? serializeAllowlist(patch.allowlist) : existing.allowlist;
   const handle = patch.handle !== undefined ? patch.handle : existing.handle;
   const bootCommand = patch.bootCommand !== undefined ? normaliseBootCommand(patch.bootCommand) : existing.boot_command;
+  // Provenance tracks the command: a patched command defaults to 'operator'
+  // intent unless the caller (only the /api/cli-hook auto-capture path) says
+  // 'auto'; clearing the command clears the provenance; an untouched command
+  // keeps its existing provenance.
+  const bootCommandSource = patch.bootCommand !== undefined
+    ? (bootCommand === null ? null : (patch.bootCommandSource ?? 'operator'))
+    : existing.boot_command_source;
+  const cliSessionId = patch.cliSessionId !== undefined ? patch.cliSessionId : existing.cli_session_id;
+  const cliSessionSource = patch.cliSessionId !== undefined
+    ? (cliSessionId === null ? null : (patch.cliSessionSource ?? existing.cli_session_source))
+    : existing.cli_session_source;
   const now = Date.now();
   // Pane-binding supersession: if the update is moving this row's
   // tmux_target_pane (or claiming a new one), supersede any OTHER rows
@@ -271,9 +316,9 @@ export function updateTerminalRecord(sessionId: string, patch: TerminalRecordPat
     supersedePriorRecordsForPane(db, sessionId, tmuxTargetPane, now);
   }
   db.prepare(
-    `UPDATE terminal_records SET name = ?, auto_forward_room_id = ?, auto_forward_chat = ?, agent_kind = ?, tmux_target_pane = ?, linked_chat_room_id = ?, created_by = ?, allowlist = ?, handle = ?, boot_command = ?, updated_at_ms = ?
+    `UPDATE terminal_records SET name = ?, auto_forward_room_id = ?, auto_forward_chat = ?, agent_kind = ?, tmux_target_pane = ?, linked_chat_room_id = ?, created_by = ?, allowlist = ?, handle = ?, boot_command = ?, boot_command_source = ?, cli_session_id = ?, cli_session_source = ?, updated_at_ms = ?
      WHERE session_id = ?`
-  ).run(name, roomId, forwardChat, agentKind, tmuxTargetPane, linkedChatRoomId, createdBy, allowlistJson, handle, bootCommand, now, sessionId);
+  ).run(name, roomId, forwardChat, agentKind, tmuxTargetPane, linkedChatRoomId, createdBy, allowlistJson, handle, bootCommand, bootCommandSource, cliSessionId, cliSessionSource, now, sessionId);
   projectAntRegistryFileBestEffort();
   // Recompute inbox edges if created_by changed OR the agent handle moved.
   // Both old + new owners get recomputed so a transfer auto-drops the
@@ -295,7 +340,7 @@ export function updateTerminalRecord(sessionId: string, patch: TerminalRecordPat
   // never marks the row we just updated, this preserves the invariant
   // that the returned shape mirrors what's in the DB).
   const post = getTerminalRecord(sessionId) ?? existing;
-  return { session_id: sessionId, name, auto_forward_room_id: roomId, auto_forward_chat: forwardChat, agent_kind: agentKind, tmux_target_pane: tmuxTargetPane, linked_chat_room_id: linkedChatRoomId, created_by: createdBy, allowlist: allowlistJson, handle, boot_command: bootCommand, created_at_ms: existing.created_at_ms, updated_at_ms: now, superseded_at_ms: post.superseded_at_ms ?? null };
+  return { session_id: sessionId, name, auto_forward_room_id: roomId, auto_forward_chat: forwardChat, agent_kind: agentKind, tmux_target_pane: tmuxTargetPane, linked_chat_room_id: linkedChatRoomId, created_by: createdBy, allowlist: allowlistJson, handle, boot_command: bootCommand, boot_command_source: bootCommandSource, cli_session_id: cliSessionId, cli_session_source: cliSessionSource, created_at_ms: existing.created_at_ms, updated_at_ms: now, superseded_at_ms: post.superseded_at_ms ?? null };
 }
 
 export function listTerminalRecords(): TerminalRecord[] {

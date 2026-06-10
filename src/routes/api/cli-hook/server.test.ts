@@ -17,7 +17,9 @@ import {
 } from '$lib/server/cliHookEventsStore';
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { getAgentStatus } from '$lib/server/agentStatusStore';
-import { upsertTerminal } from '$lib/server/terminalsStore';
+import { getTerminalById, upsertTerminal } from '$lib/server/terminalsStore';
+import { createTerminalRecord, getTerminalRecord } from '$lib/server/terminalRecordsStore';
+import { appendTerminalRunEvent } from '$lib/server/terminalRunEventsStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
@@ -293,5 +295,186 @@ describe('/api/cli-hook GET', () => {
       eventFor('GET', '/api/cli-hook?limit=99999')
     );
     expect(response.status).toBe(400);
+  });
+});
+
+/**
+ * Session capture (JWPK reboot-survival, 2026-06-10): hook events durably
+ * capture last cwd (terminals.last_path), the CLI's real session UUID
+ * (terminal_records.cli_session_id — the durable --resume target), and an
+ * auto-mined boot_command — never clobbering operator-set values.
+ */
+describe('/api/cli-hook POST — session capture', () => {
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ant-cli-hook-capture-'));
+    process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+    resetIdentityDbForTests();
+    resetCliHookEventsStoreForTests();
+  });
+
+  afterEach(() => {
+    resetIdentityDbForTests();
+    rmSync(tmpDir, { recursive: true, force: true });
+    if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
+    else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
+  });
+
+  function seedTerminal(name: string): string {
+    const terminal = upsertTerminal({
+      pid: 4321,
+      pid_start: 'Mon May 25 10:00:00 2026',
+      name,
+      source: 'test',
+      ttlSeconds: 3600
+    });
+    return terminal.id;
+  }
+
+  it('captures cwd into terminals.last_path on every event and live-updates it', async () => {
+    const terminalId = seedTerminal('capture-cwd');
+
+    await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook', {
+        session_id: 'claude-uuid-cwd',
+        ant_session_id: terminalId,
+        hook_event_name: 'PreToolUse',
+        cwd: '/Users/you/projA'
+      })
+    );
+    expect(getTerminalById(terminalId)?.last_path).toBe('/Users/you/projA');
+
+    // The agent cd's; a later event carries the new cwd and last_path follows.
+    await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook', {
+        session_id: 'claude-uuid-cwd',
+        ant_session_id: terminalId,
+        hook_event_name: 'PostToolUse',
+        cwd: '/Users/you/projB'
+      })
+    );
+    expect(getTerminalById(terminalId)?.last_path).toBe('/Users/you/projB');
+  });
+
+  it('SessionStart captures the CLI session UUID + auto-mines boot_command when unset', async () => {
+    const terminalId = seedTerminal('capture-start');
+    createTerminalRecord({ sessionId: terminalId, name: 'speedyClaude', agentKind: 'claude_code' });
+    appendTerminalRunEvent({
+      terminalId, kind: 'raw', trust: 'raw',
+      text: 'user@mac ~/proj $ claude --dangerously-skip-permissions --remote-control\n'
+    });
+
+    const response = await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook', {
+        session_id: 'claude-real-session-uuid',
+        ant_session_id: terminalId,
+        hook_event_name: 'SessionStart',
+        source: 'startup'
+      })
+    );
+    expect(response.status).toBe(201);
+
+    const record = getTerminalRecord(terminalId);
+    expect(record?.cli_session_id).toBe('claude-real-session-uuid');
+    expect(record?.cli_session_source).toBe('claude-code');
+    expect(record?.boot_command).toBe('claude --dangerously-skip-permissions --remote-control');
+    expect(record?.boot_command_source).toBe('auto');
+  });
+
+  it('never clobbers an operator-set boot_command but still captures the resume target', async () => {
+    const terminalId = seedTerminal('capture-operator');
+    createTerminalRecord({
+      sessionId: terminalId,
+      name: 'operatorClaude',
+      agentKind: 'claude_code',
+      bootCommand: 'claude --operator-choice'
+    });
+    appendTerminalRunEvent({
+      terminalId, kind: 'raw', trust: 'raw',
+      text: '$ claude --something-else\n'
+    });
+
+    await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook', {
+        session_id: 'claude-uuid-op',
+        ant_session_id: terminalId,
+        hook_event_name: 'SessionStart'
+      })
+    );
+
+    const record = getTerminalRecord(terminalId);
+    expect(record?.boot_command).toBe('claude --operator-choice');
+    expect(record?.boot_command_source).toBe('operator');
+    expect(record?.cli_session_id).toBe('claude-uuid-op');
+  });
+
+  it('refreshes an auto-captured boot_command + resume target on a later SessionStart', async () => {
+    const terminalId = seedTerminal('capture-refresh');
+    createTerminalRecord({ sessionId: terminalId, name: 'refreshClaude', agentKind: 'claude_code' });
+    appendTerminalRunEvent({
+      terminalId, kind: 'raw', trust: 'raw', text: '$ claude --first-launch\n'
+    });
+    await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook', {
+        session_id: 'claude-uuid-r1',
+        ant_session_id: terminalId,
+        hook_event_name: 'SessionStart'
+      })
+    );
+    expect(getTerminalRecord(terminalId)?.boot_command).toBe('claude --first-launch');
+
+    // Relaunch with different flags: the auto row refreshes, and the resume
+    // target follows the NEW CLI session.
+    appendTerminalRunEvent({
+      terminalId, kind: 'raw', trust: 'raw', text: '$ claude --second-launch\n'
+    });
+    await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook', {
+        session_id: 'claude-uuid-r2',
+        ant_session_id: terminalId,
+        hook_event_name: 'SessionStart'
+      })
+    );
+    const record = getTerminalRecord(terminalId);
+    expect(record?.boot_command).toBe('claude --second-launch');
+    expect(record?.boot_command_source).toBe('auto');
+    expect(record?.cli_session_id).toBe('claude-uuid-r2');
+  });
+
+  it('keeps the resume target fresh when the CLI session UUID drifts mid-stream (no SessionStart)', async () => {
+    const terminalId = seedTerminal('capture-drift');
+    createTerminalRecord({ sessionId: terminalId, name: 'driftClaude', agentKind: 'claude_code' });
+
+    await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook', {
+        session_id: 'claude-uuid-d1',
+        ant_session_id: terminalId,
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Bash'
+      })
+    );
+    expect(getTerminalRecord(terminalId)?.cli_session_id).toBe('claude-uuid-d1');
+    // Mining only happens on SessionStart — a mid-stream event must not
+    // touch boot_command.
+    expect(getTerminalRecord(terminalId)?.boot_command).toBeNull();
+  });
+
+  it('capture is a no-op for an unresolvable terminal (no crash, event still persists)', async () => {
+    const response = await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook', {
+        session_id: 'claude-uuid-orphan',
+        hook_event_name: 'SessionStart',
+        cwd: '/Users/you/somewhere'
+      })
+    );
+    expect(response.status).toBe(201);
+    expect(listCliHookEventsForSession('claude-uuid-orphan')).toHaveLength(1);
   });
 });

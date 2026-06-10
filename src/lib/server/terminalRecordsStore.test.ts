@@ -527,3 +527,64 @@ describe('terminalRecordsStore — agent_kind round-trip (T2b autodetect-wiring)
     });
   });
 });
+
+describe('terminalRecordsStore — session-capture provenance (boot_command_source + cli_session_id)', () => {
+  beforeEach(() => {
+    try { getIdentityDb().prepare(`DELETE FROM terminal_records`).run(); } catch { /* schema not applied */ }
+  });
+
+  it('defaults boot_command_source to operator when bootCommand is set at create', () => {
+    createTerminalRecord({ sessionId: 't_src_1', name: 'src-1', bootCommand: 'claude --remote-control' });
+    const got = getTerminalRecord('t_src_1');
+    expect(got?.boot_command).toBe('claude --remote-control');
+    expect(got?.boot_command_source).toBe('operator');
+  });
+
+  it('leaves boot_command_source null when no bootCommand is set', () => {
+    createTerminalRecord({ sessionId: 't_src_2', name: 'src-2' });
+    const got = getTerminalRecord('t_src_2');
+    expect(got?.boot_command).toBeNull();
+    expect(got?.boot_command_source).toBeNull();
+  });
+
+  it('updateTerminalRecord defaults a patched bootCommand to operator provenance', () => {
+    createTerminalRecord({ sessionId: 't_src_3', name: 'src-3' });
+    updateTerminalRecord('t_src_3', { bootCommand: 'codex --yolo' });
+    const got = getTerminalRecord('t_src_3');
+    expect(got?.boot_command).toBe('codex --yolo');
+    expect(got?.boot_command_source).toBe('operator');
+  });
+
+  it('updateTerminalRecord persists explicit auto provenance and clears it with the command', () => {
+    createTerminalRecord({ sessionId: 't_src_4', name: 'src-4' });
+    updateTerminalRecord('t_src_4', { bootCommand: 'claude --mined', bootCommandSource: 'auto' });
+    expect(getTerminalRecord('t_src_4')?.boot_command_source).toBe('auto');
+    // Clearing the command clears the provenance — a NULL command with a
+    // lingering 'auto' tag would let a later auto-capture think it owns it.
+    updateTerminalRecord('t_src_4', { bootCommand: null });
+    const cleared = getTerminalRecord('t_src_4');
+    expect(cleared?.boot_command).toBeNull();
+    expect(cleared?.boot_command_source).toBeNull();
+  });
+
+  it('an unrelated patch leaves boot_command + provenance untouched', () => {
+    createTerminalRecord({ sessionId: 't_src_5', name: 'src-5', bootCommand: 'claude --keep' });
+    updateTerminalRecord('t_src_5', { name: 'renamed' });
+    const got = getTerminalRecord('t_src_5');
+    expect(got?.boot_command).toBe('claude --keep');
+    expect(got?.boot_command_source).toBe('operator');
+  });
+
+  it('cli_session_id + cli_session_source round-trip via update and clear together', () => {
+    createTerminalRecord({ sessionId: 't_src_6', name: 'src-6' });
+    expect(getTerminalRecord('t_src_6')?.cli_session_id).toBeNull();
+    updateTerminalRecord('t_src_6', { cliSessionId: 'claude-uuid-1', cliSessionSource: 'claude-code' });
+    const got = getTerminalRecord('t_src_6');
+    expect(got?.cli_session_id).toBe('claude-uuid-1');
+    expect(got?.cli_session_source).toBe('claude-code');
+    updateTerminalRecord('t_src_6', { cliSessionId: null });
+    const cleared = getTerminalRecord('t_src_6');
+    expect(cleared?.cli_session_id).toBeNull();
+    expect(cleared?.cli_session_source).toBeNull();
+  });
+});

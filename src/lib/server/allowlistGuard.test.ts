@@ -9,7 +9,8 @@ function rec(partial: Partial<TerminalRecord>): TerminalRecord {
     agent_kind: null, tmux_target_pane: null,
     linked_chat_room_id: null,
     created_by: null, allowlist: null, handle: null,
-    boot_command: null,
+    boot_command: null, boot_command_source: null,
+    cli_session_id: null, cli_session_source: null,
     created_at_ms: 0, updated_at_ms: 0,
     superseded_at_ms: null,
     ...partial

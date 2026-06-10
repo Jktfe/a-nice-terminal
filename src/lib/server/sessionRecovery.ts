@@ -136,10 +136,14 @@ function deriveDefaultCommand(agentKind: string | null | undefined): string | nu
  * Resolve the command to run in the recovered pane:
  *   stored boot_command → mined-from-history → per-agent default.
  * When `resume` is set and the command doesn't already carry `--resume`, append
- * `--resume "<base name>"` so e.g.
+ * a resume target, preferring the durable CLI session UUID captured by
+ * /api/cli-hook on SessionStart (`terminal_records.cli_session_id`) —
+ * resume-by-id always resolves, while the legacy `--resume "<base name>"`
+ * fallback only works when the CLI session happens to be named after the
+ * terminal. Nothing stored → exactly the old by-name behaviour. e.g.
  *   `claude --dangerously-skip-permissions --remote-control`
  * becomes
- *   `claude --dangerously-skip-permissions --remote-control --resume "speedyClaude"`.
+ *   `claude --dangerously-skip-permissions --remote-control --resume "<uuid>"`.
  * Returns null for a bare shell (no agent to relaunch).
  */
 export function resolveRecoveryCommand(
@@ -152,18 +156,22 @@ export function resolveRecoveryCommand(
   if (!base) return null;
   if (opts.resume && !/(^|\s)--resume(\s|=|$)/.test(base)) {
     const flag = resumeFlagForAgentKind(record.agent_kind);
-    const name = baseName(record.name);
     // SECURITY: the resolved command is typed into the pane shell (writeInput,
     // command + '\n'). JSON.stringify is NOT shell-safe — inside double quotes a
     // shell still expands `$(…)`, backticks and `$VAR`, and no quoting stops an
     // embedded newline from running as a second typed line. So only append
-    // `--resume` when the name is a strict, shell-inert token (no metachars, no
-    // whitespace/newlines); otherwise fall through and recover WITHOUT a by-name
-    // resume rather than risk RCE — same reject-and-fall-through stance as
-    // matchLaunchLine() for mined commands. Legit session names (speedyClaude,
-    // oiResearch, @v4claude) all pass; the allowlist makes the quoting safe.
-    if (/^[A-Za-z0-9._@-]+$/.test(name)) {
-      base = `${base} ${flag} ${JSON.stringify(name)}`;
+    // `--resume` when the target is a strict, shell-inert token (no metachars,
+    // no whitespace/newlines); otherwise fall to the next candidate and finally
+    // recover WITHOUT a resume rather than risk RCE — same
+    // reject-and-fall-through stance as matchLaunchLine() for mined commands.
+    // CLI session UUIDs and legit session names (speedyClaude, oiResearch,
+    // @v4claude) all pass; the allowlist makes the quoting safe.
+    const target = [record.cli_session_id, baseName(record.name)].find(
+      (candidate): candidate is string =>
+        typeof candidate === 'string' && /^[A-Za-z0-9._@-]+$/.test(candidate)
+    );
+    if (target) {
+      base = `${base} ${flag} ${JSON.stringify(target)}`;
     }
   }
   return base;

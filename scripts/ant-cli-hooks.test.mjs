@@ -216,4 +216,18 @@ describe('ant hooks CLI', () => {
     expect(command).toContain('ant hooks receiver-url --bare');
     expect(command).toContain('ANT_SERVER_URL');
   });
+
+  it('installed command enriches the payload with ant_session_id when the pane env carries it', async () => {
+    // Session capture (2026-06-10): /api/cli-hook resolves the ANT terminal
+    // from body.ant_session_id; the raw Claude payload only has Claude's own
+    // session UUID, so the hook command injects the pane's $ANT_SESSION_ID
+    // (jq, best-effort — no env / no jq posts the raw payload unchanged).
+    const { runtime } = makeRuntime();
+    await handleHooksVerb('install', [], runtime, { CliInputError });
+    const settings = readSettings();
+    const command = settings.hooks.SessionStart[0].hooks[0].command;
+    expect(command).toContain('ANT_SESSION_ID');
+    expect(command).toContain('ant_session_id');
+    expect(command).toContain('jq');
+  });
 });

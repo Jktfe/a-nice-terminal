@@ -63,7 +63,14 @@ function buildCurlCommand() {
       'receiver="${ANT_HOOKS_RECEIVER_URL:-}"',
       'if [ -z "$receiver" ] && command -v ant >/dev/null 2>&1; then receiver="$(ant hooks receiver-url --bare 2>/dev/null || true)"; fi',
       'if [ -z "$receiver" ]; then server="${ANT_SERVER_URL:-http://127.0.0.1:6174}"; receiver="${server%/}/api/cli-hook"; fi',
-      'curl -s -X POST "$receiver?source=claude-code" -H "content-type: application/json" -d @- > /dev/null'
+      // Session capture (JWPK reboot-survival, 2026-06-10): enrich the hook
+      // stdin JSON with the pane's ANT session id so /api/cli-hook can resolve
+      // which ANT terminal the event belongs to on EVERY event (the raw Claude
+      // payload only carries Claude's own session UUID). Best-effort: no
+      // $ANT_SESSION_ID or no jq → post the raw payload exactly as before.
+      'payload="$(cat)"',
+      `if [ -n "\${ANT_SESSION_ID:-}" ] && command -v jq >/dev/null 2>&1; then enriched="$(printf %s "$payload" | jq -c --arg a "$ANT_SESSION_ID" '. + {ant_session_id: $a}' 2>/dev/null)" && [ -n "$enriched" ] && payload="$enriched"; fi`,
+      'printf %s "$payload" | curl -s -X POST "$receiver?source=claude-code" -H "content-type: application/json" -d @- > /dev/null'
     ].join('; '))
   ].join(' ');
 }

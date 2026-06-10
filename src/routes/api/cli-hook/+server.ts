@@ -47,7 +47,9 @@ import {
 } from '$lib/server/cliHookEventsStore';
 import { getAgentStatus, setAgentStatus } from '$lib/server/agentStatusStore';
 import { mapHookEventToAgentStatus } from '$lib/server/hookEventStatusMapper';
-import { getTerminalById } from '$lib/server/terminalsStore';
+import { getTerminalById, setTerminalLastPath } from '$lib/server/terminalsStore';
+import { getTerminalRecord, updateTerminalRecord, type TerminalRecordPatch } from '$lib/server/terminalRecordsStore';
+import { extractLastAgentCommand } from '$lib/server/sessionRecovery';
 
 const MAX_LIMIT = 1000;
 const DEFAULT_LIMIT = 100;
@@ -143,6 +145,60 @@ export const POST: RequestHandler = async ({ request, url }) => {
     // Hook-to-status is a best-effort projection. A failure here must NEVER
     // break the underlying cli_hook_events insert (which is what the rest
     // of the system depends on for retention + cross-cli traceability).
+  }
+
+  // Session capture (JWPK reboot-survival, 2026-06-10): hook events carry
+  // everything `POST /api/terminals/recover` needs to bring an agent back in
+  // the right folder with its history, so capture it durably as it flows by:
+  //   (a) cwd → terminals.last_path on EVERY event — Claude hooks send cwd
+  //       per event, so last_path live-updates as the agent cd's and recovery
+  //       respawns the pane in the old working directory.
+  //   (b) the CLI's real session UUID → terminal_records.cli_session_id —
+  //       the durable resume target (`--resume <uuid>` always resolves,
+  //       resume-by-terminal-name only works by coincidence). Written on
+  //       SessionStart and refreshed whenever the UUID drifts mid-session.
+  //   (c) on SessionStart, mine the launch line from scrollback (fresh, the
+  //       launch is guaranteed near the tail) into boot_command — but ONLY
+  //       when boot_command is NULL or a previous auto-capture
+  //       (boot_command_source='auto'). Operator-set commands (source
+  //       'operator' or legacy NULL source) are never clobbered, and an
+  //       operator clearing boot_command via PATCH stays cleared until the
+  //       next SessionStart. SECURITY: extractLastAgentCommand rejects
+  //       candidates carrying shell metacharacters, so the auto-captured
+  //       value is safe to retype into a pane at recovery despite
+  //       boot_command being trusted verbatim by resolveRecoveryCommand.
+  // Same best-effort stance as the status projection above: a capture
+  // failure must NEVER break the cli_hook_events insert.
+  try {
+    const captureTerminalId = resolveStatusTerminalId(body, sessionId);
+    if (getTerminalById(captureTerminalId)) {
+      const cwd = asNonBlankString(body.cwd);
+      if (cwd) setTerminalLastPath(captureTerminalId, cwd);
+
+      const record = getTerminalRecord(captureTerminalId);
+      if (record) {
+        const patch: TerminalRecordPatch = {};
+        if (record.cli_session_id !== sessionId) {
+          patch.cliSessionId = sessionId;
+          patch.cliSessionSource = sourceCli ?? 'claude-code';
+        }
+        if (
+          hookEventName === 'SessionStart' &&
+          (record.boot_command === null || record.boot_command_source === 'auto')
+        ) {
+          const mined = extractLastAgentCommand(captureTerminalId, record.agent_kind);
+          if (mined && mined !== record.boot_command) {
+            patch.bootCommand = mined;
+            patch.bootCommandSource = 'auto';
+          }
+        }
+        if (Object.keys(patch).length > 0) {
+          updateTerminalRecord(captureTerminalId, patch);
+        }
+      }
+    }
+  } catch {
+    // Best-effort capture only — see the status-projection rationale above.
   }
 
   return json(

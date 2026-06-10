@@ -494,6 +494,24 @@ const SCHEMA_DDL_STATEMENTS = [
   // time. Free-form so custom agents (Kimi/Minimax model flags) round-trip
   // verbatim.
   `ALTER TABLE terminal_records ADD COLUMN boot_command TEXT`,
+  // Session capture (JWPK reboot-survival, 2026-06-10). Provenance of
+  // boot_command: 'operator' (set via POST /api/terminals or PATCH) vs
+  // 'auto' (mined from scrollback at SessionStart by /api/cli-hook).
+  // NULL = legacy row whose boot_command predates the column — treated as
+  // operator-set, so auto-capture never clobbers a value an operator chose.
+  // Auto-captured rows MAY be refreshed by later auto-captures; operator
+  // rows are never overwritten by the hook path.
+  `ALTER TABLE terminal_records ADD COLUMN boot_command_source TEXT`,
+  // Session capture (JWPK reboot-survival, 2026-06-10). The CLI's own
+  // session UUID (e.g. Claude Code's session_id), captured from the first
+  // /api/cli-hook event of each CLI session. Durable resume target:
+  // `POST /api/terminals/recover` prefers `--resume <cli_session_id>`
+  // over the legacy resume-by-terminal-base-name guess, because the CLI
+  // session is only resolvable by name when it happens to be named after
+  // the terminal — the UUID always resolves. cli_session_source records
+  // which CLI the UUID belongs to ('claude-code', 'codex', …).
+  `ALTER TABLE terminal_records ADD COLUMN cli_session_id TEXT`,
+  `ALTER TABLE terminal_records ADD COLUMN cli_session_source TEXT`,
   // Fix #2 of sec-iter1 (2026-05-30 enterprise security pass). Root-cause
   // structural fix for the privilege-escalation surface that Fix #1
   // closes at the approver gate: terminal_records.handle must be UNIQUE
