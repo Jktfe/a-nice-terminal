@@ -24,15 +24,39 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, dirname, join, parse as parsePath, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
+
+/**
+ * Guard which directories may be registered as a public asset root. The
+ * asset GET route is unauthenticated, so a sensitive root turns every file
+ * beneath it into a public download. Reject: the filesystem root and the
+ * home directory itself (too broad), and any path containing a hidden
+ * (dot-prefixed) segment — that bars ~/.ssh, ~/.ant, ~/.aws, ~/.config, and
+ * any repo's .git. The asset route ALSO blocks dotfile/denylisted segments
+ * at serve time; this is the defence-in-depth write-side companion.
+ */
+export function assertSafeAssetRoot(entry: string): void {
+  const abs = resolve(entry);
+  if (abs === parsePath(abs).root) {
+    throw new Error(`Refusing to register filesystem root "${entry}" as an asset folder.`);
+  }
+  if (abs === homedir()) {
+    throw new Error(`Refusing to register the home directory "${entry}" as an asset folder.`);
+  }
+  if (abs.split(sep).some((segment) => segment.startsWith('.'))) {
+    throw new Error(`Refusing to register a hidden/config directory "${entry}" as an asset folder.`);
+  }
+}
 
 export type AssetFolderSettings = {
   /**
    * Operator-curated list of absolute paths to external asset folders.
-   * Each entry should exist on disk, but we don't validate at write time —
-   * the resolver gracefully skips non-existent entries. Empty entries
-   * (length 0 or non-strings) are dropped at read time.
+   * Each entry should exist on disk; the resolver gracefully skips
+   * non-existent entries. Empty entries (length 0 or non-strings) are
+   * dropped at read time. Sensitive roots (filesystem root, home dir,
+   * hidden/config dirs) ARE rejected at write time by assertSafeAssetRoot,
+   * because the asset GET route serving these is unauthenticated.
    *
    * No path-traversal guard at this layer — that's the asset route's job
    * (src/routes/api/assets/[...path]/+server.ts does the resolve + root-
@@ -84,6 +108,8 @@ export function writeAssetFolderSettings(
     .filter((entry): entry is string => typeof entry === 'string')
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
+  // Reject sensitive roots before persisting (the GET route is public).
+  for (const entry of normalised) assertSafeAssetRoot(entry);
   const dir = dirname(filePath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const next: AssetFolderSettings = { assetRoots: normalised };

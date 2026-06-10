@@ -155,4 +155,55 @@ describe('GET /api/assets — request-path safety', () => {
     const res = await callOrCaught(GET, eventFor('./passwd'));
     expect(res.status).toBe(400);
   });
+
+  it('rejects hidden (dot-prefixed) segments — no unauth .env/.git/.ssh leak', async () => {
+    // The dotfiles need not exist: the guard fires before stat().
+    for (const p of ['.env', '.git/config', 'sub/.env', '.ssh/id_rsa']) {
+      const res = await callOrCaught(GET, eventFor(p));
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it('rejects blocked build/dependency segments', async () => {
+    for (const p of ['node_modules/pkg/index.js', 'dist/app.js']) {
+      const res = await callOrCaught(GET, eventFor(p));
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it('rejects null bytes / control chars with 400 (not a swallowed 404)', async () => {
+    const res = await callOrCaught(GET, eventFor('a' + String.fromCharCode(0) + 'b.png'));
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /api/assets — SVG is not served as an executable inline document', () => {
+  function eventCapturingHeaders(path: string) {
+    const captured: Record<string, string> = {};
+    const event = {
+      request: new Request(`http://localhost/api/assets/${path}`),
+      params: { path },
+      setHeaders: (h: Record<string, string>) => Object.assign(captured, h)
+    } as unknown as Parameters<typeof GET>[0];
+    return { event, captured };
+  }
+
+  it('serves .svg with nosniff + Content-Disposition: attachment', async () => {
+    writeFileSync(join(rootA, 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    const { event, captured } = eventCapturingHeaders('logo.svg');
+    const res = await callOrCaught(GET, event);
+    expect(res.status).toBe(200);
+    expect(captured['Content-Type']).toContain('image/svg+xml');
+    expect(captured['X-Content-Type-Options']).toBe('nosniff');
+    expect(captured['Content-Disposition']).toBe('attachment');
+  });
+
+  it('serves a normal image with nosniff but no forced attachment', async () => {
+    writeFileSync(join(rootA, 'pic.png'), 'PNG');
+    const { event, captured } = eventCapturingHeaders('pic.png');
+    const res = await callOrCaught(GET, event);
+    expect(res.status).toBe(200);
+    expect(captured['X-Content-Type-Options']).toBe('nosniff');
+    expect(captured['Content-Disposition']).toBeUndefined();
+  });
 });
