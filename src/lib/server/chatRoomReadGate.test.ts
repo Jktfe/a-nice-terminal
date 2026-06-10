@@ -142,4 +142,32 @@ describe('resolveChatRoomReadAccess debug instrumentation', () => {
 
     await expect(resolveChatRoomReadAccess(request, 'room-retired')).resolves.toBeNull();
   });
+
+  it('forge-denial: room-less listing uses the registered handle only, not a name-slug', async () => {
+    delete process.env.ANT_AUTH_GATE_DEBUG;
+    const { resolveChatRoomReadAccess } = await loadGate();
+    const { upsertTerminal } = await import('./terminalsStore');
+    const { createTerminalRecord } = await import('./terminalRecordsStore');
+
+    // Positive control: a REGISTERED terminal resolves to its explicit handle,
+    // proving the room-less pidChain plumbing works.
+    const reg = upsertTerminal({ pid: 41001, pid_start: 'reg', name: 'Registered' });
+    createTerminalRecord({ sessionId: reg.id, name: 'Registered', handle: '@registered' });
+    const regChain = encodeURIComponent(JSON.stringify([{ pid: 41001, pid_start: 'reg' }]));
+    const regAccess = await resolveChatRoomReadAccess(
+      new Request(`http://localhost/api/chat-rooms?pidChain=${regChain}`)
+    );
+    expect(regAccess?.principalHandles).toContain('@registered');
+
+    // Forge: an UNREGISTERED terminal (handle unset) whose self-declared name
+    // slugs to a victim handle must NOT resolve. Old behaviour returned
+    // '@victim' (deriveHandle slug) and could list that member's rooms.
+    const forge = upsertTerminal({ pid: 41002, pid_start: 'forge', name: 'victim' });
+    createTerminalRecord({ sessionId: forge.id, name: 'victim' });
+    const forgeChain = encodeURIComponent(JSON.stringify([{ pid: 41002, pid_start: 'forge' }]));
+    const forgeAccess = await resolveChatRoomReadAccess(
+      new Request(`http://localhost/api/chat-rooms?pidChain=${forgeChain}`)
+    );
+    expect(forgeAccess).toBeNull();
+  });
 });

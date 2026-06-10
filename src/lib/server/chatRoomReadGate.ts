@@ -26,7 +26,7 @@ import { findHandleForAliasInRoom } from './chatRoomAliasStore';
 import type { ChatRoom } from './chatRoomStore';
 import { expandHandlesToOwnerFamilies } from './agentFamilyStore';
 import { lookupTerminalByPidChain } from './terminalsStore';
-import { deriveHandle, getTerminalRecord } from './terminalRecordsStore';
+import { getTerminalRecord } from './terminalRecordsStore';
 import { isOperatorHandle } from './operatorHandle';
 import { getSession } from './antSessionStore';
 import { resolveHandleForSession } from './membershipStore';
@@ -34,6 +34,13 @@ import {
   displayHandleForSession,
   isMember as hasActiveRoomHandleLease
 } from './roomHandleLeaseClean';
+import {
+  evaluateTokenTerminalBinding,
+  tokenBindingAction,
+  tokenTerminalBindingMode,
+  sessionFingerprint,
+  terminalFp
+} from './tokenTerminalBinding';
 
 export type ChatRoomReadAccess = {
   isAdminBearer: boolean;
@@ -228,6 +235,29 @@ function tryAntSession(request: Request, roomId?: string): ChatRoomReadAccess | 
   if (!sessionId) return null;
   const session = getSession(sessionId);
   if (!session) return null;
+  // Mirror the write gate's token→terminal binding (chatRoomAuthGate step 3c):
+  // a session token lifted from one terminal must not authenticate reads from
+  // a different terminal. Default mode is 'flag' (log-only); 'strict' rejects
+  // only the 'wrong-terminal' case (active theft). CLI read callers already
+  // pass ?pidChain=, which parsePidChainFromQuery reads.
+  const bindingPidChain = parsePidChainFromQuery(request);
+  const callerTerminal = lookupTerminalByPidChain(bindingPidChain);
+  const binding = evaluateTokenTerminalBinding(
+    session.terminal_id,
+    callerTerminal?.id ?? null,
+    bindingPidChain.length > 0
+  );
+  if (tokenBindingAction(binding) !== 'allow') {
+    // eslint-disable-next-line no-console -- observability for the flag-phase rollout
+    console.warn(
+      `[token-binding:${tokenTerminalBindingMode()}] read room=${roomId ?? '-'} ` +
+        `session_fp=${sessionFingerprint(session.id)} ` +
+        `session_terminal_fp=${terminalFp(session.terminal_id)} ` +
+        `caller_terminal_fp=${terminalFp(callerTerminal?.id ?? null)} ` +
+        `kind=${binding.kind} hadPidChain=${bindingPidChain.length > 0}`
+    );
+    if (tokenBindingAction(binding) === 'reject') return null;
+  }
   const handle = roomId
     ? hasActiveRoomHandleLease(roomId, session.id)
       ? displayHandleForSession(roomId, session.id) ?? resolveHandleForSession(roomId, session.id)
@@ -297,11 +327,13 @@ function tryPidChainQuery(request: Request, roomId?: string): ChatRoomReadAccess
   // so they were unaffected — this is the listing-only gap.
   const terminal = lookupTerminalByPidChain(pidChain);
   if (!terminal) return null;
-  // TerminalRow has `name` but not `handle`; fetch the full TerminalRecord
-  // to derive the canonical handle the same way other gate paths do.
+  // AUTHORITY decision (room-less room listing): use the unique-index-protected
+  // `handle` ONLY, never deriveHandle's @slug(record.name) fallback — `name` is
+  // self-declared at register, so a crafted name would let an unregistered
+  // terminal list another member's rooms. Unregistered → null → no access.
   const record = getTerminalRecord(terminal.id);
   if (!record) return null;
-  const primaryHandle = deriveHandle(record);
+  const primaryHandle = record.handle && record.handle.trim().length > 0 ? record.handle : null;
   if (!primaryHandle) return null;
   return {
     isAdminBearer: false,
