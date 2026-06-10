@@ -125,15 +125,15 @@ describe('POST /api/permission-requests/[requestId]/deny', () => {
   });
 
   it('room owner can deny their own room request', async () => {
-    const room = createChatRoom({ name: 'owner-deny', whoCreatedIt: '@jwpk' });
+    const room = createChatRoom({ name: 'owner-deny', whoCreatedIt: '@deny-owner' });
     const created = createPermissionRequest({
       requesterHandle: '@speedyc',
       action: 'chat.post',
       targetKind: 'room',
       targetId: room.id,
-      approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      approvers: [{ handle: '@deny-owner', role: 'room_owner', preferred: true }]
     });
-    const { pidChainEntry } = seedTerminal('@jwpk', 90001, room.id);
+    const { pidChainEntry } = seedTerminal('@deny-owner', 90001, room.id);
     const event = eventFor(created.request.requestId, {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ pidChain: [pidChainEntry] })

@@ -350,9 +350,9 @@ describe('/api/grants — approver gate (security fix 2026-05-29)', () => {
   });
 
   it('accepts authenticated room-owner POST with 201', async () => {
-    const room = seedRoomWithOwner('owner-can-grant', '@jwpk');
-    // Now @jwpk authenticates via pidChain (they're the owner).
-    const { pidChainEntry } = seedTerminalAndMembership(room.id, '@jwpk', 88702);
+    const room = seedRoomWithOwner('owner-can-grant', '@grant-owner');
+    // Now @grant-owner authenticates via pidChain (they're the owner).
+    const { pidChainEntry } = seedTerminalAndMembership(room.id, '@grant-owner', 88702);
 
     const event = eventFor('POST', {
       headers: { 'content-type': 'application/json' },
@@ -562,8 +562,8 @@ describe('/api/grants — sec-iter6 Fix #2 authoritative caller-identity', () =>
   });
 
   it('authoritative caller-handle is what lands in granted_by_handle on the issued grant', async () => {
-    const room = createChatRoom({ name: 'audit-trail', whoCreatedIt: '@jwpk' });
-    const { pidChainEntry } = seedTerminalRecord('@jwpk', 91003, 'jwpk-term');
+    const room = createChatRoom({ name: 'audit-trail', whoCreatedIt: '@grant-auditor' });
+    const { pidChainEntry } = seedTerminalRecord('@grant-auditor', 91003, 'grant-auditor-term');
     const event = eventFor('POST', {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -582,6 +582,6 @@ describe('/api/grants — sec-iter6 Fix #2 authoritative caller-identity', () =>
       targetKind: 'room',
       targetId: room.id
     });
-    expect(found?.grantedByHandle).toBe('@jwpk');
+    expect(found?.grantedByHandle).toBe('@grant-auditor');
   });
 });

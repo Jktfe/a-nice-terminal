@@ -147,15 +147,15 @@ describe('POST /api/permission-requests/[requestId]/approve', () => {
   });
 
   it('room owner can approve their own room request', async () => {
-    const room = createChatRoom({ name: 'owner-approve', whoCreatedIt: '@jwpk' });
+    const room = createChatRoom({ name: 'owner-approve', whoCreatedIt: '@approve-owner' });
     const created = createPermissionRequest({
       requesterHandle: '@speedyc',
       action: 'chat.post',
       targetKind: 'room',
       targetId: room.id,
-      approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      approvers: [{ handle: '@approve-owner', role: 'room_owner', preferred: true }]
     });
-    const { pidChainEntry } = seedTerminal('@jwpk', 80001, room.id);
+    const { pidChainEntry } = seedTerminal('@approve-owner', 80001, room.id);
 
     const event = eventFor(created.request.requestId, {
       headers: { 'content-type': 'application/json' },
@@ -272,7 +272,7 @@ describe('POST /api/permission-requests/[requestId]/approve', () => {
   it('rejects non-admin system-scoped approval with 403', async () => {
     // System-scoped requests are admin-bearer only — even an authenticated
     // room owner can't approve them.
-    const otherRoom = createChatRoom({ name: 'other', whoCreatedIt: '@jwpk' });
+    const otherRoom = createChatRoom({ name: 'other', whoCreatedIt: '@system-owner' });
     const created = createPermissionRequest({
       requesterHandle: '@speedyc',
       action: 'system.reclaim',
@@ -280,7 +280,7 @@ describe('POST /api/permission-requests/[requestId]/approve', () => {
       targetId: 'global',
       approvers: []
     });
-    const { pidChainEntry } = seedTerminal('@jwpk', 80003, otherRoom.id);
+    const { pidChainEntry } = seedTerminal('@system-owner', 80003, otherRoom.id);
     const event = eventFor(created.request.requestId, {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ pidChain: [pidChainEntry] })
