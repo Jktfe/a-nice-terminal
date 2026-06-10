@@ -68,7 +68,14 @@ export function resolveServerSideHandle(
   // terminal's derived handle (same handle the inbound reply-router uses).
   const record = getTerminalRecord(terminal.id);
   if (record && record.linked_chat_room_id === roomId) {
-    return deriveHandle(record);
+    // AUTHORITY decision (this handle becomes the caller's posting/mutation
+    // identity for every route through requireChatRoomMutationAuth): use the
+    // unique-index-protected `handle` ONLY, never deriveHandle's
+    // @slug(record.name) fallback — `name` is self-declared at register, so a
+    // crafted name would let an unregistered terminal self-identify as another
+    // handle. Unregistered (handle unset) → null → falls back to generic @you.
+    if (record.handle && record.handle.trim().length > 0) return record.handle;
+    return null;
   }
   return null;
 }

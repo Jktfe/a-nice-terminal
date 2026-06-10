@@ -99,6 +99,23 @@ export function tryAdminBearer(request: Request): boolean {
 }
 
 /**
+ * Throwing admin-bearer gate for operator-only routes. 401 when no Bearer
+ * header is presented, 403 when the token is wrong or unset. The token
+ * comparison is constant-time (via tryAdminBearer) — this is the single
+ * canonical implementation that route-local `requireAdminBearer` copies
+ * (which used a plain `!==`, a timing oracle) must call instead.
+ */
+export function requireAdminBearerOrThrow(request: Request): void {
+  const header = request.headers.get('authorization') ?? '';
+  if (!header.startsWith('Bearer ')) {
+    throw error(401, 'Authorization: Bearer <admin-token> required');
+  }
+  if (!tryAdminBearer(request)) {
+    throw error(403, 'Admin bearer required');
+  }
+}
+
+/**
  * True iff the caller is the configured operator, authenticated via their
  * `ant_browser_session` cookie (room-agnostic). Lets the operator's own antOS
  * UI perform owner-scoped mutations (e.g. the shared model catalogue) WITHOUT

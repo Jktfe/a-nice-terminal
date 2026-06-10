@@ -93,10 +93,23 @@ describe('resolveServerSideHandle', () => {
     expect(resolveServerSideHandle('rLinked', [{ pid: 6100, pid_start: 'pl' }])).toBe('@codex');
   });
 
-  it('self-identifies via name-slug derived handle when no explicit handle set', () => {
+  it('does NOT self-identify via name-slug when no explicit handle is set (spoof-guard)', () => {
+    // A linked-chat terminal with NO registered handle must not gain an
+    // authority identity from its self-declared name — the @slug(name)
+    // fallback is spoofable (name carries no uniqueness constraint). It
+    // resolves to null here and the route falls back to the generic @you.
     const t = upsertTerminal({ pid: 6200, pid_start: 'pl2', name: 'Linked Gemini' });
     createTerminalRecord({ sessionId: t.id, name: 'Linked Gemini', linkedChatRoomId: 'rLinked2' });
-    expect(resolveServerSideHandle('rLinked2', [{ pid: 6200, pid_start: 'pl2' }])).toBe('@linked-gemini');
+    expect(resolveServerSideHandle('rLinked2', [{ pid: 6200, pid_start: 'pl2' }])).toBeNull();
+  });
+
+  it('forge-denial: a crafted name slugging to a victim handle does not impersonate', () => {
+    // Attacker registers an unregistered terminal whose NAME slugs to a real
+    // member's handle, linked to the room, and tries to post as them.
+    const t = upsertTerminal({ pid: 6250, pid_start: 'forge', name: 'victim' });
+    createTerminalRecord({ sessionId: t.id, name: 'victim', linkedChatRoomId: 'rLinked2b' });
+    // Old behaviour would have returned '@victim'; now null (no authority).
+    expect(resolveServerSideHandle('rLinked2b', [{ pid: 6250, pid_start: 'forge' }])).toBeNull();
   });
 
   it('does NOT leak self-handle when terminal linked room is a DIFFERENT room', () => {

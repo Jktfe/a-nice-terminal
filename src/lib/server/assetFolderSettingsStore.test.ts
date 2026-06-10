@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, delimiter } from 'node:path';
+import { tmpdir, homedir } from 'node:os';
+import { join, delimiter, sep } from 'node:path';
 import {
   readAssetFolderSettings,
   writeAssetFolderSettings,
-  assetRootsResolved
+  assetRootsResolved,
+  assertSafeAssetRoot
 } from './assetFolderSettingsStore';
 
 let scratchDir = '';
@@ -65,6 +66,21 @@ describe('writeAssetFolderSettings', () => {
       settingsFile
     );
     expect(result.assetRoots).toEqual(['/a', '/b']);
+  });
+
+  it('rejects sensitive roots — the GET route is public, so a bad root leaks everything', () => {
+    expect(() => writeAssetFolderSettings({ assetRoots: [sep] }, settingsFile))
+      .toThrow(/filesystem root/);
+    expect(() => writeAssetFolderSettings({ assetRoots: [homedir()] }, settingsFile))
+      .toThrow(/home directory/);
+    expect(() => writeAssetFolderSettings({ assetRoots: [join(homedir(), '.ssh')] }, settingsFile))
+      .toThrow(/hidden\/config/);
+    // The static/ fallback would still be there; nothing persisted on reject.
+    expect(existsSync(settingsFile)).toBe(false);
+  });
+
+  it('accepts an ordinary media folder', () => {
+    expect(() => assertSafeAssetRoot(join(homedir(), 'Pictures', 'ant-served'))).not.toThrow();
   });
 });
 

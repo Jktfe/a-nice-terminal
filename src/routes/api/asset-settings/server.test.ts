@@ -8,7 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -52,11 +52,17 @@ async function callOrCaught<T extends (event: any) => any>(
 }
 
 let scratchDir: string;
+// A media sub-folder used as a registerable asset root. Distinct from
+// scratchDir, which doubles as $HOME below — registering the home dir
+// itself is (correctly) rejected by assertSafeAssetRoot.
+let mediaDir: string;
 let originalHome: string | undefined;
 let originalAdminToken: string | undefined;
 
 beforeEach(() => {
   scratchDir = mkdtempSync(join(tmpdir(), 'ant-asset-settings-route-'));
+  mediaDir = join(scratchDir, 'media');
+  mkdirSync(mediaDir, { recursive: true });
   // point the store at the scratch HOME so it writes asset-folders.json
   // into a temp location (keeps the real ~/.ant untouched).
   originalHome = process.env.HOME;
@@ -108,18 +114,23 @@ describe('PUT /api/asset-settings', () => {
   });
 
   it('writes valid input + returns the new payload', async () => {
-    const res = await callOrCaught(PUT, putEvent({ assetRoots: [scratchDir, '/env-a'] }));
+    const res = await callOrCaught(PUT, putEvent({ assetRoots: [mediaDir, '/env-a'] }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { fileRoots: string[]; resolved: string[] };
-    // scratchDir is on disk + is now in the file layer; env-a is not, so it's filtered.
-    expect(body.fileRoots).toEqual([scratchDir, '/env-a']);
-    expect(body.resolved).toContain(scratchDir);
+    // mediaDir is on disk + is now in the file layer; env-a is not, so it's filtered.
+    expect(body.fileRoots).toEqual([mediaDir, '/env-a']);
+    expect(body.resolved).toContain(mediaDir);
   });
 
   it('strips empty + trims entries before persisting', async () => {
-    const res = await callOrCaught(PUT, putEvent({ assetRoots: ['  ' + scratchDir + '  ', '', '   '] }));
+    const res = await callOrCaught(PUT, putEvent({ assetRoots: ['  ' + mediaDir + '  ', '', '   '] }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { fileRoots: string[] };
-    expect(body.fileRoots).toEqual([scratchDir]);
+    expect(body.fileRoots).toEqual([mediaDir]);
+  });
+
+  it('rejects a sensitive root (the home directory) with 400', async () => {
+    const res = await callOrCaught(PUT, putEvent({ assetRoots: [scratchDir] }));
+    expect(res.status).toBe(400);
   });
 });

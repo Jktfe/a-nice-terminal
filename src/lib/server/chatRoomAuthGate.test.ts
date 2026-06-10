@@ -9,7 +9,7 @@
  * dispatch + the admin-bearer fallback that this helper adds.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { requireChatRoomMutationAuth, ADMIN_BEARER_HANDLE } from './chatRoomAuthGate';
+import { requireChatRoomMutationAuth, requireAdminBearerOrThrow, ADMIN_BEARER_HANDLE } from './chatRoomAuthGate';
 import { resetIdentityDbForTests } from './db';
 import { createBrowserSession } from './browserSessionStore';
 import { createChatRoom, inviteAgentToRoom, resetChatRoomStoreForTests } from './chatRoomStore';
@@ -357,5 +357,42 @@ describe('requireChatRoomMutationAuth — Step 3c: ANT clean session lease (anti
     expect(logged).not.toContain(ownerTerminal.id);
     expect(logged).not.toContain(attackerTerminal.id);
     warn.mockRestore();
+  });
+});
+
+describe('requireAdminBearerOrThrow (constant-time admin gate, Tranche 1.5)', () => {
+  const ORIG = process.env.ANT_ADMIN_TOKEN;
+  beforeEach(() => { process.env.ANT_ADMIN_TOKEN = 'admin-secret-token'; });
+  afterEach(() => {
+    if (ORIG === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = ORIG;
+  });
+
+  function req(headers: Record<string, string> = {}): Request {
+    return new Request('http://localhost/admin', { headers });
+  }
+  function statusOf(fn: () => void): number {
+    try { fn(); return 200; }
+    catch (e) {
+      const f = e as { status?: number };
+      return typeof f?.status === 'number' ? f.status : 500;
+    }
+  }
+
+  it('401 when no Bearer header is presented', () => {
+    expect(statusOf(() => requireAdminBearerOrThrow(req()))).toBe(401);
+  });
+
+  it('403 when the token is wrong', () => {
+    expect(statusOf(() => requireAdminBearerOrThrow(req({ authorization: 'Bearer wrong-token' })))).toBe(403);
+  });
+
+  it('403 when no admin token is configured', () => {
+    delete process.env.ANT_ADMIN_TOKEN;
+    expect(statusOf(() => requireAdminBearerOrThrow(req({ authorization: 'Bearer anything' })))).toBe(403);
+  });
+
+  it('passes with the correct token', () => {
+    expect(statusOf(() => requireAdminBearerOrThrow(req({ authorization: 'Bearer admin-secret-token' })))).toBe(200);
   });
 });

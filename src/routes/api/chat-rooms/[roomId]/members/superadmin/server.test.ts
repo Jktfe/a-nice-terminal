@@ -82,17 +82,25 @@ function seedTargetSession(handle: string): string {
   return session.id;
 }
 
-/** Mint a SuperAdmin caller session whose label IS the superadmin handle. */
+// New model (2026-06-10 spoof-close): the superadmin route no longer trusts a
+// session's self-declared label. A durable-session caller authenticates through
+// the shared mutating gate, which requires a CLEAN room-handle lease and
+// resolves the LEASE handle. So these helpers claim a clean lease for the
+// caller — the lease, not the label, is what the gate trusts.
+
+/** Mint a SuperAdmin caller session that is a clean member of the room. */
 function seedSuperAdminCaller(handle: string): string {
   addUser(DEFAULT_ORG_ID, handle, 'superadmin');
   const session = createSession({ kind: 'human', label: handle });
+  claimHandle(ROOM_ID, handle, session.id);
   return session.id;
 }
 
-/** Mint a non-privileged caller session (org member, not superadmin). */
+/** Mint a non-privileged caller session that is a clean member of the room. */
 function seedMemberCaller(handle: string): string {
   addUser(DEFAULT_ORG_ID, handle, 'member');
   const session = createSession({ kind: 'remote-agent', label: handle });
+  claimHandle(ROOM_ID, handle, session.id);
   return session.id;
 }
 
@@ -138,14 +146,31 @@ describe('POST /api/chat-rooms/:roomId/members/superadmin (add)', () => {
     expect(resolveMember(ROOM_ID, '@masterclaude')).toBe(targetSession.id);
   });
 
-  it('non-SuperAdmin caller → 403, claimHandle does NOT run', async () => {
+  it('non-SuperAdmin caller → 403, target claimHandle does NOT run', async () => {
     const callerSession = seedMemberCaller('@nobody');
     seedTargetSession('@x');
     const res = await run(
       POST(eventForPost({ handle: '@x' }, { 'x-ant-session-id': callerSession }))
     );
     expect(res.status).toBe(403);
-    expect(listLeases(ROOM_ID).length).toBe(0);
+    // The TARGET @x was never granted (the caller holds only its own @nobody
+    // lease from seedMemberCaller; the route's claimHandle on @x didn't run).
+    expect(resolveMember(ROOM_ID, '@x')).toBeFalsy();
+  });
+
+  it('forge-denial: a session self-labelled as the operator with no clean lease is not granted SuperAdmin', async () => {
+    // The exact register-time spoof: an attacker mints a session whose label is
+    // the operator handle (@JWPK is seeded superadmin) while having no clean
+    // room-handle lease. The gate never resolves an unleased session, so the
+    // self-declared label can no longer escalate to SuperAdmin.
+    const attacker = createSession({ kind: 'remote-agent', label: '@JWPK' });
+    seedTargetSession('@x');
+    const res = await run(
+      POST(eventForPost({ handle: '@x' }, { 'x-ant-session-id': attacker.id }))
+    );
+    expect(res.status).not.toBe(201);
+    expect([401, 403]).toContain(res.status);
+    expect(resolveMember(ROOM_ID, '@x')).toBeFalsy();
   });
 
   it('add when target has no durable session → 409 (not 500)', async () => {

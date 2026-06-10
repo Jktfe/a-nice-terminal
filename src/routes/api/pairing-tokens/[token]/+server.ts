@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getPairingToken, consumePairingToken } from '$lib/server/pairingTokenStore';
+import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
+import { getPairingToken, consumePairingToken, revokePairingToken } from '$lib/server/pairingTokenStore';
 
 export const GET: RequestHandler = async ({ params }) => {
   const token = getPairingToken(params.token);
@@ -31,9 +32,13 @@ export const POST: RequestHandler = async ({ params, request }) => {
   }});
 };
 
-export const DELETE: RequestHandler = async ({ params }) => {
+export const DELETE: RequestHandler = async ({ params, request }) => {
   const token = getPairingToken(params.token);
   if (!token) throw error(404, 'Token not found');
-  // TODO: check ownership before allowing delete
-  return json({ success: true });
+  // Ownership = room-mutation authority on the token's room (admin-bearer or
+  // a member who can manage the room). Previously unauthenticated AND a no-op
+  // (it returned success without deleting); now it gates then actually revokes.
+  requireChatRoomMutationAuth(token.room_id, request, {});
+  const revoked = revokePairingToken(params.token);
+  return json({ success: revoked });
 };

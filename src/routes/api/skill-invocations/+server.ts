@@ -44,19 +44,9 @@ import {
 } from '$lib/server/skillInvocationsStore';
 import type { InvokerKind } from '$lib/server/skillInvocationsStore';
 import { requireVerificationAuthorTier } from '$lib/server/featureGates';
+import { requireAdminBearerOrThrow as requireAdminBearer } from '$lib/server/chatRoomAuthGate';
 
 const VALID_INVOKER_KIND = new Set<InvokerKind>(['human', 'agent', 'system']);
-
-function requireAdminBearer(request: Request): void {
-  const auth = request.headers.get('authorization') ?? '';
-  if (!auth.startsWith('Bearer ')) {
-    throw error(401, 'Authorization: Bearer <admin-token> required');
-  }
-  const adminToken = process.env.ANT_ADMIN_TOKEN;
-  if (!adminToken || auth.slice(7) !== adminToken) {
-    throw error(403, 'Admin bearer required');
-  }
-}
 
 export const POST: RequestHandler = async ({ request }) => {
   requireAdminBearer(request);

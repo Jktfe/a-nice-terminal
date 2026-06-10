@@ -10,6 +10,7 @@
  */
 
 import { getIdentityDb } from './db';
+import { getTelemetryDb, telemetrySidecarEnabled } from './telemetryDb';
 import { listAgents, type AgentRegistryEntry, type AgentRoomMembership } from './agentRegistryStore';
 import { listTerminalRecords, deriveHandle } from './terminalRecordsStore';
 import { listTerminalModelsByIds } from './terminalsStore';
@@ -256,25 +257,49 @@ function timeseriesByHandle(handles: string[], nowMs: number): Map<string, { spa
 function loadHandleWorkspaces(handles: string[]): Map<string, string | null> {
   const out = new Map<string, string | null>();
   if (handles.length === 0) return out;
-  const db = getIdentityDb();
-  const placeholders = handles.map(() => '?').join(',');
-  // Latest run event per handle's terminals gives the most recent cwd.
-  const rows = db
+  const idDb = getIdentityDb();
+  const handlePlaceholders = handles.map(() => '?').join(',');
+  // 1. handle → its terminal session_ids (identity DB owns terminal_records).
+  const trRows = idDb
     .prepare(
-      `SELECT tr.handle AS handle, tre.payload AS payload
-       FROM terminal_records tr
-       JOIN terminal_run_events tre ON tre.terminal_id = tr.session_id
-       WHERE tr.handle IN (${placeholders})
-         AND tre.deleted_at_ms IS NULL
-       ORDER BY tre.ts_ms DESC`
+      `SELECT handle, session_id FROM terminal_records WHERE handle IN (${handlePlaceholders})`
     )
-    .all(...handles) as Array<{ handle: string; payload: string }>;
-  for (const row of rows) {
-    if (out.has(row.handle)) continue;
+    .all(...handles) as Array<{ handle: string; session_id: string }>;
+  if (trRows.length === 0) return out;
+  const sessionToHandle = new Map<string, string>();
+  for (const r of trRows) sessionToHandle.set(r.session_id, r.handle);
+  const sessionIds = [...sessionToHandle.keys()];
+
+  // 2. Latest non-deleted run events for those terminals. terminal_run_events
+  //    may now live in the telemetry sidecar, so this is a separate query
+  //    (no cross-file JOIN) unioned across telemetry + identity and merged
+  //    newest-first — replacing the old `JOIN terminal_run_events` query.
+  const sidPlaceholders = sessionIds.map(() => '?').join(',');
+  const evSql = `SELECT terminal_id, payload, ts_ms FROM terminal_run_events
+       WHERE terminal_id IN (${sidPlaceholders}) AND deleted_at_ms IS NULL
+       ORDER BY ts_ms DESC`;
+  const readDbs = telemetrySidecarEnabled() ? [getTelemetryDb(), idDb] : [idDb];
+  const evRows = readDbs
+    .flatMap(
+      (db) =>
+        db.prepare(evSql).all(...sessionIds) as Array<{
+          terminal_id: string;
+          payload: string;
+          ts_ms: number;
+        }>
+    )
+    .sort((a, b) => b.ts_ms - a.ts_ms);
+
+  // 3. JS join: the latest event WITH a cwd per handle wins (matches the old
+  //    behaviour — out.has(handle) only becomes true once a cwd is set, so a
+  //    newer cwd-less event doesn't block an older one with a cwd).
+  for (const row of evRows) {
+    const handle = sessionToHandle.get(row.terminal_id);
+    if (!handle || out.has(handle)) continue;
     try {
       const parsed = JSON.parse(row.payload ?? '{}');
       if (typeof parsed?.cwd === 'string' && parsed.cwd.length > 0) {
-        out.set(row.handle, parsed.cwd);
+        out.set(handle, parsed.cwd);
       }
     } catch {
       // ignore malformed payload

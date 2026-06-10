@@ -117,27 +117,17 @@ function requireSuperAdminCaller(
     return { handle: '@admin', isAdminBearer: true };
   }
 
-  // Durable-session caller path (x-ant-session-id / sessionId / antSessionId).
-  // The identity is the session's label (its @handle); resolveCaller requires
-  // an explicit handle and won't infer it from the session, so we read the
-  // label off the resolved ant_sessions row (server-authoritative — an
-  // unresolvable session id is not trusted). getSession also ensures the
-  // ant_sessions table exists for the target lookup below.
+  // 2026-06-10 spoof-close: the old durable-session path trusted the session's
+  // self-declared `ant_sessions.label` as the caller's handle, then granted
+  // SuperAdmin if that label isSuperAdmin. But the open register endpoint mints
+  // the label from the caller's CLAIMED handle (de-conflicted only against an
+  // ACTIVE terminal_records row), so anyone could register a session labelled
+  // as the operator handle — while the operator had no live terminal — and pass.
+  // Now ALL non-admin-bearer callers resolve through the shared mutating-route
+  // gate, which authenticates the x-ant-session caller via a clean room-handle
+  // lease (isCleanMember) + token-terminal binding and returns the LEASE handle,
+  // never the raw label. SuperAdmin is checked on that gate-resolved handle.
   const db = getIdentityDb();
-  const callerSessionId = callerSessionIdFrom(request, rawBody);
-  if (callerSessionId) {
-    const callerSession = getSession(callerSessionId, db);
-    const callerHandle = callerSession?.label?.trim();
-    if (callerHandle && callerHandle.length > 0) {
-      if (isSuperAdmin(callerHandle, undefined, db)) {
-        return { handle: callerHandle, isAdminBearer: false };
-      }
-      throw error(403, `${callerHandle} is not a SuperAdmin.`);
-    }
-  }
-
-  // Fall back to the shared mutating-route gate (antchat bearer / cookie /
-  // pidChain). It throws 401 when nothing resolves.
   const auth = requireChatRoomMutationAuth(roomId, request, rawBody);
   if (auth.isAdminBearer) return auth;
   if (isSuperAdmin(auth.handle, undefined, db)) {

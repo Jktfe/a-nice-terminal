@@ -89,6 +89,23 @@ function mimeFor(path: string): string {
   return MIME_BY_EXT.get(ext) ?? 'application/octet-stream';
 }
 
+/**
+ * Per-response security headers. `nosniff` on everything stops MIME
+ * confusion. SVG additionally gets `Content-Disposition: attachment`:
+ * an SVG can carry an inline <script> that executes on DIRECT navigation
+ * to a same-origin URL (stored XSS), but Content-Disposition is ignored
+ * for subresource loads — so `<img src=".../x.svg">` still renders while a
+ * direct hit downloads instead of executing. Closes the XSS path without
+ * breaking legitimate image use.
+ */
+function securityHeadersFor(path: string): Record<string, string> {
+  const headers: Record<string, string> = { 'X-Content-Type-Options': 'nosniff' };
+  if (extname(path).toLowerCase() === '.svg') {
+    headers['Content-Disposition'] = 'attachment';
+  }
+  return headers;
+}
+
 function etagFor(mtimeMs: number, size: number): string {
   const hash = createHash('sha256')
     .update(`${mtimeMs}:${size}`)
@@ -114,13 +131,32 @@ function etagFor(mtimeMs: number, size: number): string {
  * unauthenticated — exactly the OSS-leak class this PR exists to
  * prevent). realpath + recheck is the standard fix.
  */
+// Build/dependency/VCS dirs that must never be served even from a
+// configured root. Hidden (dot-prefixed) segments are rejected separately,
+// which already covers .git / .svelte-kit / .env*; this set adds the
+// non-dotted ones.
+const BLOCKED_SEGMENTS: ReadonlySet<string> = new Set(['node_modules', 'dist']);
+
 async function findAsset(
   requestPath: string,
   roots: string[]
 ): Promise<{ resolved: string; stat: Stats; root: string } | null> {
+  // Reject null bytes / control chars before any resolution (filesystem-
+  // safety checklist item 1) — a NUL would otherwise reach stat() and the
+  // throw would be swallowed into a misleading 404 instead of a 400.
+  if (/[\u0000-\u001f\u007f]/.test(requestPath)) {
+    throw error(400, 'Asset path contains invalid characters.');
+  }
   if (isAbsolute(requestPath)) throw error(400, 'Asset path must be relative.');
   for (const seg of requestPath.split('/')) {
     if (seg === '..' || seg === '.') throw error(400, 'Asset path may not contain .. or . segments.');
+    // Hidden files/dirs are never served: this is what stops an
+    // unauthenticated GET /api/assets/.env, /.git/config, /.ssh/id_rsa
+    // from leaking secrets under any configured root (the OSS-leak class
+    // this route exists to prevent). Opt-in serving of dotfiles is out of
+    // scope by design.
+    if (seg.startsWith('.')) throw error(400, 'Asset path may not contain hidden segments.');
+    if (BLOCKED_SEGMENTS.has(seg)) throw error(400, `Asset path may not contain "${seg}".`);
   }
   const normalisedRequest = normalize(requestPath);
   for (const root of roots) {
@@ -182,7 +218,8 @@ export const GET: RequestHandler = async ({ params, request, setHeaders }) => {
       headers: {
         ETag: etag,
         'Cache-Control': `public, max-age=${CACHE_MAX_AGE_SECONDS}`,
-        'Accept-Ranges': 'bytes'
+        'Accept-Ranges': 'bytes',
+        ...securityHeadersFor(hit.resolved)
       }
     });
   }
@@ -228,6 +265,7 @@ export const GET: RequestHandler = async ({ params, request, setHeaders }) => {
     'Cache-Control': `public, max-age=${CACHE_MAX_AGE_SECONDS}`,
     ETag: etag,
     'Accept-Ranges': 'bytes',
+    ...securityHeadersFor(hit.resolved),
     ...(contentRange !== null && { 'Content-Range': contentRange })
   });
   // Fresh Uint8Array copy: a view over Buffer's ArrayBufferLike isn't a

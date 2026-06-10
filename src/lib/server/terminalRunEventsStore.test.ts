@@ -3,9 +3,10 @@
  * sanitized at the persistence boundary; kind=raw is untouched.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { appendTerminalRunEvent, listLatestTerminalRunEvents, listTerminalRunEventsSince } from './terminalRunEventsStore';
 import { getIdentityDb } from './db';
+import { getTelemetryDb, resetTelemetryDbForTests } from './telemetryDb';
 
 describe('appendTerminalRunEvent — control-byte sanitize (V4-BLOCKER-A)', () => {
   beforeEach(() => {
@@ -156,5 +157,53 @@ describe('appendTerminalRunEvent — transcript idempotency (V4-BLOCKER-B)', () 
     });
     expect(listLatestTerminalRunEvents('t_idem_A', 5)).toHaveLength(1);
     expect(listLatestTerminalRunEvents('t_idem_B', 5)).toHaveLength(1);
+  });
+});
+
+describe('telemetry sidecar dual-read (flag on)', () => {
+  const PREV_FLAG = process.env.ANT_TELEMETRY_SIDECAR;
+
+  beforeEach(() => {
+    resetTelemetryDbForTests();
+    try { getIdentityDb().prepare(`DELETE FROM terminal_run_events`).run(); } catch { /* ignore */ }
+    process.env.ANT_TELEMETRY_SIDECAR = 'on';
+  });
+
+  afterEach(() => {
+    resetTelemetryDbForTests();
+    try { getIdentityDb().prepare(`DELETE FROM terminal_run_events`).run(); } catch { /* ignore */ }
+    if (PREV_FLAG === undefined) delete process.env.ANT_TELEMETRY_SIDECAR;
+    else process.env.ANT_TELEMETRY_SIDECAR = PREV_FLAG;
+  });
+
+  it('writes land in the telemetry DB, not the identity DB', () => {
+    appendTerminalRunEvent({ terminalId: 't_side', kind: 'message', text: 'new', trust: 'high' });
+    const inIdentity = getIdentityDb()
+      .prepare(`SELECT COUNT(*) AS n FROM terminal_run_events WHERE terminal_id = ?`)
+      .get('t_side') as { n: number };
+    const inTelemetry = getTelemetryDb()
+      .prepare(`SELECT COUNT(*) AS n FROM terminal_run_events WHERE terminal_id = ?`)
+      .get('t_side') as { n: number };
+    expect(inIdentity.n).toBe(0);
+    expect(inTelemetry.n).toBe(1);
+  });
+
+  it('reads union old (identity) + new (telemetry) rows in ts order', () => {
+    // Simulate a pre-cutover row still in the identity DB.
+    getIdentityDb()
+      .prepare(
+        `INSERT INTO terminal_run_events (terminal_id, ts_ms, source, trust, kind, text, payload)
+         VALUES (?, ?, 'transcript', 'high', 'message', ?, '{}')`
+      )
+      .run('t_dual', 1000, 'old-row');
+    // A post-cutover row written through the store → telemetry DB. source =
+    // 'transcript' so the authoritative-transcript gate (triggered by the old
+    // transcript row) doesn't suppress it — we're isolating the dual-read here.
+    appendTerminalRunEvent({ terminalId: 't_dual', kind: 'message', text: 'new-row', trust: 'high', source: 'transcript', tsMs: 2000 });
+
+    const latest = listLatestTerminalRunEvents('t_dual', 10);
+    expect(latest.map((e) => e.text)).toEqual(['old-row', 'new-row']); // ascending by ts
+    const since = listTerminalRunEventsSince('t_dual', 1500, 10);
+    expect(since.map((e) => e.text)).toEqual(['new-row']); // only the new row is > since
   });
 });

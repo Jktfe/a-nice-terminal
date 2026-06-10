@@ -1006,7 +1006,8 @@ const SCHEMA_DDL_STATEMENTS = [
     answered_at_ms  INTEGER,
     dismissed_by_handle TEXT,
     dismissed_by_display_name TEXT,
-    dismissed_at_ms INTEGER
+    dismissed_at_ms INTEGER,
+    source_message_id TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_asks_room_status ON asks (room_id, status, opened_at_ms DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_asks_id ON asks (id)`,
@@ -1014,6 +1015,13 @@ const SCHEMA_DDL_STATEMENTS = [
   // Adding nullable for back-compat with existing rows; new rows require it.
   `ALTER TABLE asks ADD COLUMN target_handle TEXT`,
   `CREATE INDEX IF NOT EXISTS idx_asks_target_status ON asks (target_handle, status)`,
+  // Tranche 0.3 (2026-06-10): link a fanout-derived ask back to its source
+  // chat message so an operator delete can purge the ask copy too (the body
+  // was otherwise still searchable via memoryRecall's open-ask scan).
+  // Nullable for back-compat. Also added to the canonical CREATE above and
+  // the asks rebuild below so fresh / mid-migration DBs carry it too.
+  `ALTER TABLE asks ADD COLUMN source_message_id TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_asks_source_message ON asks (source_message_id)`,
   // Task #162: candidate asks inferred from chat signals before premium
   // Chair filtering. These are distinct from explicit asks until promoted.
   `CREATE TABLE IF NOT EXISTS ask_candidates (
@@ -2992,6 +3000,7 @@ function extendAsksStatusCheckForActiveStatuses(db: DatabaseInstance): void {
   const mergedIntoAskIdSelect = existingColumns.has('merged_into_ask_id') ? 'merged_into_ask_id' : 'NULL';
   const mergedAtMsSelect = existingColumns.has('merged_at_ms') ? 'merged_at_ms' : 'NULL';
   const mergedByHandleSelect = existingColumns.has('merged_by_handle') ? 'merged_by_handle' : 'NULL';
+  const sourceMessageIdSelect = existingColumns.has('source_message_id') ? 'source_message_id' : 'NULL';
 
   const rebuild = db.transaction(() => {
     db.prepare(`CREATE TABLE asks_new (
@@ -3013,18 +3022,19 @@ function extendAsksStatusCheckForActiveStatuses(db: DatabaseInstance): void {
       target_handle   TEXT,
       merged_into_ask_id TEXT,
       merged_at_ms    INTEGER,
-      merged_by_handle TEXT
+      merged_by_handle TEXT,
+      source_message_id TEXT
     )`).run();
     db.prepare(`INSERT INTO asks_new (
       id, room_id, opened_by_handle, opened_by_display_name, title, body, status,
       opened_at_ms, answer, answered_by_handle, answered_by_display_name, answered_at_ms,
       dismissed_by_handle, dismissed_by_display_name, dismissed_at_ms, target_handle,
-      merged_into_ask_id, merged_at_ms, merged_by_handle
+      merged_into_ask_id, merged_at_ms, merged_by_handle, source_message_id
     ) SELECT
       id, room_id, opened_by_handle, opened_by_display_name, title, body, status,
       opened_at_ms, answer, answered_by_handle, answered_by_display_name, answered_at_ms,
       dismissed_by_handle, dismissed_by_display_name, dismissed_at_ms, ${targetHandleSelect},
-      ${mergedIntoAskIdSelect}, ${mergedAtMsSelect}, ${mergedByHandleSelect}
+      ${mergedIntoAskIdSelect}, ${mergedAtMsSelect}, ${mergedByHandleSelect}, ${sourceMessageIdSelect}
     FROM asks`).run();
     db.prepare(`DROP TABLE asks`).run();
     db.prepare(`ALTER TABLE asks_new RENAME TO asks`).run();

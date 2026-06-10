@@ -206,4 +206,20 @@ describe('GET /api/me/mentions', () => {
     expect(data.mentions[0].matchedHandle).toBe('@JWPK');
     expect(elapsed).toBeLessThan(2000);
   });
+
+  it('excludes mentions at or before the since cursor (SQL filter, Tranche 1.6)', async () => {
+    const room = createChatRoom({ name: 'Room A', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@other', body: 'old @JWPK ping' });
+
+    // First poll from 0 sees it and returns a cursor past it.
+    const first = await (await call('?since=0&wait=0')).json();
+    expect(first.mentions).toHaveLength(1);
+    const cursor = first.nextCursor as number;
+    expect(cursor).toBeGreaterThan(0);
+
+    // Polling from that cursor must not re-return the same mention.
+    const second = await (await call(`?since=${cursor}&wait=0`)).json();
+    expect(second.mentions).toEqual([]);
+    expect(second.nextCursor).toBe(cursor);
+  });
 });

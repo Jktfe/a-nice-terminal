@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
+import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 import { createPairingToken, listPairingTokensForRoom } from '$lib/server/pairingTokenStore';
 
 function serialize(t: any) {
@@ -17,9 +18,13 @@ function serialize(t: any) {
   };
 }
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ url, request }) => {
   const roomId = url.searchParams.get('roomId');
   if (!roomId) throw error(400, 'roomId required');
+  // A pairing token's raw string can be redeemed for the server api_key, so
+  // listing them is credential-adjacent: require room-mutation authority
+  // (admin-bearer / room membership) — previously this was world-readable.
+  requireChatRoomMutationAuth(roomId, request, {});
   const room = findChatRoomById(roomId);
   if (!room) throw error(404, 'Room not found');
   const tokens = listPairingTokensForRoom(roomId);
@@ -30,6 +35,10 @@ export const POST: RequestHandler = async ({ request }) => {
   const body = await request.json().catch(() => ({}));
   const roomId = body.roomId;
   if (!roomId || typeof roomId !== 'string') throw error(400, 'roomId required');
+  // Minting a token bundles the server api_key for redemption — gate it on
+  // room-mutation authority. Previously unauthenticated: anyone could mint a
+  // token wrapping ANT_API_KEY and consume it to exfiltrate the key.
+  const auth = requireChatRoomMutationAuth(roomId, request, body);
   const room = findChatRoomById(roomId);
   if (!room) throw error(404, 'Room not found');
 
@@ -42,7 +51,8 @@ export const POST: RequestHandler = async ({ request }) => {
     server_url: serverUrl,
     api_key: apiKey,
     device_name: body.deviceName ?? null,
-    created_by: body.createdBy ?? null,
+    // Server-resolved minter, never the client-supplied createdBy (anti-spoof).
+    created_by: auth.handle,
     expires_at_ms: body.expiresAtMs ?? nowPlusHours(24),
   });
 

@@ -7,7 +7,22 @@
  */
 
 import { getIdentityDb } from './db';
+import { getTelemetryDb, telemetrySidecarEnabled } from './telemetryDb';
 import { stripAnsi } from './classifiers/stripAnsi';
+
+// Telemetry-sidecar handle selection (audit finding A). When the sidecar is
+// on, the firehose lives in the telemetry DB; writes go there. Reads union the
+// telemetry DB (new rows) with the identity DB (old rows not yet backfilled) —
+// the backfill copies-then-deletes per batch, so every row is in exactly one
+// file and the union never double-counts. After the source drains, the
+// identity-DB branch returns nothing (empty table) and is removed in Phase 3.
+type RunEventDb = ReturnType<typeof getIdentityDb>;
+function runEventWriteDb(): RunEventDb {
+  return telemetrySidecarEnabled() ? getTelemetryDb() : getIdentityDb();
+}
+function runEventReadDbs(): RunEventDb[] {
+  return telemetrySidecarEnabled() ? [getTelemetryDb(), getIdentityDb()] : [getIdentityDb()];
+}
 
 export type TerminalRunEventTrust = 'high' | 'medium' | 'raw';
 
@@ -40,7 +55,7 @@ export type AppendInput = {
 };
 
 export function appendTerminalRunEvent(input: AppendInput): TerminalRunEvent {
-  const db = getIdentityDb();
+  const db = runEventWriteDb();
   const tsMs = input.tsMs ?? Date.now();
   const source = input.source ?? 'pty';
   const trust: TerminalRunEventTrust = input.trust ?? 'raw';
@@ -95,13 +110,19 @@ function listClause(column: 'kind' | 'source', values: string[] | undefined): { 
 // only the clean transcript stream. src='pty' kind='raw' STAYS — the RAW
 // view needs literal passthrough. Terminals with NO transcript rows
 // (bare shells, non-transcript CLIs) are unaffected — full feed served.
-function terminalHasTranscriptRows(db: ReturnType<typeof getIdentityDb>, terminalId: string): boolean {
-  const row = db.prepare(
-    `SELECT 1 FROM terminal_run_events
-      WHERE terminal_id = ? AND source = 'transcript' AND deleted_at_ms IS NULL
-      LIMIT 1`
-  ).get(terminalId);
-  return row !== undefined;
+function terminalHasTranscriptRows(terminalId: string): boolean {
+  // A terminal's transcript rows can be in either DB during the backfill
+  // window, so the authoritative-transcript gate checks across both.
+  return runEventReadDbs().some(
+    (db) =>
+      db
+        .prepare(
+          `SELECT 1 FROM terminal_run_events
+            WHERE terminal_id = ? AND source = 'transcript' AND deleted_at_ms IS NULL
+            LIMIT 1`
+        )
+        .get(terminalId) !== undefined
+  );
 }
 
 // Suppress pty non-raw rows when transcript is authoritative for this
@@ -114,16 +135,18 @@ export function listLatestTerminalRunEvents(
   kinds?: string[],
   sources?: string[]
 ): TerminalRunEvent[] {
-  const db = getIdentityDb();
   const k = listClause('kind', kinds);
   const s = listClause('source', sources);
-  const gate = terminalHasTranscriptRows(db, terminalId) ? PTY_NONRAW_SUPPRESSION : '';
-  return (db.prepare(
-    `SELECT id, terminal_id, ts_ms, source, trust, kind, text, payload, raw_ref
+  const gate = terminalHasTranscriptRows(terminalId) ? PTY_NONRAW_SUPPRESSION : '';
+  const sql = `SELECT id, terminal_id, ts_ms, source, trust, kind, text, payload, raw_ref
      FROM terminal_run_events
      WHERE terminal_id = ? AND deleted_at_ms IS NULL${gate}${k.sql}${s.sql}
-     ORDER BY ts_ms DESC LIMIT ?`
-  ).all(terminalId, ...k.args, ...s.args, limit) as TerminalRunEvent[]).reverse();
+     ORDER BY ts_ms DESC LIMIT ?`;
+  const rows = runEventReadDbs().flatMap(
+    (db) => db.prepare(sql).all(terminalId, ...k.args, ...s.args, limit) as TerminalRunEvent[]
+  );
+  // Merge newest-first across DBs, cap to limit, then ascending for the caller.
+  return rows.sort((a, b) => b.ts_ms - a.ts_ms).slice(0, limit).reverse();
 }
 
 export function listTerminalRunEventsSince(
@@ -133,16 +156,17 @@ export function listTerminalRunEventsSince(
   kinds?: string[],
   sources?: string[]
 ): TerminalRunEvent[] {
-  const db = getIdentityDb();
   const k = listClause('kind', kinds);
   const s = listClause('source', sources);
-  const gate = terminalHasTranscriptRows(db, terminalId) ? PTY_NONRAW_SUPPRESSION : '';
-  return db.prepare(
-    `SELECT id, terminal_id, ts_ms, source, trust, kind, text, payload, raw_ref
+  const gate = terminalHasTranscriptRows(terminalId) ? PTY_NONRAW_SUPPRESSION : '';
+  const sql = `SELECT id, terminal_id, ts_ms, source, trust, kind, text, payload, raw_ref
      FROM terminal_run_events
      WHERE terminal_id = ? AND ts_ms > ? AND deleted_at_ms IS NULL${gate}${k.sql}${s.sql}
-     ORDER BY ts_ms ASC LIMIT ?`
-  ).all(terminalId, sinceMs, ...k.args, ...s.args, limit) as TerminalRunEvent[];
+     ORDER BY ts_ms ASC LIMIT ?`;
+  const rows = runEventReadDbs().flatMap(
+    (db) => db.prepare(sql).all(terminalId, sinceMs, ...k.args, ...s.args, limit) as TerminalRunEvent[]
+  );
+  return rows.sort((a, b) => a.ts_ms - b.ts_ms).slice(0, limit);
 }
 
 export function searchTerminalRunEvents(
@@ -152,15 +176,16 @@ export function searchTerminalRunEvents(
   kinds?: string[],
   sources?: string[]
 ): TerminalRunEvent[] {
-  const db = getIdentityDb();
   const k = listClause('kind', kinds);
   const s = listClause('source', sources);
-  const gate = terminalHasTranscriptRows(db, terminalId) ? PTY_NONRAW_SUPPRESSION : '';
+  const gate = terminalHasTranscriptRows(terminalId) ? PTY_NONRAW_SUPPRESSION : '';
   const like = '%' + query.replace(/%/g, '%%').replace(/_/g, '\\_') + '%';
-  return db.prepare(
-    `SELECT id, terminal_id, ts_ms, source, trust, kind, text, payload, raw_ref
+  const sql = `SELECT id, terminal_id, ts_ms, source, trust, kind, text, payload, raw_ref
      FROM terminal_run_events
      WHERE terminal_id = ? AND text LIKE ? AND deleted_at_ms IS NULL${gate}${k.sql}${s.sql}
-     ORDER BY ts_ms DESC LIMIT ?`
-  ).all(terminalId, like, ...k.args, ...s.args, limit) as TerminalRunEvent[];
+     ORDER BY ts_ms DESC LIMIT ?`;
+  const rows = runEventReadDbs().flatMap(
+    (db) => db.prepare(sql).all(terminalId, like, ...k.args, ...s.args, limit) as TerminalRunEvent[]
+  );
+  return rows.sort((a, b) => b.ts_ms - a.ts_ms).slice(0, limit);
 }
