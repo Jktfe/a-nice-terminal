@@ -27,6 +27,7 @@ import {
   resolveMember as resolveCleanMember,
   isMember as isCleanMember
 } from '$lib/server/roomHandleLeaseClean';
+import { getLiveBinding, getHandleRow } from '$lib/server/handleBindingsStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
@@ -884,6 +885,33 @@ describe('POST /api/identity/register', () => {
       // not become a clean member of the room.
       expect(resolveCleanMember(roomId, handle)).toBe(ownerToken);
       expect(isCleanMember(roomId, intruderToken)).toBe(false);
+    });
+  });
+
+  describe('clean-core dual-write (AC3 Step 1)', () => {
+    it('register with handle + pane dual-writes a live handle binding and a non-vacant handles row', async () => {
+      const response = await POST(eventForPost(JSON.stringify({
+        name: 'BindingDualWrite',
+        pids: [{ pid: 4242, pid_start: '2026-06-10T20:00:00Z' }],
+        pane: '%77',
+        handle: '@bindme',
+        agent_kind: 'claude_code'
+      })));
+      expect(response.status).toBe(201);
+      const binding = getLiveBinding('@bindme');
+      expect(binding?.pane).toBe('%77');
+      expect(binding?.pid).toBe(4242);
+      expect(getHandleRow('@bindme')?.vacated_at_ms).toBeNull();
+    });
+
+    it('register without a pane writes no binding (nothing witnessed)', async () => {
+      const response = await POST(eventForPost(JSON.stringify({
+        name: 'NoPaneNoBinding',
+        pids: [{ pid: 4243, pid_start: '2026-06-10T20:00:01Z' }],
+        handle: '@paneless'
+      })));
+      expect(response.status).toBe(201);
+      expect(getLiveBinding('@paneless')).toBeNull();
     });
   });
 });

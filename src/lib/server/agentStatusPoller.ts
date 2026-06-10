@@ -33,6 +33,7 @@ import { parsePaneState, type CliKind as PaneCliKind } from './paneStatusParser'
 import { detectFingerprint, applyFingerprintWriteBack } from './fingerprintDetector';
 import { defaultTmuxCaptureFn, type CaptureFn } from './tmuxCapture';
 import { verifyPaneTargetState } from './pty-inject-bridge';
+import { reconcileBindingsAtBoot } from './bindingBootReconcile';
 import { getIdentityDb } from './db';
 import { spawnSync } from 'node:child_process';
 import {
@@ -370,6 +371,15 @@ export type StartPollerInput = {
   captureFn?: CaptureFn;
   cwdFn?: (terminal: TerminalRow) => string | null;
   intervalMs?: number;
+  /**
+   * AC3 Step 1 witness: one-shot boot reconciliation of handle_bindings
+   * against `tmux list-panes -a` (the powercut case — daemon and panes died
+   * together, nobody witnessed it). Injectable for tests; defaults to the
+   * real reconcile. Runs exactly once per poller lifecycle, never on the
+   * re-entrant start of an already-running poller, and a failure never
+   * blocks the poller from starting.
+   */
+  bootReconcileFn?: () => unknown;
 };
 
 function projectCliStateFileStatus(terminal: TerminalRow, cwdFn?: (terminal: TerminalRow) => string | null): boolean {
@@ -407,6 +417,8 @@ export function startPoller(input: StartPollerInput = {}): PollerController {
   const slot = globalThis as Record<string, unknown>;
   const existing = slot[POLLER_GLOBAL_KEY] as PollerController | undefined;
   if (existing && existing.isRunning()) return existing;
+  const bootReconcile = input.bootReconcileFn ?? (() => reconcileBindingsAtBoot());
+  try { bootReconcile(); } catch { /* witness pass is best-effort at boot */ }
   const cadence = clampCadence(input.intervalMs);
   const captureFn: CaptureFn = input.captureFn ?? defaultTmuxCaptureFn;
   const cwdFn = input.cwdFn ?? defaultTmuxCwdFn;

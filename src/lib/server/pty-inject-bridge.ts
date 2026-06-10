@@ -27,6 +27,7 @@ import {
   markPaneStale
 } from './terminalsStore';
 import { getIdentityDb } from './db';
+import { tombstoneBindingsForPane } from './handleBindingsStore';
 
 const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
 const STALE_MARKER_WINDOW_SECONDS = 60 * 60;
@@ -101,13 +102,34 @@ function matchReadyStateFor(agentKind: string | null, captured: string): boolean
   return true;
 }
 
+// Witness hardening (AC3 Step 1, ant-handles-rooms-ownership-contract.md
+// 2026-06-10): the ONLY capture failure that counts as pane-death evidence is
+// tmux explicitly saying the target doesn't exist. "no server running",
+// connection errors, and unclassified failures are NOT death — treating them
+// as death is how a transient tmux blip mass-tombstones the colony.
+export function isPaneNotFoundStderr(stderr: string): boolean {
+  return /can't find (pane|window|session)/i.test(stderr);
+}
+
 export function verifyPaneTargetState(terminal: TerminalRow): PaneVerifyOutcome {
   if (!terminal.tmux_target_pane) return 'unknown';
   const result = runScrubbedTmux([
     'capture-pane', '-t', terminal.tmux_target_pane, '-p', '-S', '-50'
   ]);
   if (result.status !== 0) {
+    const stderrText = (result.stderr ?? Buffer.alloc(0)).toString('utf8');
+    if (!isPaneNotFoundStderr(stderrText)) {
+      // Park, don't tombstone: no evidence the pane died, only that tmux
+      // couldn't answer right now. pane_status keeps its last value.
+      return 'unknown';
+    }
     markPaneStale(terminal.id);
+    // Daemon witness dual-write: the pane is positively gone, so every live
+    // handle binding on it tombstones and its handles row vacates.
+    // Best-effort — the clean core never blocks the legacy verify path.
+    try {
+      tombstoneBindingsForPane(terminal.tmux_target_pane, 'pane-not-found');
+    } catch { /* clean-core write failure must not break pane verification */ }
     return 'stale';
   }
   const captured = (result.stdout ?? Buffer.alloc(0)).toString('utf8');

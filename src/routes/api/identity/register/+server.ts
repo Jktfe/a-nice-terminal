@@ -43,6 +43,7 @@ import { backfillActiveLeasesFromRoomMemberships } from '$lib/server/roomHandleL
 import { reclaimCleanHandleIfStale } from '$lib/server/roomHandleLeaseClean';
 import { listRoomsForHandle, rebindMemberSessionIfStale } from '$lib/server/membershipStore';
 import { resolveOrNull } from '$lib/server/sessionResolver';
+import { bindHandle } from '$lib/server/handleBindingsStore';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
 
@@ -309,6 +310,23 @@ export const POST: RequestHandler = async ({ request }) => {
         updateTerminalRecord(terminal.id, { handle: handleValue });
       }
     }
+  }
+  // Clean-core dual-write (AC3 Step 1, ant-handles-rooms-ownership-contract.md
+  // 2026-06-10): when this register carries both a handle and a pane, record
+  // the witnessed pane↔handle binding in the greenfield tables. Nothing reads
+  // these for authority yet (that's the Step 2 read-flip); the witness layer
+  // (pty-inject-bridge / boot reconcile) owns the tombstone side. No pane =
+  // nothing witnessed = no binding. Best-effort: never blocks a 201.
+  if (handleValue && paneValue) {
+    try {
+      bindHandle({
+        handle: handleValue,
+        pane: paneValue,
+        pid: leafPid.pid,
+        pidStart: leafPid.pid_start,
+        terminalId: terminal.id
+      });
+    } catch { /* clean-core write failure must not break registration */ }
   }
   // PR-B v0.2 (JWPK enterprise-concern #5 — @speedyc dual-bind 2026-05-29).
   // After the new registration completes, sweep any OTHER live terminals

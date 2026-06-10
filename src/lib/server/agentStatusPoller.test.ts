@@ -99,6 +99,35 @@ describe('agentStatusPoller — startPoller controller', () => {
     expect(c2).toBe(c1);
     c1.stop();
   });
+
+  it('runs the binding boot-reconcile exactly once at start (not on re-start of a running poller)', () => {
+    let reconcileCalls = 0;
+    const c1 = startPoller({
+      captureFn: () => null,
+      intervalMs: 5000,
+      bootReconcileFn: () => { reconcileCalls += 1; }
+    });
+    expect(reconcileCalls).toBe(1);
+    // Re-entrant start returns the existing controller without reconciling again.
+    const c2 = startPoller({
+      captureFn: () => null,
+      intervalMs: 5000,
+      bootReconcileFn: () => { reconcileCalls += 1; }
+    });
+    expect(c2).toBe(c1);
+    expect(reconcileCalls).toBe(1);
+    c1.stop();
+  });
+
+  it('a throwing boot-reconcile does not prevent the poller from starting', () => {
+    const c = startPoller({
+      captureFn: () => null,
+      intervalMs: 5000,
+      bootReconcileFn: () => { throw new Error('tmux exploded'); }
+    });
+    expect(c.isRunning()).toBe(true);
+    c.stop();
+  });
 });
 
 describe('agentStatusPoller — runOnce per-terminal', () => {
@@ -776,11 +805,11 @@ describe('agentStatusPoller — M3.2c classifyIfUnknown integration', () => {
 // both older than 5 min). pty-inject-bridge.runScrubbedTmux honours
 // setSpawnImplForTests, so we inject a stubbed spawnSync that controls
 // the tmux capture-pane exit status — non-zero → 'stale'.
-function stubTmuxStatus(status: number, stdout = ''): void {
+function stubTmuxStatus(status: number, stdout = '', stderr = ''): void {
   setSpawnImplForTests(() => ({
     status,
     stdout: Buffer.from(stdout, 'utf8'),
-    stderr: Buffer.alloc(0),
+    stderr: Buffer.from(stderr, 'utf8'),
     pid: 0,
     output: [],
     signal: null
@@ -797,7 +826,8 @@ describe('agentStatusPoller — Phase A3: pane-gone → archived', () => {
   it('local terminal with pane: verifyPaneTargetState stale flips status live → archived and returns early', async () => {
     const tid = makeAgentTerminal('t-stale');
     expect(readStatus(tid)).toBe('live');
-    stubTmuxStatus(1); // capture-pane fails → 'stale'
+    // Witness hardening: archive needs explicit pane-death evidence.
+    stubTmuxStatus(1, '', "can't find pane: %23");
     let captureFnCalls = 0;
     const c = startPoller({
       captureFn: () => { captureFnCalls += 1; return 'whatever'; },
@@ -833,7 +863,7 @@ describe('agentStatusPoller — Phase A3: pane-gone → archived', () => {
 
   it('idempotent: running pollOnce twice on a stale terminal still results in archived (no exception, no churn)', async () => {
     const tid = makeAgentTerminal('t-stale-twice');
-    stubTmuxStatus(1);
+    stubTmuxStatus(1, '', "can't find pane: %23");
     const c = startPoller({ captureFn: () => null, intervalMs: 5000 });
     await c.runOnce();
     expect(readStatus(tid)).toBe('archived');

@@ -2322,7 +2322,75 @@ const SCHEMA_DDL_STATEMENTS = [
                     CHECK (source IN ('live','backfill'))
   )`,
   `CREATE INDEX IF NOT EXISTS idx_task_outcomes_task ON task_outcomes (task_id, at_ms)`,
-  `CREATE INDEX IF NOT EXISTS idx_task_outcomes_outcome ON task_outcomes (outcome, at_ms)`
+  `CREATE INDEX IF NOT EXISTS idx_task_outcomes_outcome ON task_outcomes (outcome, at_ms)`,
+  // =====================================================================
+  // Clean identity core (ant-handles-rooms-ownership-contract.md, 2026-06-10).
+  // Greenfield tables — NO alterations to the condemned spine
+  // (terminal_records / ant_sessions / lease tables stay untouched and are
+  // dropped at cutover, not extended). Step 1 of the AC3 sequencing agreed
+  // in room "ANT sorted": the daemon witness dual-writes these alongside
+  // existing paths; nothing reads them for authority until the post-gate
+  // read-flip (Step 2).
+  // ---------------------------------------------------------------------
+  // handles — the durable TerminalHandle (the "desk"). Never deleted on
+  // pane death; vacated_at_ms is set ONLY by the daemon witness. owners is
+  // a JSON array of principals; the ≥1-human invariant is enforced in the
+  // store layer (SQLite can't express it). approval: 0=off, 1=hold-for-
+  // owner-confirm (single permitted variant: human-owner).
+  `CREATE TABLE IF NOT EXISTS handles (
+    handle         TEXT PRIMARY KEY,
+    owners         TEXT,
+    approval       INTEGER NOT NULL DEFAULT 0,
+    vacated_at_ms  INTEGER,
+    created_at_ms  INTEGER NOT NULL,
+    created_by     TEXT
+  )`,
+  // handle_bindings — ephemeral daemon-witnessed pane↔handle truth.
+  // Exactly one live (un-tombstoned) row per handle, enforced structurally
+  // by the partial unique index. spawned_by carries spawn lineage
+  // ("pane 9 spawned-by @extracheck").
+  `CREATE TABLE IF NOT EXISTS handle_bindings (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    handle           TEXT NOT NULL,
+    pane             TEXT,
+    pid              INTEGER,
+    pid_start        TEXT,
+    spawned_by       TEXT,
+    terminal_id      TEXT,
+    bound_at_ms      INTEGER NOT NULL,
+    tombstoned_at_ms INTEGER,
+    tombstone_reason TEXT
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS handle_bindings_one_live
+     ON handle_bindings (handle) WHERE tombstoned_at_ms IS NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_handle_bindings_pane
+     ON handle_bindings (pane) WHERE tombstoned_at_ms IS NULL`,
+  // identity_ledger — append-only. Every claim, vacancy, rebind,
+  // assignment, and ownership change lands here. UPDATE/DELETE are refused
+  // at the engine level by the two triggers — append-only is a property of
+  // the table, not a code-review convention.
+  `CREATE TABLE IF NOT EXISTS identity_ledger (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    at_ms    INTEGER NOT NULL,
+    kind     TEXT NOT NULL,
+    handle   TEXT,
+    room_id  TEXT,
+    actor    TEXT,
+    lineage  TEXT,
+    detail   TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_identity_ledger_handle ON identity_ledger (handle, at_ms)`,
+  `CREATE TRIGGER IF NOT EXISTS identity_ledger_no_update
+     BEFORE UPDATE ON identity_ledger
+     BEGIN SELECT RAISE(ABORT, 'identity_ledger is append-only'); END`,
+  `CREATE TRIGGER IF NOT EXISTS identity_ledger_no_delete
+     BEFORE DELETE ON identity_ledger
+     BEGIN SELECT RAISE(ABORT, 'identity_ledger is append-only'); END`,
+  // Rooms are kept-and-extended in both cutover options (AC7's own wording:
+  // "rooms table (+owners, +approval)") — the one place the clean core
+  // touches an existing table, and it's additive.
+  `ALTER TABLE chat_rooms ADD COLUMN owners TEXT`,
+  `ALTER TABLE chat_rooms ADD COLUMN approval INTEGER NOT NULL DEFAULT 0`
 ];
 
 // =====================================================================

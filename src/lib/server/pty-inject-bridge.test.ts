@@ -12,18 +12,19 @@ import {
   injectToTerminal,
   shouldEmitStaleMarker
 } from './pty-inject-bridge';
+import { bindHandle, getLiveBinding, getHandleRow } from './handleBindingsStore';
 
 let tmpDir: string;
 const previousDbPath = process.env.ANT_FRESH_DB_PATH;
 
 type SpawnCall = { bin: string; args: string[]; input?: string; env: NodeJS.ProcessEnv };
 
-function fakeSpawnReturning(stdout: string, status = 0) {
+function fakeSpawnReturning(stdout: string, status = 0, stderr = '') {
   return (bin: string, args: string[], options: { input?: string | Buffer; env: NodeJS.ProcessEnv }) => {
     return {
       pid: 1,
       stdout: Buffer.from(stdout),
-      stderr: Buffer.alloc(0),
+      stderr: Buffer.from(stderr),
       status,
       signal: null,
       output: []
@@ -84,11 +85,41 @@ describe('runScrubbedTmux env scrub (via verifyPaneTargetState)', () => {
 });
 
 describe('verifyPaneTargetState', () => {
-  it('returns stale + marks pane stale when capture-pane errors', () => {
-    setSpawnImplForTests(fakeSpawnReturning('', 1));
+  // Witness hardening (AC3 Step 1, ant-handles-rooms-ownership-contract.md):
+  // only "can't find pane/window/session" is DEATH evidence. Any other
+  // capture failure (tmux server down, transient error) PARKS as unknown —
+  // it must never tombstone, or a tmux blip mass-vacates the colony.
+  it("returns stale + marks pane stale when tmux says can't find pane (death evidence)", () => {
+    setSpawnImplForTests(fakeSpawnReturning('', 1, "can't find pane: %23"));
     const t = registerPaneTerminal('stale-test');
     expect(verifyPaneTargetState(t)).toBe('stale');
     expect(getTerminalById(t.id)?.pane_status).toBe('stale');
+  });
+
+  it('tombstones the live handle binding + vacates the handle on pane-not-found', () => {
+    bindHandle({ handle: '@dave', pane: '%23', pid: 1, pidStart: null });
+    setSpawnImplForTests(fakeSpawnReturning('', 1, "can't find pane: %23"));
+    const t = registerPaneTerminal('witness-tombstone-test');
+    expect(verifyPaneTargetState(t)).toBe('stale');
+    expect(getLiveBinding('@dave')).toBeNull();
+    expect(getHandleRow('@dave')?.vacated_at_ms).toBeTypeOf('number');
+  });
+
+  it('parks as unknown (no stale, no tombstone) when the tmux server is unreachable', () => {
+    bindHandle({ handle: '@dave', pane: '%23', pid: 1, pidStart: null });
+    setSpawnImplForTests(fakeSpawnReturning('', 1, 'no server running on /private/tmp/tmux-501/default'));
+    const t = registerPaneTerminal('park-test');
+    expect(verifyPaneTargetState(t)).toBe('unknown');
+    expect(getTerminalById(t.id)?.pane_status).not.toBe('stale');
+    expect(getLiveBinding('@dave')?.pane).toBe('%23');
+    expect(getHandleRow('@dave')?.vacated_at_ms).toBeNull();
+  });
+
+  it('parks as unknown on an unclassified capture failure (empty stderr is not death evidence)', () => {
+    setSpawnImplForTests(fakeSpawnReturning('', 1));
+    const t = registerPaneTerminal('ambiguous-failure-test');
+    expect(verifyPaneTargetState(t)).toBe('unknown');
+    expect(getTerminalById(t.id)?.pane_status).not.toBe('stale');
   });
 
   it('returns unknown when capture-pane succeeds but output is empty', () => {
@@ -247,7 +278,9 @@ describe('B1: post-verify tmux failure handling', () => {
 
 describe('injectToTerminal end-to-end (no real tmux)', () => {
   it('emits marker (not paste) for stale pane', () => {
-    setSpawnImplForTests(fakeSpawnReturning('', 1));
+    // Witness hardening: pane-death now needs explicit tmux evidence —
+    // empty-stderr failures park as unknown instead of marking stale.
+    setSpawnImplForTests(fakeSpawnReturning('', 1, "can't find pane: %23"));
     const t = registerPaneTerminal('stale-end-to-end');
     const markerCalls: { room: string; handle: string; reason: string }[] = [];
     const outcome = injectToTerminal(t, 'env', 'r1', '@x',
