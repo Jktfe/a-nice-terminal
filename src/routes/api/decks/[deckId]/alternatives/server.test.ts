@@ -1,10 +1,36 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { GET } from './+server';
+import { GET, POST } from './+server';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { createDeck, resetDeckStoreForTests } from '$lib/server/deckStore';
 import { appendPlanEvent, resetPlanModeStoreForTests } from '$lib/server/planModeStore';
 import { createTask, _resetTaskStoreForTests } from '$lib/server/taskStore';
-import { appendStageAlternativeDecision } from '$lib/server/stageAlternativeStore';
+import { appendStageAlternativeDecision, listStageAlternatives } from '$lib/server/stageAlternativeStore';
+
+function postEventFor(deckId: string, body: unknown, password?: string): Parameters<typeof POST>[0] {
+  const url = new URL(`http://localhost/api/decks/${deckId}/alternatives`);
+  if (password) url.searchParams.set('password', password);
+  return {
+    request: new Request(url.toString(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body)
+    }),
+    params: { deckId },
+    url
+  } as unknown as Parameters<typeof POST>[0];
+}
+
+async function runPost(event: Parameters<typeof POST>[0]): Promise<Response> {
+  try { return (await POST(event)) as Response; }
+  catch (thrownByHandler) {
+    if (thrownByHandler instanceof Response) return thrownByHandler;
+    const httpFailure = thrownByHandler as { status?: number; body?: { message?: string } };
+    if (typeof httpFailure?.status === 'number') {
+      return new Response(JSON.stringify(httpFailure.body ?? {}), { status: httpFailure.status });
+    }
+    throw thrownByHandler;
+  }
+}
 
 type AnyEvent = Parameters<typeof GET>[0];
 
@@ -121,5 +147,70 @@ describe('GET /api/decks/:deckId/alternatives', () => {
         decision: expect.objectContaining({ action: 'append-appendix' })
       })
     ]));
+  });
+});
+
+describe('POST /api/decks/:deckId/alternatives (agent-authored, JWPK "deliver the magic")', () => {
+  beforeEach(() => {
+    resetChatRoomStoreForTests();
+    resetDeckStoreForTests();
+    resetPlanModeStoreForTests();
+    _resetTaskStoreForTests();
+  });
+
+  it('persists an agent-authored alternative that then surfaces via GET (live alt-track)', async () => {
+    const room = createChatRoom({ name: 'stage room', whoCreatedIt: '@you' });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Stage Deck',
+      accessPassword: 'stage-demo',
+      slides: [
+        { id: 's1', title: 'Slide 1', content: 'Hello' },
+        { id: 's2', title: 'Slide 2', content: 'Original' }
+      ]
+    });
+
+    const res = await runPost(
+      postEventFor(
+        deck.id,
+        { slideNumber: 2, proposedTitle: 'Slide 2 — concrete before/after', proposedContent: 'Before: X. After: Y.' },
+        'stage-demo'
+      )
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { ok: boolean; slideIndex: number };
+    expect(body.ok).toBe(true);
+    expect(body.slideIndex).toBe(1);
+
+    const alts = listStageAlternatives(deck.id);
+    expect(alts.some((a) => a.proposedTitle === 'Slide 2 — concrete before/after')).toBe(true);
+  });
+
+  it('rejects an authored alternative without presenter auth', async () => {
+    const room = createChatRoom({ name: 'stage room', whoCreatedIt: '@you' });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Stage Deck',
+      accessPassword: 'stage-demo',
+      slides: [{ id: 's1', title: 'Slide 1', content: 'Hello' }]
+    });
+    const res = await runPost(
+      postEventFor(deck.id, { slideNumber: 1, proposedTitle: 'x', proposedContent: 'y' })
+    );
+    expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it('rejects a slide index outside the deck', async () => {
+    const room = createChatRoom({ name: 'stage room', whoCreatedIt: '@you' });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Stage Deck',
+      accessPassword: 'stage-demo',
+      slides: [{ id: 's1', title: 'Slide 1', content: 'Hello' }]
+    });
+    const res = await runPost(
+      postEventFor(deck.id, { slideNumber: 9, proposedTitle: 'x', proposedContent: 'y' }, 'stage-demo')
+    );
+    expect(res.status).toBe(400);
   });
 });
