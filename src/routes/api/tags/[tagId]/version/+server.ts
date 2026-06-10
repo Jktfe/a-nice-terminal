@@ -29,19 +29,9 @@ import type { RequestHandler } from './$types';
 import { editTag } from '$lib/server/verificationTaxonomyStore';
 import type { ProtocolResolver, TagActorKind } from '$lib/server/verificationTaxonomyStore';
 import { requireVerificationAuthorTier } from '$lib/server/featureGates';
+import { requireAdminBearerOrThrow as requireAdminBearer } from '$lib/server/chatRoomAuthGate';
 
 const VALID_ACTOR = new Set<TagActorKind>(['human', 'agent', 'system']);
-
-function requireAdminBearer(request: Request): void {
-  const auth = request.headers.get('authorization') ?? '';
-  if (!auth.startsWith('Bearer ')) {
-    throw error(401, 'Authorization: Bearer <admin-token> required');
-  }
-  const adminToken = process.env.ANT_ADMIN_TOKEN;
-  if (!adminToken || auth.slice(7) !== adminToken) {
-    throw error(403, 'Admin bearer required');
-  }
-}
 
 export const PUT: RequestHandler = async ({ request, params }) => {
   requireAdminBearer(request);

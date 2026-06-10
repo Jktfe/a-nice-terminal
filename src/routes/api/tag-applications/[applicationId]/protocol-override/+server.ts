@@ -34,6 +34,7 @@ import type { RequestHandler } from './$types';
 import { recordTagApplicationOverride } from '$lib/server/tagApplicationOverridesStore';
 import type { OverrideKind } from '$lib/server/tagApplicationOverridesStore';
 import type { TagActorKind, VerificationProtocolClass } from '$lib/server/verificationTaxonomyStore';
+import { requireAdminBearerOrThrow as requireAdminBearer } from '$lib/server/chatRoomAuthGate';
 
 const VALID_OVERRIDE_KIND = new Set<OverrideKind>([
   'classification', 'flag_ignorable', 'withdraw'
@@ -42,17 +43,6 @@ const VALID_ACTOR = new Set<TagActorKind>(['human', 'agent', 'system']);
 const VALID_PROTOCOL_CLASS = new Set<VerificationProtocolClass>([
   'deterministic', 'heuristic', 'judgement-required', 'consensus-required'
 ]);
-
-function requireAdminBearer(request: Request): void {
-  const auth = request.headers.get('authorization') ?? '';
-  if (!auth.startsWith('Bearer ')) {
-    throw error(401, 'Authorization: Bearer <admin-token> required');
-  }
-  const adminToken = process.env.ANT_ADMIN_TOKEN;
-  if (!adminToken || auth.slice(7) !== adminToken) {
-    throw error(403, 'Admin bearer required');
-  }
-}
 
 export const POST: RequestHandler = async ({ request, params }) => {
   requireAdminBearer(request);
