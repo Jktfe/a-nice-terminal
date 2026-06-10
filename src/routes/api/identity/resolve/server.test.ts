@@ -142,6 +142,34 @@ describe('POST /api/identity/resolve', () => {
       expect(payload.v02_runtime_id).toBe(bootstrap.runtime_id);
     });
 
+    it('does not surface an ancestor v0.2 runtime when the resolved terminal is different', async () => {
+      const leafStart = '2026-06-10T11:21:00.000Z';
+      const parentStart = '2026-06-08T07:53:47.000Z';
+      const leaf = upsertTerminal({ pid: 63707, pid_start: leafStart, name: 'antchatClaudeHomebrew' });
+      const parent = upsertTerminal({ pid: 34491, pid_start: parentStart, name: 'minimax-codex' });
+      bootstrapV02Identity({
+        name: 'minimax-codex',
+        pid: 34491,
+        pid_start: parentStart,
+        legacy_terminal_id: parent.id,
+        handle: '@minimaxs-codex'
+      });
+
+      const response = await callPost(
+        JSON.stringify({
+          pids: [
+            { pid: 63707, pid_start: leafStart },
+            { pid: 34491, pid_start: parentStart }
+          ]
+        })
+      );
+      const payload = await response.json();
+      expect(payload.terminal_id).toBe(leaf.id);
+      expect(payload.name).toBe('antchatClaudeHomebrew');
+      expect(payload.v02_agent_id).toBeNull();
+      expect(payload.v02_runtime_id).toBeNull();
+    });
+
     it('returns null v0.2 fields when only the legacy row exists (no v0.2 bootstrap ran)', async () => {
       upsertTerminal({ pid: 600, pid_start: 'pp', name: 'legacy-only' });
       const response = await callPost(JSON.stringify({

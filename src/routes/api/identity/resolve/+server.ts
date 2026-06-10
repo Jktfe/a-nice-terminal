@@ -29,6 +29,7 @@ import type { RequestHandler } from './$types';
 import { lookupTerminalByPidChain, type PidChainEntry } from '$lib/server/terminalsStore';
 import { getRoomScopedHandle } from '$lib/server/roomMembershipsStore';
 import { resolveV02ByPidChain } from '$lib/server/v02RegisterBootstrap';
+import { getRuntimeById } from '$lib/server/v02RuntimesStore';
 import { getSession } from '$lib/server/antSessionStore';
 import { resolveHandleForSession } from '$lib/server/membershipStore';
 import { displayHandleForSession } from '$lib/server/roomHandleLeaseClean';
@@ -60,6 +61,11 @@ function parsePidChain(rawPids: unknown): PidChainEntry[] {
   });
 }
 
+function v02RuntimeBelongsToTerminal(runtimeId: string, terminalId: string): boolean {
+  const runtime = getRuntimeById(runtimeId);
+  return runtime?.register_challenge_proof === `pre-v02-attestation:${terminalId}`;
+}
+
 export const POST: RequestHandler = async ({ request }) => {
   const rawBody = (await request.json().catch(() => null)) as IdentityResolveBody | null;
   if (!rawBody || typeof rawBody !== 'object') {
@@ -72,14 +78,9 @@ export const POST: RequestHandler = async ({ request }) => {
   // v0.2 sidecar lookup — best-effort, never throws. The v02 path uses
   // the same pidChain shape with ISO normalisation applied inside the
   // helper. status='live' filter is structural (case #2 fix).
-  let v02AgentId: string | null = null;
-  let v02RuntimeId: string | null = null;
+  let resolvedV02: { agent_id: string; runtime_id: string } | null = null;
   try {
-    const v02 = resolveV02ByPidChain(pidChain);
-    if (v02) {
-      v02AgentId = v02.agent_id;
-      v02RuntimeId = v02.runtime_id;
-    }
+    resolvedV02 = resolveV02ByPidChain(pidChain);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[v02-resolve] sidecar lookup failed (legacy path unaffected):', err);
@@ -88,9 +89,14 @@ export const POST: RequestHandler = async ({ request }) => {
   if (!terminal) {
     return json({
       terminal_id: null, name: null, agent_kind: null, handle: null,
-      v02_agent_id: v02AgentId, v02_runtime_id: v02RuntimeId
+      v02_agent_id: resolvedV02?.agent_id ?? null,
+      v02_runtime_id: resolvedV02?.runtime_id ?? null
     });
   }
+
+  const scopedV02 = resolvedV02 && v02RuntimeBelongsToTerminal(resolvedV02.runtime_id, terminal.id)
+    ? resolvedV02
+    : null;
 
   const roomIdRaw = rawBody.room_id;
   const roomId = typeof roomIdRaw === 'string' && roomIdRaw.length > 0 ? roomIdRaw : null;
@@ -116,8 +122,8 @@ export const POST: RequestHandler = async ({ request }) => {
     name: terminal.name,
     agent_kind: terminal.agent_kind,
     handle,
-    v02_agent_id: v02AgentId,
-    v02_runtime_id: v02RuntimeId
+    v02_agent_id: scopedV02?.agent_id ?? null,
+    v02_runtime_id: scopedV02?.runtime_id ?? null
   });
 };
 
