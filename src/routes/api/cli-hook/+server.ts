@@ -182,14 +182,21 @@ export const POST: RequestHandler = async ({ request, url }) => {
         if (record.cli_session_id !== sessionId) {
           patch.cliSessionId = sessionId;
           patch.cliSessionSource = sourceCli ?? 'claude-code';
-          // Rename-on-first-call (JWPK msg_6ed667svyn: "ALL the cli's use
-          // /rename"): a FRESH session's first SessionStart gets the CLI's
-          // own session named after the terminal, by typing `/rename <base
-          // name>` into the (prompt-verified) pane. Once per CLI session by
-          // construction — drift rewrites of the same UUID don't re-fire,
-          // and a not-ready pane skips silently (next launch retries).
-          if (hookEventName === 'SessionStart') {
-            maybeInjectRenameOnFirstCall(captureTerminalId, record.name);
+        }
+        // Rename-on-first-call (JWPK msg_6ed667svyn: "ALL the cli's use
+        // /rename"): a fresh CLI session gets its OWN session named after the
+        // terminal, by typing `/rename <base name>` into the prompt-VERIFIED
+        // pane. Retry-until-stamped (design credit @oiresearch): the synced
+        // stamp is written only AFTER a successful pane write, so a
+        // not-ready/streaming pane skips now and retries on the NEXT hook
+        // event — prompt-verification makes any-event retry safe (a busy pane
+        // never gets typed into) — while a stamped session is never spammed.
+        if (record.cli_title_synced_session_id !== sessionId) {
+          const outcome = maybeInjectRenameOnFirstCall(captureTerminalId, record.name);
+          if (outcome === 'injected' || outcome === 'skipped-auto-name') {
+            // auto:* names are permanently skipped for this session — stamp
+            // them too so the guard doesn't re-evaluate on every event.
+            patch.cliTitleSyncedSessionId = sessionId;
           }
         }
         if (

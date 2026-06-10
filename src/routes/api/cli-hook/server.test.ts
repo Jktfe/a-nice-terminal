@@ -450,6 +450,37 @@ describe('/api/cli-hook POST — session capture', () => {
     expect(record?.boot_command_source).toBe('auto');
   });
 
+  it('title-sync stamp: auto:* names stamp without injection; real names with no pane stay unstamped (retry)', async () => {
+    // auto:* name → permanently skipped for this session → stamped.
+    const autoId = seedTerminal('title-auto');
+    createTerminalRecord({ sessionId: autoId, name: `auto:${autoId}`, agentKind: 'claude_code' });
+    await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook', {
+        session_id: 'uuid-auto-1', ant_session_id: autoId,
+        hook_event_name: 'SessionStart', source: 'startup'
+      })
+    );
+    expect(getTerminalRecord(autoId)?.cli_title_synced_session_id).toBe('uuid-auto-1');
+
+    // Real name, no tmux pane → injection skips → UNSTAMPED so a later hook
+    // event (pane ready by then) retries. Two events, still unstamped here.
+    const realId = seedTerminal('title-real');
+    createTerminalRecord({ sessionId: realId, name: 'speedyClaude', agentKind: 'claude_code' });
+    for (const ev of ['SessionStart', 'PreToolUse']) {
+      await runHandler(
+        cliHookPost as unknown as AnyHandler,
+        postBody('/api/cli-hook', {
+          session_id: 'uuid-real-1', ant_session_id: realId,
+          hook_event_name: ev, source: 'startup'
+        })
+      );
+    }
+    const rec = getTerminalRecord(realId);
+    expect(rec?.cli_session_id).toBe('uuid-real-1');
+    expect(rec?.cli_title_synced_session_id).toBeNull();
+  });
+
   it('never clobbers an operator-set boot_command but still captures the resume target', async () => {
     const terminalId = seedTerminal('capture-operator');
     createTerminalRecord({

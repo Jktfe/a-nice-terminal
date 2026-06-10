@@ -587,4 +587,14 @@ describe('terminalRecordsStore — session-capture provenance (boot_command_sour
     expect(cleared?.cli_session_id).toBeNull();
     expect(cleared?.cli_session_source).toBeNull();
   });
+
+  it('cli_title_synced_session_id round-trips via update (title-sync stamp)', () => {
+    createTerminalRecord({ sessionId: 't_src_7', name: 'src-7' });
+    expect(getTerminalRecord('t_src_7')?.cli_title_synced_session_id).toBeNull();
+    updateTerminalRecord('t_src_7', { cliTitleSyncedSessionId: 'claude-uuid-9' });
+    expect(getTerminalRecord('t_src_7')?.cli_title_synced_session_id).toBe('claude-uuid-9');
+    // untouched by unrelated patches
+    updateTerminalRecord('t_src_7', { cliSessionId: 'claude-uuid-9' });
+    expect(getTerminalRecord('t_src_7')?.cli_title_synced_session_id).toBe('claude-uuid-9');
+  });
 });

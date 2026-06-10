@@ -93,6 +93,12 @@ export type TerminalRecord = {
   cli_session_id: string | null;
   /** Which CLI cli_session_id belongs to ('claude-code', 'codex', …). */
   cli_session_source: string | null;
+  /**
+   * Last CLI session id whose pane successfully received the injected
+   * `/rename <terminal base name>` (title sync). Stamped only after a
+   * successful pane write so failed injections retry on later hook events.
+   */
+  cli_title_synced_session_id: string | null;
   created_at_ms: number;
   updated_at_ms: number;
   /**
@@ -124,6 +130,7 @@ export type TerminalRecordPatch = {
   bootCommandSource?: 'operator' | 'auto';
   cliSessionId?: string | null;
   cliSessionSource?: string | null;
+  cliTitleSyncedSessionId?: string | null;
 };
 
 export function parseAllowlist(raw: string | null): string[] | null {
@@ -183,6 +190,7 @@ export type CreateInput = {
   bootCommandSource?: 'operator' | 'auto';
   cliSessionId?: string | null;
   cliSessionSource?: string | null;
+  cliTitleSyncedSessionId?: string | null;
 };
 
 /**
@@ -241,14 +249,15 @@ export function createTerminalRecord(input: CreateInput): TerminalRecord {
   const bootCommandSource = bootCommand === null ? null : (input.bootCommandSource ?? 'operator');
   const cliSessionId = input.cliSessionId ?? null;
   const cliSessionSource = cliSessionId === null ? null : (input.cliSessionSource ?? null);
+  const cliTitleSyncedSessionId = input.cliTitleSyncedSessionId ?? null;
   // Supersede prior rows claiming this pane BEFORE the insert — so if
   // they shared a unique-name constraint or future invariant fired,
   // the earlier rows are already marked stale.
   supersedePriorRecordsForPane(db, input.sessionId, tmuxTargetPane, now);
   db.prepare(
-    `INSERT INTO terminal_records (session_id, name, auto_forward_room_id, auto_forward_chat, agent_kind, tmux_target_pane, linked_chat_room_id, created_by, allowlist, handle, boot_command, boot_command_source, cli_session_id, cli_session_source, created_at_ms, updated_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(input.sessionId, name, roomId, forwardChat, agentKind, tmuxTargetPane, linkedChatRoomId, createdBy, allowlistJson, handle, bootCommand, bootCommandSource, cliSessionId, cliSessionSource, now, now);
+    `INSERT INTO terminal_records (session_id, name, auto_forward_room_id, auto_forward_chat, agent_kind, tmux_target_pane, linked_chat_room_id, created_by, allowlist, handle, boot_command, boot_command_source, cli_session_id, cli_session_source, cli_title_synced_session_id, created_at_ms, updated_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(input.sessionId, name, roomId, forwardChat, agentKind, tmuxTargetPane, linkedChatRoomId, createdBy, allowlistJson, handle, bootCommand, bootCommandSource, cliSessionId, cliSessionSource, cliTitleSyncedSessionId, now, now);
   projectAntRegistryFileBestEffort();
   // Per-human inbox (JWPK 2026-05-22): a terminal created by a human grants
   // its agent inhabitant membership in the human's inbox even before a
@@ -265,7 +274,7 @@ export function createTerminalRecord(input: CreateInput): TerminalRecord {
       /* recompute is a side-effect; never block the terminal write */
     }
   }
-  return { session_id: input.sessionId, name, auto_forward_room_id: roomId, auto_forward_chat: forwardChat, agent_kind: agentKind, tmux_target_pane: tmuxTargetPane, linked_chat_room_id: linkedChatRoomId, created_by: createdBy, allowlist: allowlistJson, handle, boot_command: bootCommand, boot_command_source: bootCommandSource, cli_session_id: cliSessionId, cli_session_source: cliSessionSource, created_at_ms: now, updated_at_ms: now, superseded_at_ms: null };
+  return { session_id: input.sessionId, name, auto_forward_room_id: roomId, auto_forward_chat: forwardChat, agent_kind: agentKind, tmux_target_pane: tmuxTargetPane, linked_chat_room_id: linkedChatRoomId, created_by: createdBy, allowlist: allowlistJson, handle, boot_command: bootCommand, boot_command_source: bootCommandSource, cli_session_id: cliSessionId, cli_session_source: cliSessionSource, cli_title_synced_session_id: cliTitleSyncedSessionId, created_at_ms: now, updated_at_ms: now, superseded_at_ms: null };
 }
 
 export function getTerminalRecord(sessionId: string): TerminalRecord | null {
@@ -308,6 +317,9 @@ export function updateTerminalRecord(sessionId: string, patch: TerminalRecordPat
   const cliSessionSource = patch.cliSessionId !== undefined
     ? (cliSessionId === null ? null : (patch.cliSessionSource ?? existing.cli_session_source))
     : existing.cli_session_source;
+  const cliTitleSyncedSessionId = patch.cliTitleSyncedSessionId !== undefined
+    ? patch.cliTitleSyncedSessionId
+    : existing.cli_title_synced_session_id;
   const now = Date.now();
   // Pane-binding supersession: if the update is moving this row's
   // tmux_target_pane (or claiming a new one), supersede any OTHER rows
@@ -316,9 +328,9 @@ export function updateTerminalRecord(sessionId: string, patch: TerminalRecordPat
     supersedePriorRecordsForPane(db, sessionId, tmuxTargetPane, now);
   }
   db.prepare(
-    `UPDATE terminal_records SET name = ?, auto_forward_room_id = ?, auto_forward_chat = ?, agent_kind = ?, tmux_target_pane = ?, linked_chat_room_id = ?, created_by = ?, allowlist = ?, handle = ?, boot_command = ?, boot_command_source = ?, cli_session_id = ?, cli_session_source = ?, updated_at_ms = ?
+    `UPDATE terminal_records SET name = ?, auto_forward_room_id = ?, auto_forward_chat = ?, agent_kind = ?, tmux_target_pane = ?, linked_chat_room_id = ?, created_by = ?, allowlist = ?, handle = ?, boot_command = ?, boot_command_source = ?, cli_session_id = ?, cli_session_source = ?, cli_title_synced_session_id = ?, updated_at_ms = ?
      WHERE session_id = ?`
-  ).run(name, roomId, forwardChat, agentKind, tmuxTargetPane, linkedChatRoomId, createdBy, allowlistJson, handle, bootCommand, bootCommandSource, cliSessionId, cliSessionSource, now, sessionId);
+  ).run(name, roomId, forwardChat, agentKind, tmuxTargetPane, linkedChatRoomId, createdBy, allowlistJson, handle, bootCommand, bootCommandSource, cliSessionId, cliSessionSource, cliTitleSyncedSessionId, now, sessionId);
   projectAntRegistryFileBestEffort();
   // Recompute inbox edges if created_by changed OR the agent handle moved.
   // Both old + new owners get recomputed so a transfer auto-drops the
@@ -340,7 +352,7 @@ export function updateTerminalRecord(sessionId: string, patch: TerminalRecordPat
   // never marks the row we just updated, this preserves the invariant
   // that the returned shape mirrors what's in the DB).
   const post = getTerminalRecord(sessionId) ?? existing;
-  return { session_id: sessionId, name, auto_forward_room_id: roomId, auto_forward_chat: forwardChat, agent_kind: agentKind, tmux_target_pane: tmuxTargetPane, linked_chat_room_id: linkedChatRoomId, created_by: createdBy, allowlist: allowlistJson, handle, boot_command: bootCommand, boot_command_source: bootCommandSource, cli_session_id: cliSessionId, cli_session_source: cliSessionSource, created_at_ms: existing.created_at_ms, updated_at_ms: now, superseded_at_ms: post.superseded_at_ms ?? null };
+  return { session_id: sessionId, name, auto_forward_room_id: roomId, auto_forward_chat: forwardChat, agent_kind: agentKind, tmux_target_pane: tmuxTargetPane, linked_chat_room_id: linkedChatRoomId, created_by: createdBy, allowlist: allowlistJson, handle, boot_command: bootCommand, boot_command_source: bootCommandSource, cli_session_id: cliSessionId, cli_session_source: cliSessionSource, cli_title_synced_session_id: cliTitleSyncedSessionId, created_at_ms: existing.created_at_ms, updated_at_ms: now, superseded_at_ms: post.superseded_at_ms ?? null };
 }
 
 export function listTerminalRecords(): TerminalRecord[] {

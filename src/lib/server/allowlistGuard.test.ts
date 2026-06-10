@@ -11,6 +11,7 @@ function rec(partial: Partial<TerminalRecord>): TerminalRecord {
     created_by: null, allowlist: null, handle: null,
     boot_command: null, boot_command_source: null,
     cli_session_id: null, cli_session_source: null,
+    cli_title_synced_session_id: null,
     created_at_ms: 0, updated_at_ms: 0,
     superseded_at_ms: null,
     ...partial

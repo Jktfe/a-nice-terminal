@@ -515,6 +515,13 @@ const SCHEMA_DDL_STATEMENTS = [
   // which CLI the UUID belongs to ('claude-code', 'codex', …).
   `ALTER TABLE terminal_records ADD COLUMN cli_session_id TEXT`,
   `ALTER TABLE terminal_records ADD COLUMN cli_session_source TEXT`,
+  // CLI title sync (JWPK msg_6ed667svyn: every CLI accepts /rename). Records
+  // the last CLI session id whose pane successfully received the injected
+  // '/rename <terminal base name>' — stamped only AFTER a successful pane
+  // write, so a not-ready/failed injection retries on later hook events
+  // while a synced session is never spammed. Design credit @oiresearch
+  // (retry-until-stamped), merged with the prompt-verified injection path.
+  `ALTER TABLE terminal_records ADD COLUMN cli_title_synced_session_id TEXT`,
   // Fix #2 of sec-iter1 (2026-05-30 enterprise security pass). Root-cause
   // structural fix for the privilege-escalation surface that Fix #1
   // closes at the approver gate: terminal_records.handle must be UNIQUE
