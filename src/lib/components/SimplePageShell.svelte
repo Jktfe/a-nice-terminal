@@ -81,6 +81,10 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12l9-7 9 7v8a1 1 0 01-1 1h-5v-6H10v6H4a1 1 0 01-1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
         <span class="nav-label">Rooms</span>
       </a>
+      <a href="/inbox" title="Inbox — held asks and owner notifications" aria-label="Inbox" class:active={isActive('/inbox')} aria-current={isActive('/inbox') ? 'page' : undefined} onclick={() => (navOpen = false)}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13l3-8h12l3 8v6a1 1 0 01-1 1H4a1 1 0 01-1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M3 13h5l2 3h4l2-3h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        <span class="nav-label">Inbox</span>
+      </a>
       <a href="/terminals" title="Terminals" aria-label="Terminals" class:active={isActive('/terminals')} aria-current={isActive('/terminals') ? 'page' : undefined} onclick={() => (navOpen = false)}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6l5 6-5 6M12 18h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span class="nav-label">Terminals</span>

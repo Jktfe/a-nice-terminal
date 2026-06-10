@@ -24,6 +24,7 @@ import { resetIdentityDbForTests } from '$lib/server/db';
 import { bindHandle } from '$lib/server/handleBindingsStore';
 import { listLedger } from '$lib/server/identityLedgerStore';
 import { setListPanePidsForTests } from '$lib/server/paneFactCorroboration';
+import { createPermissionRequest, getPermissionRequest } from '$lib/server/permissionRequestsStore';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
@@ -1677,5 +1678,87 @@ describe('post gate on the resolver seam (Step 2 second adopter — highest blas
     expect(response.status).toBe(403);
     expect(listMessagesInRoom(f.room.id)).toHaveLength(beforeCount);
     expect(listMessagesInRoom(f.room.id).some((m) => m.body === 'unwitnessed post')).toBe(false);
+  });
+});
+
+describe('chat-typeable approve (JWPK taste ruling msg_n4gdutadlh)', () => {
+  const prevDbPath = process.env.ANT_FRESH_DB_PATH;
+  let approveTmpDir: string;
+
+  beforeEach(() => {
+    approveTmpDir = mkdtempSync(join(tmpdir(), 'ant-chat-approve-'));
+    process.env.ANT_FRESH_DB_PATH = join(approveTmpDir, 'test.db');
+    resetIdentityDbForTests();
+    resetChatRoomStoreForTests();
+    resetChatMessageStoreForTests();
+  });
+
+  afterEach(() => {
+    resetIdentityDbForTests();
+    rmSync(approveTmpDir, { recursive: true, force: true });
+    if (prevDbPath === undefined) delete process.env.ANT_FRESH_DB_PATH;
+    else process.env.ANT_FRESH_DB_PATH = prevDbPath;
+  });
+
+  function approverFixture(approverHandle = '@approver-jane') {
+    const room = createChatRoom({ name: `approve-room-${approverHandle.slice(1)}`, whoCreatedIt: approverHandle });
+    const caller = verifiedCaller(room.id, approverHandle);
+    const created = createPermissionRequest({
+      requesterHandle: '@hopeful',
+      action: 'chat.post',
+      targetKind: 'room',
+      targetId: room.id,
+      approvers: [{ handle: approverHandle, role: 'room_owner', preferred: true }]
+    });
+    return { room, caller, requestId: created.request.requestId };
+  }
+
+  it('an approver typing "approve <id>" approves the request and posts a receipt instead of the command', async () => {
+    const { room, caller, requestId } = approverFixture();
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ body: `approve ${requestId}`, ...caller })
+    });
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.approval.requestId).toBe(requestId);
+    expect(getPermissionRequest(requestId)?.status).toBe('approved');
+    // the literal command never lands as a plain message; a receipt does
+    const bodies = listMessagesInRoom(room.id).map((m) => m.body);
+    expect(bodies.some((b) => b === `approve ${requestId}`)).toBe(false);
+    expect(bodies.some((b) => b.includes('approved') && b.includes(requestId))).toBe(true);
+  });
+
+  it('a NON-approver typing approve is refused and the request stays pending', async () => {
+    const { room, requestId } = approverFixture();
+    const intruder = verifiedCaller(room.id, '@not-an-approver');
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ body: `approve ${requestId}`, ...intruder })
+    });
+    expect(response.status).toBe(403);
+    expect(getPermissionRequest(requestId)?.status).toBe('pending');
+  });
+
+  it('approve with an unknown request id returns 404 and posts nothing', async () => {
+    const { room, caller } = approverFixture();
+    const before = listMessagesInRoom(room.id).length;
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ body: 'approve req_does-not-exist', ...caller })
+    });
+    expect(response.status).toBe(404);
+    expect(listMessagesInRoom(room.id)).toHaveLength(before);
+  });
+
+  it('the word approve mid-sentence posts as a normal message and touches nothing', async () => {
+    const { room, caller, requestId } = approverFixture();
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ body: `please approve ${requestId} when you get a sec`, ...caller })
+    });
+    expect(response.status).toBe(201);
+    expect((await response.json()).message.body).toContain('please approve');
+    expect(getPermissionRequest(requestId)?.status).toBe('pending');
   });
 });

@@ -18,7 +18,7 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { postMessage, listMessagesInRoom, listMessagesPageInRoom, generateMessageId } from '$lib/server/chatMessageStore';
+import { postMessage, postSystemMessage, listMessagesInRoom, listMessagesPageInRoom, generateMessageId } from '$lib/server/chatMessageStore';
 import { parseTrackerCommand } from '$lib/composer/composerSlashCommands';
 import { createTracker } from '$lib/server/trackerStore';
 import { parseColumnSpec, postTrackerCreateReceipt, registerTrackerArtefact } from '$lib/server/trackerRouteHelpers';
@@ -61,6 +61,7 @@ import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
 import { listReadersForMessages } from '$lib/server/messageReadReceiptStore';
 import { resolveOrNull } from '$lib/server/sessionResolver';
 import { resolveCallerIdentity, readIdentityReadMode } from '$lib/server/callerIdentityResolver';
+import { approveRequest, getPermissionRequest } from '$lib/server/permissionRequestsStore';
 import { corroboratePaneFact } from '$lib/server/paneFactCorroboration';
 import { getRoomPolicy } from '$lib/server/roomPolicyStore';
 import { decidePost } from '$lib/server/roomAccessGate';
@@ -333,6 +334,55 @@ export const POST: RequestHandler = async ({ params, request }) => {
     postTrackerCreateReceipt(params.roomId, tracker.id, tracker.title, authorHandle);
     registerTrackerArtefact(params.roomId, tracker.id, tracker.title, authorHandle);
     return json({ tracker }, { status: 201, headers: cmdHeaders });
+  }
+
+  // Chat-typeable approve (JWPK taste ruling, ANT sorted msg_n4gdutadlh
+  // 2026-06-10): "approve <requestId>" typed in any room approves a held
+  // permission request — riding the SAME witnessed author resolution as
+  // every other post, so an approval is an attributed, gated, ledgerable
+  // act, not a side-channel. Strict shape (whole message, optional leading
+  // slash) so the word approve mid-sentence stays an ordinary message.
+  const approveMatch = messageBody.trim().match(/^\/?approve\s+(req[_-][\w-]+)$/i);
+  if (approveMatch) {
+    const requestId = approveMatch[1];
+    const held = getPermissionRequest(requestId);
+    if (!held) throw error(404, `No permission request ${requestId}.`);
+    if (held.status !== 'pending') {
+      throw error(409, `Request ${requestId} is already ${held.status}.`);
+    }
+    const authorIsApprover = held.approverHandles.some(
+      (approver) => approver.handle === canonicaliseOperatorHandle(authorHandle)
+        || approver.handle === authorHandle
+    );
+    const authorIsOperator = isOperatorHandle(authorHandle);
+    if (!authorIsApprover && !authorIsOperator) {
+      throw error(403, buildPermissionDeniedPayload({
+        action: 'permission.approve',
+        target_kind: held.targetKind as 'room',
+        target_id: held.targetId,
+        reason: 'no_grant',
+        grantee_handle: authorHandle,
+        approvers: held.approverHandles,
+        message: 'only a listed approver (or the operator) can approve this request'
+      }));
+    }
+    const approved = approveRequest({ requestId, decidedByHandle: authorHandle });
+    const receipt = postSystemMessage({
+      roomId: params.roomId,
+      body: `✅ ${authorHandle} approved ${requestId} — ${held.action} on ${held.targetKind} ${held.targetId} for ${held.requesterHandle} (grant ${approved.grant.grantId})`
+    });
+    return json(
+      {
+        approval: {
+          requestId,
+          status: 'approved',
+          decidedByHandle: authorHandle,
+          grantId: approved.grant.grantId
+        },
+        message: receipt
+      },
+      { status: 201 }
+    );
   }
 
   try {
