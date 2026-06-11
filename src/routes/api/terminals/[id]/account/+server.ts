@@ -8,10 +8,8 @@
  */
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { requireAdminAuth } from '$lib/server/chatInviteAuth';
-import { resolveCallerHandleAnyRoom } from '$lib/server/authGate';
+import { tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate';
 import { getTerminalById, setTerminalAccountType } from '$lib/server/terminalsStore';
-import { getTerminalRecord } from '$lib/server/terminalRecordsStore';
 
 export const ACCOUNT_TYPES = [
   'Claude Subscription', 'Codex Subscription', 'Ollama Subscription',
@@ -19,29 +17,25 @@ export const ACCOUNT_TYPES = [
   'Copilot Subscription', 'Local', 'External'
 ] as const;
 
-function requireWriteAuth(request: Request): void {
-  if (resolveCallerHandleAnyRoom(request)) return;
-  try { requireAdminAuth(request); return; } catch { /* fall through */ }
-  throw error(401, 'browser-session or admin-bearer required');
+// account_type is operator-managed terminal CLASSIFICATION (like the
+// catalogues it picks from), not a per-terminal-owner field — so it is gated
+// to admin-bearer OR the operator's own session, exactly like
+// /api/terminal-classes and /api/default-models. This deliberately replaces
+// the /model endpoint's per-owner ownership check, which fails OPEN on
+// terminals with no owner fields (flagged by commit review 2026-06-11); a
+// fixed operator/admin gate has no IDOR surface and lets the operator
+// classify any terminal, which is the point.
+function requireOperatorOrAdmin(request: Request): void {
+  if (tryAdminBearer(request) || tryOperatorSession(request)) return;
+  throw error(401, 'admin-bearer or operator session required');
 }
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
-  requireWriteAuth(request);
+  requireOperatorOrAdmin(request);
   const id = params.id ?? '';
   if (!id) throw error(400, 'id required.');
   const terminal = getTerminalById(id);
   if (!terminal) throw error(404, 'terminal not found.');
-
-  const callerHandle = resolveCallerHandleAnyRoom(request);
-  if (callerHandle) {
-    const record = getTerminalRecord(id);
-    const owners = new Set<string>();
-    if (record?.created_by) owners.add(record.created_by.toLowerCase());
-    if (record?.handle) owners.add(record.handle.toLowerCase());
-    if (owners.size > 0 && !owners.has(callerHandle.toLowerCase())) {
-      throw error(403, `caller ${callerHandle} does not own terminal ${id}`);
-    }
-  }
 
   const body = (await request.json().catch(() => null)) as { accountType?: unknown } | null;
   if (!body || typeof body !== 'object') throw error(400, 'JSON body required.');

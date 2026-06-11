@@ -8,39 +8,27 @@
  */
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { requireAdminAuth } from '$lib/server/chatInviteAuth';
-import { resolveCallerHandleAnyRoom } from '$lib/server/authGate';
+import { tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate';
 import { getTerminalById, setTerminalModelFamily } from '$lib/server/terminalsStore';
-import { getTerminalRecord } from '$lib/server/terminalRecordsStore';
 
 export const MODEL_FAMILIES = [
   'Claude', 'Codex', 'MiniMax', 'Kimi', 'Qwen', 'glm', 'Gemini', 'Quiver',
   'Gemma', 'GPT-OSS', 'AFM', 'Other-Ollama-Cloud', 'Other-Cloud', 'Other-Local'
 ] as const;
 
-function requireWriteAuth(request: Request): void {
-  if (resolveCallerHandleAnyRoom(request)) return;
-  try { requireAdminAuth(request); return; } catch { /* fall through */ }
-  throw error(401, 'browser-session or admin-bearer required');
+// model_family is operator-managed classification (see the account endpoint's
+// note): admin-or-operator gate, no per-owner check, no IDOR fail-open.
+function requireOperatorOrAdmin(request: Request): void {
+  if (tryAdminBearer(request) || tryOperatorSession(request)) return;
+  throw error(401, 'admin-bearer or operator session required');
 }
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
-  requireWriteAuth(request);
+  requireOperatorOrAdmin(request);
   const id = params.id ?? '';
   if (!id) throw error(400, 'id required.');
   const terminal = getTerminalById(id);
   if (!terminal) throw error(404, 'terminal not found.');
-
-  const callerHandle = resolveCallerHandleAnyRoom(request);
-  if (callerHandle) {
-    const record = getTerminalRecord(id);
-    const owners = new Set<string>();
-    if (record?.created_by) owners.add(record.created_by.toLowerCase());
-    if (record?.handle) owners.add(record.handle.toLowerCase());
-    if (owners.size > 0 && !owners.has(callerHandle.toLowerCase())) {
-      throw error(403, `caller ${callerHandle} does not own terminal ${id}`);
-    }
-  }
 
   const body = (await request.json().catch(() => null)) as { family?: unknown } | null;
   if (!body || typeof body !== 'object') throw error(400, 'JSON body required.');

@@ -418,6 +418,18 @@ export function setTerminalAccountType(terminalId: string, accountType: string |
   return info.changes > 0;
 }
 
+/** v3: operator-set CLI (agent_kind) — normally fingerprint-detected, but the
+ *  desk pane lets the operator override. Opaque allow-listed string. */
+export function setTerminalAgentKind(terminalId: string, agentKind: string | null): boolean {
+  const db = getIdentityDb();
+  const trimmed = typeof agentKind === 'string' ? agentKind.trim() : null;
+  const value = trimmed && trimmed.length > 0 ? trimmed : null;
+  const info = db.prepare(
+    `UPDATE terminals SET agent_kind = ?, updated_at = ? WHERE id = ?`
+  ).run(value, currentUnixSeconds(), terminalId);
+  return info.changes > 0;
+}
+
 export function setTerminalModelFamily(terminalId: string, family: string | null): boolean {
   const db = getIdentityDb();
   const trimmed = typeof family === 'string' ? family.trim() : null;

@@ -17,6 +17,8 @@
   import UsageBadge from '$lib/components/UsageBadge.svelte';
   import type { UsagePayload } from '$lib/usage/types';
   import { modelKinds } from '$lib/stores/modelKinds.svelte';
+  import { agentKinds } from '$lib/stores/agentKinds.svelte';
+  import { terminalClasses } from '$lib/stores/terminalClasses.svelte';
 
   type TerminalRecord = {
     sessionId: string;
@@ -27,6 +29,8 @@
     model?: string | null;
     agentStatus?: string | null;
     roomCount?: number;
+    accountType?: string | null;
+    modelFamily?: string | null;
     autoForwardRoomId: string | null;
     autoForwardChat: number;
     createdBy?: string;
@@ -279,15 +283,11 @@
     gemini: 'Gemini', qwen: 'Qwen', copilot: 'CoPilot', pi: 'Pi', ollama: 'Ollama',
     antigravity: 'Antigravity', minimax: 'MiniMax', kimi: 'Kimi', remote: 'Remote', aider: 'Aider'
   };
-  const ACCOUNT_LABEL: Record<string, string> = {
-    'claude-code': 'Claude Subscription', claude: 'Claude Subscription',
-    codex: 'Codex Subscription', codex_cli: 'Codex Subscription',
-    gemini: 'Gemini Subscription', antigravity: 'Gemini Subscription',
-    qwen: 'Qwen Subscription', copilot: 'Copilot Subscription',
-    ollama: 'Ollama Subscription', pi: 'Local', remote: 'External'
-  };
-  function accountTypeFor(kind: string): string {
-    return ACCOUNT_LABEL[kind] ?? (kind ? 'External' : 'Unclassified');
+  // v3: account type is a STORED, operator-chosen attribute. Unset terminals
+  // fold into a visible "No account set" bucket — surfaced, never hidden.
+  function accountOf(record: TerminalRecord): string {
+    const a = (record.accountType ?? '').trim();
+    return a.length > 0 ? a : 'No account set';
   }
   // Desk-chip status → colour. Mirrors the agent_status enum.
   const STATUS_DOT: Record<string, string> = {
@@ -301,7 +301,8 @@
   function buildModelSubgroups(records: TerminalRecord[]): ModelSubgroup[] {
     const byModel = new Map<string, TerminalRecord[]>();
     for (const r of records) {
-      const key = (r.model ?? '').trim();
+      // v3: group by the CHOSEN model family, not the free-text model tag.
+      const key = (r.modelFamily ?? '').trim();
       const arr = byModel.get(key) ?? [];
       arr.push(r);
       byModel.set(key, arr);
@@ -315,7 +316,7 @@
     }
     const unspecified = byModel.get('') ?? [];
     if (unspecified.length > 0) {
-      subgroups.push({ model: '', label: 'unspecified', records: unspecified });
+      subgroups.push({ model: '', label: 'No family set', records: unspecified });
     }
     return subgroups;
   }
@@ -323,7 +324,7 @@
   function buildAccountGroups(records: TerminalRecord[]): AccountGroup[] {
     const byAccount = new Map<string, TerminalRecord[]>();
     for (const r of records) {
-      const acct = accountTypeFor((r.agentKind ?? '').toString());
+      const acct = accountOf(r);
       const arr = byAccount.get(acct) ?? [];
       arr.push(r);
       byAccount.set(acct, arr);
@@ -400,9 +401,49 @@
     }
   }
 
+  // v3 (JWPK msg_om51nvohx5): the desk pane carries account + family
+  // selectors alongside the CLI/model controls. Each PATCHes its own field
+  // optimistically; loadTerminals() reconciles on error.
+  async function patchTerminalClass(
+    record: TerminalRecord, field: 'account' | 'family', value: string
+  ): Promise<void> {
+    const payload = value.trim().length === 0 ? null : value.trim();
+    if (field === 'account') record.accountType = payload; else record.modelFamily = payload;
+    terminals = [...terminals];
+    const bodyKey = field === 'account' ? 'accountType' : 'family';
+    try {
+      const response = await fetch(`/api/terminals/${encodeURIComponent(record.sessionId)}/${field}`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ [bodyKey]: payload })
+      });
+      if (!response.ok) { lastError = `Saving ${field} failed (${response.status}).`; await loadTerminals(); }
+    } catch (cause) {
+      lastError = `Saving ${field} failed: ${cause instanceof Error ? cause.message : String(cause)}`;
+      await loadTerminals();
+    }
+  }
+
+  async function patchTerminalCli(record: TerminalRecord, value: string): Promise<void> {
+    const payload = value.trim().length === 0 ? null : value.trim();
+    record.agentKind = payload;
+    terminals = [...terminals];
+    try {
+      const response = await fetch(`/api/terminals/${encodeURIComponent(record.sessionId)}/cli`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cli: payload })
+      });
+      if (!response.ok) { lastError = `Saving CLI failed (${response.status}).`; await loadTerminals(); }
+    } catch (cause) {
+      lastError = `Saving CLI failed: ${cause instanceof Error ? cause.message : String(cause)}`;
+      await loadTerminals();
+    }
+  }
+
   onMount(() => {
     void loadTerminals();
     void refreshUsage();
+    agentKinds.init();
+    terminalClasses.init();
     const usageHandle = setInterval(() => void refreshUsage(), 30_000);
     return () => clearInterval(usageHandle);
   });
@@ -454,20 +495,58 @@
                             {#if record.tmuxTargetPane}<span class="bubble-sep">·</span><span class="bubble-pane">{record.tmuxTargetPane}</span>{/if}
                             <span class="bubble-sep">·</span><span class="bubble-rooms">{record.roomCount ?? 0} room{(record.roomCount ?? 0) === 1 ? '' : 's'}</span>
                           </span>
-                          <select
-                            class="model-picker"
-                            aria-label={`Model for ${chipLabel(record)}`}
-                            value={record.model ?? ''}
-                            onchange={(e) => patchTerminalModel(record, (e.currentTarget as HTMLSelectElement).value)}
-                          >
-                            <option value="">— model —</option>
-                            {#each modelKinds.enabled as model (model)}
-                              <option value={model}>{model}</option>
-                            {/each}
-                            {#if record.model && !modelKinds.enabled.includes(record.model)}
-                              <option value={record.model}>{record.model} (custom)</option>
-                            {/if}
-                          </select>
+                          <span class="desk-selectors">
+                            <select
+                              class="class-picker"
+                              aria-label={`CLI for ${chipLabel(record)}`}
+                              value={record.agentKind ?? ''}
+                              onchange={(e) => patchTerminalCli(record, (e.currentTarget as HTMLSelectElement).value)}
+                            >
+                              <option value="">— CLI —</option>
+                              {#each agentKinds.enabled as k (k)}<option value={k}>{k}</option>{/each}
+                              {#if record.agentKind && !agentKinds.enabled.includes(record.agentKind)}
+                                <option value={record.agentKind}>{record.agentKind}</option>
+                              {/if}
+                            </select>
+                            <select
+                              class="class-picker"
+                              aria-label={`Account for ${chipLabel(record)}`}
+                              value={record.accountType ?? ''}
+                              onchange={(e) => patchTerminalClass(record, 'account', (e.currentTarget as HTMLSelectElement).value)}
+                            >
+                              <option value="">— account —</option>
+                              {#each terminalClasses.accountTypes as a (a)}<option value={a}>{a}</option>{/each}
+                              {#if record.accountType && !terminalClasses.accountTypes.includes(record.accountType)}
+                                <option value={record.accountType}>{record.accountType}</option>
+                              {/if}
+                            </select>
+                            <select
+                              class="class-picker"
+                              aria-label={`Family for ${chipLabel(record)}`}
+                              value={record.modelFamily ?? ''}
+                              onchange={(e) => patchTerminalClass(record, 'family', (e.currentTarget as HTMLSelectElement).value)}
+                            >
+                              <option value="">— family —</option>
+                              {#each terminalClasses.modelFamilies as f (f)}<option value={f}>{f}</option>{/each}
+                              {#if record.modelFamily && !terminalClasses.modelFamilies.includes(record.modelFamily)}
+                                <option value={record.modelFamily}>{record.modelFamily}</option>
+                              {/if}
+                            </select>
+                            <select
+                              class="model-picker"
+                              aria-label={`Model for ${chipLabel(record)}`}
+                              value={record.model ?? ''}
+                              onchange={(e) => patchTerminalModel(record, (e.currentTarget as HTMLSelectElement).value)}
+                            >
+                              <option value="">— model —</option>
+                              {#each modelKinds.enabled as model (model)}
+                                <option value={model}>{model}</option>
+                              {/each}
+                              {#if record.model && !modelKinds.enabled.includes(record.model)}
+                                <option value={record.model}>{record.model} (custom)</option>
+                              {/if}
+                            </select>
+                          </span>
                         </span>
                       {/each}
                     </div>
@@ -651,6 +730,9 @@
   .status-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; display: inline-block; flex: none; }
   .bubble-sep { opacity: 0.4; }
   .bubble-pane { color: var(--ink-strong); opacity: 0.75; }
+  .desk-selectors { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
+  .class-picker { font-size: 0.68rem; padding: 0.12rem 0.28rem; border: 1px solid var(--line-soft); border-radius: 0.35rem; background: var(--surface-card); color: var(--ink-soft); font-family: ui-monospace, monospace; max-width: 8.5rem; }
+  .class-picker:focus { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--ink-strong); }
   .archived-toggle { margin-top: 0.8rem; width: fit-content; padding: 0.3rem 0.7rem; border: 1px dashed var(--surface-edge); border-radius: 999px; background: transparent; color: var(--ink-soft); font-size: 0.72rem; font-family: ui-monospace, monospace; cursor: pointer; }
   .archived-toggle:hover { color: var(--ink-strong); border-color: var(--line-soft); }
   .model-subgroup { display: grid; gap: 0.2rem; margin-left: 0.6rem; padding-left: 0.5rem; border-left: 1px solid var(--surface-edge); }
