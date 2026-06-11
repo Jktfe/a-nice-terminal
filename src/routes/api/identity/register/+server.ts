@@ -26,6 +26,7 @@ import { classifyIfUnknown } from '$lib/server/agentStatusPoller';
 import { normalisePidStartToIso8601 } from '$lib/server/pidStartNormaliser';
 import {
   appendHandleAlias,
+  createTerminalRecord,
   getTerminalRecord,
   updateTerminalRecord
 } from '$lib/server/terminalRecordsStore';
@@ -362,10 +363,21 @@ export const POST: RequestHandler = async ({ request }) => {
   const updateKindValue = agentKindValue !== null
     ? agentKindValue : (existed ? (existing?.agent_kind ?? null) : null);
   if (paneValue) updatePaneTarget(terminal.id, paneValue, updateKindValue);
-  // Phase B handle morph: only acts when the caller supplied a non-empty
-  // handle AND a terminal_records row exists for this session_id. The
-  // register endpoint never CREATES terminal_records — that's POST
-  // /api/terminals' job — so a session without a record is a no-op here.
+  // Phase B handle morph + fresh-terminal declaration.
+  //
+  // Existing record → morph the handle (alias the old one). Re-register under a
+  // new handle keeps the lineage.
+  //
+  // NO record yet → `ant register --handle` on a fresh shell MUST still DECLARE
+  // the handle, or the terminal exists nameless: whoami returns
+  // registered-no-handle and redeem's "registered terminal with a declared
+  // handle" precondition can never be met — the circular register/redeem
+  // deadlock (fClaude 2026-06-11). The endpoint used to no-op here on the
+  // reasoning that "POST /api/terminals creates records"; but a shell that goes
+  // straight to `ant register` never hits that path, so the declaration landed
+  // nowhere. Create it. The clean-core witness binding stays corroboration-
+  // gated below — this legacy terminal_records declaration is what whoami (and
+  // the post path) read in legacy/shadow mode.
   if (handleValue) {
     const record = getTerminalRecord(terminal.id);
     if (record) {
@@ -376,6 +388,16 @@ export const POST: RequestHandler = async ({ request }) => {
       if (existingHandle !== handleValue) {
         updateTerminalRecord(terminal.id, { handle: handleValue });
       }
+    } else {
+      try {
+        createTerminalRecord({
+          sessionId: terminal.id,
+          name: trimmedName,
+          handle: handleValue,
+          ...(paneValue ? { tmuxTargetPane: paneValue } : {}),
+          ...(updateKindValue ? { agentKind: updateKindValue } : {})
+        });
+      } catch { /* declaration is best-effort; a unique-handle race must not break the 201 */ }
     }
   }
   // Clean-core dual-write (AC3 Step 1, ant-handles-rooms-ownership-contract.md

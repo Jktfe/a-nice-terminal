@@ -1119,3 +1119,50 @@ describe('POST /api/identity/register', () => {
   });
 
 });
+
+// Register/redeem deadlock (fClaude, 2026-06-11): `ant register --handle` on a
+// FRESH terminal must DECLARE the handle, or the terminal exists nameless —
+// whoami returns registered-no-handle and redeem's "declared handle"
+// precondition can never be met (circular). The morph block used to no-op when
+// no terminal_records row existed (register "never creates records"); for a
+// shell that never went through POST /api/terminals first, the handle landed
+// nowhere. The clean-core binding is rightly corroboration-gated, so a desktop
+// pane that the caller can't corroborate is the trigger case.
+describe('POST /api/identity/register — fresh-terminal handle declaration', () => {
+  afterEach(() => setListPanePidsForTests(null));
+
+  it('declares the handle in terminal_records on a fresh terminal even when the pane is uncorroborated', async () => {
+    // Desktop case: pane %35 is observably hosted by a pid NOT in the caller's
+    // chain → corroboration fails → the clean-core binding is skipped.
+    setListPanePidsForTests(() => ({ status: 0, stdout: '%35 99999\n', stderr: '' }));
+    const response = await callPost(JSON.stringify({
+      name: 'fable-cowork3',
+      handle: '@fClaude',
+      pane: '%35',
+      pids: [{ pid: 4242, pid_start: 'Wed Jun 11 00:00:00 2026' }],
+      source: 'cli-register'
+    }));
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    // The fix: the handle is DECLARED, not dropped (the deadlock root).
+    const record = getTerminalRecord(payload.terminal_id);
+    expect(record?.handle).toBe('@fClaude');
+    // And the witness table stays clean — an uncorroborated pane never binds.
+    expect(getLiveBinding('@fClaude')).toBeNull();
+  });
+
+  it('still binds the witness when the pane IS corroborated (no regression)', async () => {
+    setListPanePidsForTests(() => ({ status: 0, stdout: '%36 5555\n', stderr: '' }));
+    const response = await callPost(JSON.stringify({
+      name: 'fable-cowork4',
+      handle: '@fClaudeTwo',
+      pane: '%36',
+      pids: [{ pid: 5555, pid_start: 'Wed Jun 11 01:00:00 2026' }],
+      source: 'cli-register'
+    }));
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(getTerminalRecord(payload.terminal_id)?.handle).toBe('@fClaudeTwo');
+    expect(getLiveBinding('@fClaudeTwo')?.terminal_id).toBe(payload.terminal_id);
+  });
+});
