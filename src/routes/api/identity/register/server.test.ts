@@ -1081,6 +1081,41 @@ describe('POST /api/identity/register', () => {
         expect(listLedger({ handle: '@fresh-clean' }).map((e) => e.kind)).not.toContain('handle.claim-refused');
       });
     });
+
+    describe('pane-witnessed self-ownership (cut-live exemption)', () => {
+      it('re-register with drifted pid succeeds when the corroborated pane matches the existing terminal pane', async () => {
+        // original registration binds the name to pane %70
+        corroborate('%70', 7001);
+        const first = await callPost(JSON.stringify({
+          name: 'DriftedShell', pids: [{ pid: 7001, pid_start: 'orig' }],
+          pane: '%70', handle: '@drifty'
+        }));
+        expect(first.status).toBe(201);
+        // shell restarts: NEW pid, NO sessionToken — but same corroborated pane
+        corroborate('%70', 7002);
+        const again = await callPost(JSON.stringify({
+          name: 'DriftedShell', pids: [{ pid: 7002, pid_start: 'restarted' }],
+          pane: '%70', handle: '@drifty'
+        }));
+        expect(again.status).toBe(201);
+      });
+
+      it('a different pane claiming a live name without a token still 409s', async () => {
+        corroborate('%71', 7101);
+        const first = await callPost(JSON.stringify({
+          name: 'HeldName', pids: [{ pid: 7101, pid_start: 'orig' }],
+          pane: '%71', handle: '@holder'
+        }));
+        expect(first.status).toBe(201);
+        corroborate('%72', 7201);
+        const thief = await callPost(JSON.stringify({
+          name: 'HeldName', pids: [{ pid: 7201, pid_start: 'thief' }],
+          pane: '%72', handle: '@holder'
+        }));
+        expect(thief.status).toBe(409);
+      });
+    });
+
   });
 
 });

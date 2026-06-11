@@ -188,11 +188,28 @@ export const POST: RequestHandler = async ({ request }) => {
   //   (b) pid-in-use — the caller's leaf (pid, pid_start) is currently
   //       bound to a different live terminal. Rejected unless the
   //       conflicting row IS the same row we'd upsert (i.e. existing).
+  // Corroboration runs ONCE, before any gate that can use it (pane-witnessed
+  // self-ownership below, CLEAN refusal, dual-write, shadow compare) — a
+  // spoofed pane ledgers exactly one signature row.
+  const { pane: corroboratedPane } = paneValue
+    ? corroboratePaneFact(paneValue, pidsList)
+    : { pane: null };
   const liveNameConflict = getLiveTerminalByName(trimmedName);
+  // Pane-witnessed self-ownership (cut-live fix 2026-06-11, caught by the
+  // reclaim sweep): a restarted/tool-spawned shell has a drifted pid and may
+  // hold no session token — but if the daemon corroborates that the caller
+  // OCCUPIES the very pane the existing terminal row claims, it is the same
+  // desk re-registering. Witnessed, not asserted: corroboratePaneFact proved
+  // the pane hosts the caller's own process chain.
+  const paneWitnessedSelf =
+    liveNameConflict !== null &&
+    corroboratedPane !== null &&
+    liveNameConflict.tmux_target_pane === corroboratedPane;
   if (
     liveNameConflict !== null &&
     (liveNameConflict.pid !== leafPid.pid || liveNameConflict.pid_start !== leafPid.pid_start) &&
-    !callerOwnsExistingTerminal
+    !callerOwnsExistingTerminal &&
+    !paneWitnessedSelf
   ) {
     throw error(
       409,
@@ -253,9 +270,6 @@ export const POST: RequestHandler = async ({ request }) => {
   // shadow comparison) so a spoofed pane ledgers exactly one signature row.
   const requestedHandle = handleValue;
   const witnessBindingAtClaim = requestedHandle ? getLiveBinding(requestedHandle) : null;
-  const { pane: corroboratedPane } = paneValue
-    ? corroboratePaneFact(paneValue, pidsList)
-    : { pane: null };
   // CUTOVER BEHAVIOUR — refuse-or-claim (AC3, contract ratified 2026-06-10;
   // soak sequencing msg_l7gimewpiy). Active ONLY when ANT_IDENTITY_READ=clean:
   // a handle with a LIVE witnessed binding on a pane that is not the caller's
