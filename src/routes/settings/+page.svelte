@@ -7,6 +7,7 @@
   Q4 delta-2; Plugins gated on M-PLUGINS; Data export own slice).
 -->
 <script lang="ts">
+  import { onMount } from 'svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import SettingsTabs from '$lib/components/SettingsTabs.svelte';
   import QuickShortcutsBar from '$lib/components/QuickShortcutsBar.svelte';
@@ -17,6 +18,7 @@
   import { theme } from '$lib/stores/theme.svelte';
   import { agentKinds } from '$lib/stores/agentKinds.svelte';
   import { modelKinds } from '$lib/stores/modelKinds.svelte';
+  import { terminalClasses } from '$lib/stores/terminalClasses.svelte';
   import Explainable from '$lib/components/Explainable.svelte';
 
   let pendingAgent = $state('');
@@ -32,6 +34,23 @@
     modelKinds.add(pendingModel.trim());
     pendingModel = '';
   }
+
+  // v3 desk-directory taxonomies (JWPK 2026-06-11): account types + model
+  // families, editable here, picked from on each terminal pane.
+  let pendingAccount = $state('');
+  function addAccount(): void {
+    if (pendingAccount.trim().length === 0) return;
+    void terminalClasses.add('account_types', pendingAccount.trim());
+    pendingAccount = '';
+  }
+  let pendingFamily = $state('');
+  function addFamily(): void {
+    if (pendingFamily.trim().length === 0) return;
+    void terminalClasses.add('model_families', pendingFamily.trim());
+    pendingFamily = '';
+  }
+
+  onMount(() => { terminalClasses.init(); });
 
   type SkillEntry = { name: string; description: string };
   type Props = { data: { skills: SkillEntry[] } };
@@ -255,6 +274,36 @@
       <input type="text" bind:value={pendingModel} placeholder="e.g. kimi-k2" aria-label="New model label" />
       <button type="submit" class="btn">Add</button>
       <button type="button" class="btn-secondary" onclick={() => modelKinds.reset()}>Reset to defaults</button>
+    </form>
+
+    <h3 class="sub-heading">Account types</h3>
+    <p class="stub-note">The account a terminal bills to, chosen per desk on <code>/terminals</code> (a Codex CLI can run on a Codex sub or Ollama-cloud — orthogonal to the CLI). Edits persist server-side and drive the desk-directory grouping.</p>
+    <div class="agent-pills">
+      {#each terminalClasses.accountTypes as account (account)}
+        <span class="agent-pill">
+          {account}
+          <button type="button" class="pill-remove" onclick={() => terminalClasses.remove('account_types', account)} aria-label={`Remove ${account}`}>×</button>
+        </span>
+      {/each}
+    </div>
+    <form class="agent-add" onsubmit={(e) => { e.preventDefault(); addAccount(); }}>
+      <input type="text" bind:value={pendingAccount} placeholder="e.g. Bedrock" aria-label="New account type" />
+      <button type="submit" class="btn">Add</button>
+    </form>
+
+    <h3 class="sub-heading">Model families</h3>
+    <p class="stub-note">The coarse model family, chosen per desk on <code>/terminals</code> — the third grouping tier. Edits persist server-side.</p>
+    <div class="agent-pills">
+      {#each terminalClasses.modelFamilies as family (family)}
+        <span class="agent-pill">
+          {family}
+          <button type="button" class="pill-remove" onclick={() => terminalClasses.remove('model_families', family)} aria-label={`Remove ${family}`}>×</button>
+        </span>
+      {/each}
+    </div>
+    <form class="agent-add" onsubmit={(e) => { e.preventDefault(); addFamily(); }}>
+      <input type="text" bind:value={pendingFamily} placeholder="e.g. DeepSeek" aria-label="New model family" />
+      <button type="submit" class="btn">Add</button>
     </form>
   </section>
 
