@@ -220,6 +220,15 @@ export function listActiveLeasesForHandle(handle: string, nowMs = Date.now()): S
   return rows.map(rowToLease).filter((lease) => isLeaseActive(lease, nowMs));
 }
 
+/** All active leases, newest first — the operator's "paired apps" view. */
+export function listActiveLeases(nowMs = Date.now()): StoredLease[] {
+  const db = getIdentityDb();
+  const rows = db
+    .prepare(`SELECT * FROM helper_leases ORDER BY created_at_ms DESC`)
+    .all() as Record<string, unknown>[];
+  return rows.map(rowToLease).filter((lease) => isLeaseActive(lease, nowMs));
+}
+
 export function touchLease(leaseId: string, nowMs = Date.now()): void {
   const db = getIdentityDb();
   db.prepare(`UPDATE helper_leases SET last_seen_at_ms = ? WHERE id = ?`).run(nowMs, leaseId);
