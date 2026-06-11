@@ -24,29 +24,61 @@ import { hashToken } from './chatInviteStore';
 import { getIdentityDb } from './db';
 
 /**
- * The lease scope is FIXED by the contract — there are no per-lease knobs (the
- * anti-spaghetti rule). Every lease-holder gets exactly this and no more.
+ * An attachment's scope is FIXED per ROLE — there are no per-lease knobs (the
+ * anti-spaghetti rule). `role` picks one of two profiles and nothing finer.
  */
-export const HELPER_LEASE_SCOPE = Object.freeze({
+export type AttachmentRole = 'reader' | 'agent';
+
+export interface AttachmentScope {
   /** subscribe to the bound handle's delivery feed (metadata only — no bodies). */
-  subscribeFeed: true,
-  /** fire the operator-configured routes (file / human channel / app nudge). */
-  fireRoutes: true,
-  /** post the app's own status back (thinking / asking / idle). */
-  postStatus: true,
-  /** ✗ never author room messages. */
-  authorMessages: false,
-  /** ✗ never claim or change handles. */
-  claimHandle: false,
-  /** ✗ never approve asks or change membership. */
-  approveAsks: false,
-});
+  subscribeFeed: boolean;
+  /** fire operator-configured routes to NON-room sinks (file / human channel / app nudge). */
+  fireRoutes: boolean;
+  /** post the app's own status (thinking / asking / idle). */
+  postStatus: boolean;
+  /** author room messages as the handle. */
+  authorMessages: boolean;
+  /** claim or change handles. */
+  claimHandle: boolean;
+  /** approve asks / change membership. */
+  approveAsks: boolean;
+}
+
+export const ATTACHMENT_SCOPES: Record<AttachmentRole, Readonly<AttachmentScope>> = {
+  // The HELPER: reads the pipe, fires routes to inert/human sinks, rings bells.
+  // NEVER posts (2026-06-11 ruling) — it subscribes ON BEHALF OF a handle and
+  // never IS one. A thing that can't post can't be spoofed into posting.
+  reader: Object.freeze({
+    subscribeFeed: true,
+    fireRoutes: true,
+    postStatus: false,
+    authorMessages: false,
+    claimHandle: false,
+    approveAsks: false
+  }),
+  // A paneless ANThandle's authoring credential — the issuance-class witness
+  // for a desktop / mcp / api agent that has no observable pane. Authors and
+  // posts status like any member. Claiming handles and approving asks remain
+  // separate witnessed/gated acts, never granted by the attachment itself.
+  agent: Object.freeze({
+    subscribeFeed: true,
+    fireRoutes: true,
+    postStatus: true,
+    authorMessages: true,
+    claimHandle: false,
+    approveAsks: false
+  })
+};
+
+/** Back-compat alias: the helper's fixed (read-only) scope. */
+export const HELPER_LEASE_SCOPE = ATTACHMENT_SCOPES.reader;
 
 export const DEFAULT_LEASE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days, operator-overridable
 
 export type StoredLease = {
   id: string;
   handle: string;
+  role: AttachmentRole;
   owners: string[];
   paired_host: string | null;
   created_by: string | null;
@@ -58,6 +90,8 @@ export type StoredLease = {
 
 export type MintLeaseInput = {
   handle: string;
+  /** 'reader' (helper, default) or 'agent' (paneless authoring ANThandle). */
+  role?: AttachmentRole;
   /** ≥1 owner handle (the signing human + chain). Empty is refused. */
   owners: string[];
   pairedHost?: string | null;
@@ -87,9 +121,12 @@ function rowToLease(row: Record<string, unknown>): StoredLease {
     const parsed = JSON.parse((row.owners as string) ?? '[]');
     if (Array.isArray(parsed)) owners = parsed.filter((o): o is string => typeof o === 'string');
   } catch { /* corrupt owners json → empty; resolve still works, callers see no owners */ }
+  const roleRaw = (row.role as string | null) ?? 'reader';
+  const role: AttachmentRole = roleRaw === 'agent' ? 'agent' : 'reader';
   return {
     id: row.id as string,
     handle: row.handle as string,
+    role,
     owners,
     paired_host: (row.paired_host as string | null) ?? null,
     created_by: (row.created_by as string | null) ?? null,
@@ -116,6 +153,7 @@ export function mintLease(input: MintLeaseInput): MintLeaseResult {
   if (owners.length === 0) throw new Error('mintLease: at least one owner is required (>=1-human-owner invariant)');
 
   const db = getIdentityDb();
+  const role: AttachmentRole = input.role === 'agent' ? 'agent' : 'reader';
   const nowMs = input.nowMs ?? Date.now();
   const ttlMs = input.ttlMs === undefined ? DEFAULT_LEASE_TTL_MS : input.ttlMs;
   const expiresAtMs = ttlMs === null ? null : nowMs + ttlMs;
@@ -125,10 +163,10 @@ export function mintLease(input: MintLeaseInput): MintLeaseResult {
 
   db.prepare(
     `INSERT INTO helper_leases
-       (id, handle, owners, secret_hash, paired_host, created_by, created_at_ms, expires_at_ms, revoked_at_ms, last_seen_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
+       (id, handle, role, owners, secret_hash, paired_host, created_by, created_at_ms, expires_at_ms, revoked_at_ms, last_seen_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
   ).run(
-    leaseId, handle, JSON.stringify(owners), secretHash,
+    leaseId, handle, role, JSON.stringify(owners), secretHash,
     input.pairedHost ?? null, input.createdBy ?? null, nowMs, expiresAtMs
   );
 
@@ -136,7 +174,7 @@ export function mintLease(input: MintLeaseInput): MintLeaseResult {
     leaseId,
     secret,
     lease: {
-      id: leaseId, handle, owners, paired_host: input.pairedHost ?? null,
+      id: leaseId, handle, role, owners, paired_host: input.pairedHost ?? null,
       created_by: input.createdBy ?? null, created_at_ms: nowMs,
       expires_at_ms: expiresAtMs, revoked_at_ms: null, last_seen_at_ms: null
     }

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { resetIdentityDbForTests } from './db';
 import {
   HELPER_LEASE_SCOPE,
+  ATTACHMENT_SCOPES,
   DEFAULT_LEASE_TTL_MS,
   mintLease,
   resolveLeaseBySecret,
@@ -31,18 +32,45 @@ afterEach(() => {
   else process.env.ANT_FRESH_DB_PATH = prevDb;
 });
 
-describe('HELPER_LEASE_SCOPE — the fixed contract scope', () => {
-  it('grants listen/fire/post and structurally denies author/claim/approve', () => {
-    expect(HELPER_LEASE_SCOPE.subscribeFeed).toBe(true);
-    expect(HELPER_LEASE_SCOPE.fireRoutes).toBe(true);
-    expect(HELPER_LEASE_SCOPE.postStatus).toBe(true);
-    expect(HELPER_LEASE_SCOPE.authorMessages).toBe(false);
-    expect(HELPER_LEASE_SCOPE.claimHandle).toBe(false);
-    expect(HELPER_LEASE_SCOPE.approveAsks).toBe(false);
+describe('ATTACHMENT_SCOPES — the two fixed role profiles', () => {
+  it('reader (helper) subscribes + fires routes but NEVER posts (2026-06-11 ruling)', () => {
+    const r = ATTACHMENT_SCOPES.reader;
+    expect(r.subscribeFeed).toBe(true);
+    expect(r.fireRoutes).toBe(true);
+    expect(r.postStatus).toBe(false); // the ruling: the helper never posts
+    expect(r.authorMessages).toBe(false);
+    expect(r.claimHandle).toBe(false);
+    expect(r.approveAsks).toBe(false);
   });
 
-  it('is frozen — there are no per-lease knobs (anti-spaghetti rule)', () => {
-    expect(Object.isFrozen(HELPER_LEASE_SCOPE)).toBe(true);
+  it('agent (paneless ANThandle) authors + posts status, but never claims handles or approves', () => {
+    const a = ATTACHMENT_SCOPES.agent;
+    expect(a.authorMessages).toBe(true);
+    expect(a.postStatus).toBe(true);
+    expect(a.subscribeFeed).toBe(true);
+    expect(a.claimHandle).toBe(false);
+    expect(a.approveAsks).toBe(false);
+  });
+
+  it('both profiles are frozen — no per-lease knobs (anti-spaghetti rule)', () => {
+    expect(Object.isFrozen(ATTACHMENT_SCOPES.reader)).toBe(true);
+    expect(Object.isFrozen(ATTACHMENT_SCOPES.agent)).toBe(true);
+  });
+
+  it('HELPER_LEASE_SCOPE aliases the reader profile (back-compat)', () => {
+    expect(HELPER_LEASE_SCOPE).toBe(ATTACHMENT_SCOPES.reader);
+  });
+});
+
+describe('attachment role', () => {
+  it('defaults to reader and round-trips an agent role through mint + resolve', () => {
+    const reader = mintLease({ handle: '@helper', owners: ['@JWPK'], nowMs: 1 });
+    expect(reader.lease.role).toBe('reader');
+    expect(resolveLeaseBySecret(reader.secret, 2)?.role).toBe('reader');
+
+    const agent = mintLease({ handle: '@fClaude', owners: ['@JWPK'], role: 'agent', nowMs: 1 });
+    expect(agent.lease.role).toBe('agent');
+    expect(resolveLeaseBySecret(agent.secret, 2)?.role).toBe('agent');
   });
 });
 
@@ -102,7 +130,7 @@ describe('TTL expiry', () => {
   });
 
   it('isLeaseActive reflects revoked + expired', () => {
-    const base = { id: 'l', handle: '@x', owners: ['@JWPK'], paired_host: null, created_by: null, created_at_ms: 0, last_seen_at_ms: null };
+    const base = { id: 'l', handle: '@x', role: 'reader' as const, owners: ['@JWPK'], paired_host: null, created_by: null, created_at_ms: 0, last_seen_at_ms: null };
     expect(isLeaseActive({ ...base, expires_at_ms: 100, revoked_at_ms: null }, 50)).toBe(true);
     expect(isLeaseActive({ ...base, expires_at_ms: 100, revoked_at_ms: null }, 100)).toBe(false);
     expect(isLeaseActive({ ...base, expires_at_ms: null, revoked_at_ms: 5 }, 1)).toBe(false);

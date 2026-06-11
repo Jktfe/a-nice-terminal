@@ -109,15 +109,19 @@ const SCHEMA_DDL_STATEMENTS = [
     revoked_at_ms      INTEGER
   )`,
   `CREATE INDEX IF NOT EXISTS idx_admissions_room_created ON chat_remote_admissions (room_id, created_at_ms DESC)`,
-  // antAppHelper lease (SPEC §3): a revocable, TTL'd, SCOPED credential bound to
-  // ONE handle, carrying owners[]. The scope is FIXED by the contract (a
-  // lease-holder may subscribe to the handle's delivery feed, fire routes, and
-  // post status — never author, claim handles, or approve), so it lives as a
-  // code constant in helperLeaseStore, not a per-row column. A lease-holder is
-  // never a member — the two-identity-class rule survives untouched.
+  // antAppHelper attachment (SPEC §3 + 2026-06-11 design ruling): a revocable,
+  // TTL'd, owner-gated credential bound to ONE handle, carrying owners[]. The
+  // ISSUANCE-class witness (daemon minted + checks it) — opposite trust
+  // direction to the buried token-crutch (which was identity asserted via an
+  // unwitnessed side-effect token). `role` selects one of two FIXED scope
+  // profiles (no per-row knobs — the anti-spaghetti rule): 'reader' is the
+  // helper — subscribe to the feed, never post, never IS the handle; 'agent'
+  // is a paneless ANThandle authoring credential (the desktop/mcp/api case).
+  // Scope profiles live as code constants in helperLeaseStore.
   `CREATE TABLE IF NOT EXISTS helper_leases (
     id              TEXT PRIMARY KEY,
     handle          TEXT NOT NULL,
+    role            TEXT NOT NULL DEFAULT 'reader',
     owners          TEXT NOT NULL,
     secret_hash     TEXT NOT NULL,
     paired_host     TEXT,
