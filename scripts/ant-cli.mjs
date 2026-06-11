@@ -14,6 +14,11 @@ import { handleAskVerb } from './ant-cli-ask.mjs';
 import { handleAttachVerb } from './ant-cli-attach.mjs';
 import { handleAuditVerb } from './ant-cli-audit.mjs';
 import { handleBindVerb } from './ant-cli-bind.mjs';
+// Namespace import: robust against a stale generated constants file that
+// predates the cutover flag (missing property reads as undefined, no link error).
+import * as cliBuildConstants from './ant-cli-version-constant.mjs';
+import { tombstoneIfCutover } from './ant-cli-tombstones.mjs';
+const ANT_CLI_CUTOVER_CONSTANT = cliBuildConstants.ANT_CLI_CUTOVER_CONSTANT === true;
 import { handleChairVerb } from './ant-cli-chair.mjs';
 import { handleChatVerb, withDurableSessionIdentity, durableSessionHeaders } from './ant-cli-chat.mjs';
 import { handleConnectVerb } from './ant-cli-connect.mjs';
@@ -110,6 +115,16 @@ export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, server
       return 0;
     }
     if (primaryVerb !== 'rooms' && !DISPATCH[primaryVerb]) { printUsage(runtime); return 1; }
+    // Identity-cutover tombstones (kill-list msg_d55jrfpr95): inert on main
+    // (constant false); the cut binary is compiled with ANT_CLI_CUTOVER=1 and
+    // retired verbs answer with why-they-died + the replacement, exit 9.
+    {
+      const twoWord = secondaryVerb ? `${primaryVerb} ${secondaryVerb}` : null;
+      const tombstoned =
+        (twoWord && tombstoneIfCutover(ANT_CLI_CUTOVER_CONSTANT, twoWord, runtime.writeErr)) ??
+        tombstoneIfCutover(ANT_CLI_CUTOVER_CONSTANT, primaryVerb, runtime.writeErr);
+      if (tombstoned !== null) return tombstoned;
+    }
     try {
       if (DISPATCH[primaryVerb]) {
         const fn = DISPATCH[primaryVerb];

@@ -17,6 +17,8 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { handleIdentityKeysVerb, isIdentityKeysVerb } from './ant-cli-identity-keys.mjs';
+import * as cliBuildConstants from './ant-cli-version-constant.mjs';
+import { tombstoneIfCutover } from './ant-cli-tombstones.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LIVE_SCRIPT = join(__dirname, 'ant-identity-live.mjs');
@@ -56,6 +58,12 @@ export async function handleIdentityVerb(secondaryVerb, rest, runtime, ctx = {})
   // shape as other in-process verbs like `ant identity grant` future will
   // be. Live spawn-out path is kept for the legacy enrolment verbs only.
   if (isIdentityKeysVerb(secondaryVerb)) {
+    // Cutover tombstone for the whole identity-keys family (kill-list
+    // msg_d55jrfpr95): witnessed bindings replaced key-based identity.
+    const tombstoned = tombstoneIfCutover(
+      cliBuildConstants.ANT_CLI_CUTOVER_CONSTANT === true, 'identity-keys', runtime.writeErr
+    );
+    if (tombstoned !== null) return tombstoned;
     return handleIdentityKeysVerb(secondaryVerb, rest, runtime, { CliInputError });
   }
   if (!KNOWN_LIVE_VERBS.has(secondaryVerb)) {
