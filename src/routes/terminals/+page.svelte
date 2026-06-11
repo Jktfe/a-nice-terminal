@@ -16,7 +16,6 @@
   import UsageStrip from '$lib/components/UsageStrip.svelte';
   import UsageBadge from '$lib/components/UsageBadge.svelte';
   import type { UsagePayload } from '$lib/usage/types';
-  import { modelKinds } from '$lib/stores/modelKinds.svelte';
   import { agentKinds } from '$lib/stores/agentKinds.svelte';
   import { terminalClasses } from '$lib/stores/terminalClasses.svelte';
 
@@ -378,29 +377,6 @@
     }
   }
 
-  async function patchTerminalModel(record: TerminalRecord, nextModel: string): Promise<void> {
-    const trimmed = nextModel.trim();
-    const payload = trimmed.length === 0 ? null : trimmed;
-    // Optimistic update so the dropdown change feels immediate; on
-    // server error the next loadTerminals() reconciles.
-    record.model = payload;
-    terminals = [...terminals];
-    try {
-      const response = await fetch(`/api/terminals/${encodeURIComponent(record.sessionId)}/model`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ model: payload })
-      });
-      if (!response.ok) {
-        lastError = `Saving model failed (${response.status}).`;
-        await loadTerminals();
-      }
-    } catch (cause) {
-      lastError = `Saving model failed: ${cause instanceof Error ? cause.message : String(cause)}`;
-      await loadTerminals();
-    }
-  }
-
   // v3 (JWPK msg_om51nvohx5): the desk pane carries account + family
   // selectors alongside the CLI/model controls. Each PATCHes its own field
   // optimistically; loadTerminals() reconciles on error.
@@ -530,20 +506,6 @@
                               {#each terminalClasses.modelFamilies as f (f)}<option value={f}>{f}</option>{/each}
                               {#if record.modelFamily && !terminalClasses.modelFamilies.includes(record.modelFamily)}
                                 <option value={record.modelFamily}>{record.modelFamily}</option>
-                              {/if}
-                            </select>
-                            <select
-                              class="model-picker"
-                              aria-label={`Model for ${chipLabel(record)}`}
-                              value={record.model ?? ''}
-                              onchange={(e) => patchTerminalModel(record, (e.currentTarget as HTMLSelectElement).value)}
-                            >
-                              <option value="">— model —</option>
-                              {#each modelKinds.enabled as model (model)}
-                                <option value={model}>{model}</option>
-                              {/each}
-                              {#if record.model && !modelKinds.enabled.includes(record.model)}
-                                <option value={record.model}>{record.model} (custom)</option>
                               {/if}
                             </select>
                           </span>
@@ -738,8 +700,6 @@
   .model-subgroup { display: grid; gap: 0.2rem; margin-left: 0.6rem; padding-left: 0.5rem; border-left: 1px solid var(--surface-edge); }
   .model-subheading { margin: 0.2rem 0 0.1rem 0; font-size: 0.7rem; color: var(--ink-soft); font-weight: 500; font-family: ui-monospace, monospace; display: inline-flex; align-items: center; gap: 0.3rem; }
   .model-marker { color: var(--accent); opacity: 0.7; }
-  .model-picker { font-size: 0.7rem; padding: 0.15rem 0.3rem; border: 1px solid var(--line-soft); border-radius: 0.35rem; background: var(--surface-card); color: var(--ink-soft); font-family: ui-monospace, monospace; }
-  .model-picker:focus { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--ink-strong); }
   .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .chip { padding: 0.35rem 0.65rem; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--surface-card); color: var(--ink-strong); font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; }
   .chip.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
