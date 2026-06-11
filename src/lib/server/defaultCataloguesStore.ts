@@ -75,6 +75,28 @@ export const DEFAULT_AGENT_KIND_NAMES: readonly string[] = AGENT_KIND_DEFAULTS.m
 const MODEL_META = new Map(MODEL_DEFAULTS.map(([name, provider, runs, logo]) => [name, { provider, runs, logo }]));
 const KIND_META = new Map(AGENT_KIND_DEFAULTS.map(([name, provider, logo]) => [name, { provider, logo }]));
 
+// Terminals v3 (JWPK msg_om51nvohx5 + msg_mc8rejzopg 2026-06-11): account
+// types and model families are user-editable, settings-persisted lists — same
+// shape as the kinds/models catalogues, but name-only (no provider/logo). The
+// table name is a fixed constant, never caller input, so the dynamic-name
+// queries below carry no injection surface.
+const SIMPLE_CATALOGUES = {
+  account_types: [
+    'Claude Subscription', 'Codex Subscription', 'Ollama Subscription',
+    'Gemini Subscription', 'Qwen Subscription', 'Quiver Subscription',
+    'Copilot Subscription', 'Local', 'External'
+  ],
+  model_families: [
+    'Claude', 'Codex', 'MiniMax', 'Kimi', 'Qwen', 'glm', 'Gemini', 'Quiver',
+    'Gemma', 'GPT-OSS', 'AFM', 'Other-Ollama-Cloud', 'Other-Cloud', 'Other-Local'
+  ]
+} as const;
+export type SimpleCatalogue = keyof typeof SIMPLE_CATALOGUES;
+const SIMPLE_TABLE: Record<SimpleCatalogue, string> = {
+  account_types: 'default_account_types',
+  model_families: 'default_model_families'
+};
+
 function ensureTables(db = getIdentityDb()): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS default_models (
@@ -88,7 +110,52 @@ function ensureTables(db = getIdentityDb()): void {
       default_on INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL,
       logo_slug TEXT, created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS default_account_types (
+      name TEXT PRIMARY KEY, sort_order INTEGER NOT NULL,
+      created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS default_model_families (
+      name TEXT PRIMARY KEY, sort_order INTEGER NOT NULL,
+      created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL
+    );
   `);
+}
+
+export function listSimpleCatalogue(cat: SimpleCatalogue, db = getIdentityDb()): string[] {
+  ensureTables(db);
+  const t = SIMPLE_TABLE[cat];
+  return (db.prepare(`SELECT name FROM ${t} ORDER BY sort_order, name`).all() as { name: string }[])
+    .map((r) => r.name);
+}
+
+export function addSimpleCatalogueEntry(cat: SimpleCatalogue, name: string, db = getIdentityDb()): string[] {
+  ensureTables(db);
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return listSimpleCatalogue(cat, db);
+  const t = SIMPLE_TABLE[cat];
+  const now = Date.now();
+  const next = (db.prepare(`SELECT COALESCE(MAX(sort_order),0)+1 n FROM ${t}`).get() as { n: number }).n;
+  db.prepare(`INSERT OR IGNORE INTO ${t} (name, sort_order, created_at_ms, updated_at_ms) VALUES (?,?,?,?)`)
+    .run(trimmed, next, now, now);
+  return listSimpleCatalogue(cat, db);
+}
+
+export function removeSimpleCatalogueEntry(cat: SimpleCatalogue, name: string, db = getIdentityDb()): string[] {
+  ensureTables(db);
+  db.prepare(`DELETE FROM ${SIMPLE_TABLE[cat]} WHERE name = ?`).run(name);
+  return listSimpleCatalogue(cat, db);
+}
+
+export function replaceSimpleCatalogue(cat: SimpleCatalogue, names: string[], db = getIdentityDb()): string[] {
+  ensureTables(db);
+  const t = SIMPLE_TABLE[cat];
+  const now = Date.now();
+  const ins = db.prepare(`INSERT OR IGNORE INTO ${t} (name, sort_order, created_at_ms, updated_at_ms) VALUES (?,?,?,?)`);
+  db.transaction(() => {
+    db.prepare(`DELETE FROM ${t}`).run();
+    names.map((n) => n.trim()).filter((n) => n.length > 0).forEach((n, i) => ins.run(n, i + 1, now, now));
+  })();
+  return listSimpleCatalogue(cat, db);
 }
 
 /** Seed the canonical defaults if (and only if) a table is empty. Safe to
@@ -120,6 +187,14 @@ export function seedDefaultCataloguesIfEmpty(db = getIdentityDb()): void {
       AGENT_KIND_DEFAULTS.forEach(([name, provider, logo], i) => ins.run(name, provider, i + 1, logo, now, now));
     });
     tx();
+  }
+  for (const cat of Object.keys(SIMPLE_CATALOGUES) as SimpleCatalogue[]) {
+    const t = SIMPLE_TABLE[cat];
+    if ((db.prepare(`SELECT COUNT(*) c FROM ${t}`).get() as { c: number }).c > 0) continue;
+    const ins = db.prepare(`INSERT OR IGNORE INTO ${t} (name, sort_order, created_at_ms, updated_at_ms) VALUES (?,?,?,?)`);
+    db.transaction(() => {
+      SIMPLE_CATALOGUES[cat].forEach((name, i) => ins.run(name, i + 1, now, now));
+    })();
   }
 }
 
