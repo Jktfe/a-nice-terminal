@@ -78,6 +78,18 @@ describe('POST /api/helper/pairing (mint) — operator-gated', () => {
     const res = await call(mint, req('/api/helper/pairing', {}, { admin: true }));
     expect(res.status).toBe(400);
   });
+
+  it('defaults to a reader pairing and accepts an explicit agent pairing', async () => {
+    const reader = await call(mint, req('/api/helper/pairing', { handle: '@helper' }, { admin: true }));
+    expect((await reader.json()).role).toBe('reader');
+    const agent = await call(mint, req('/api/helper/pairing', { handle: '@fClaude', role: 'agent' }, { admin: true }));
+    expect((await agent.json()).role).toBe('agent');
+  });
+
+  it('rejects an invalid role', async () => {
+    const res = await call(mint, req('/api/helper/pairing', { handle: '@fClaude', role: 'admin' }, { admin: true }));
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('POST /api/helper/pairing/redeem — open, single-use', () => {
@@ -108,5 +120,16 @@ describe('POST /api/helper/pairing/redeem — open, single-use', () => {
   it('410s an unknown code and 400s an empty one', async () => {
     expect((await call(redeem, req('/api/helper/pairing/redeem', { code: 'ZZZZZZ' }))).status).toBe(410);
     expect((await call(redeem, req('/api/helper/pairing/redeem', { code: '' }))).status).toBe(400);
+  });
+
+  it('an agent pairing redeems to an AUTHORING attachment (scope + role)', async () => {
+    const minted = await call(mint, req('/api/helper/pairing', { handle: '@fClaude', role: 'agent' }, { admin: true }));
+    const code = (await minted.json()).code as string;
+    const res = await call(redeem, req('/api/helper/pairing/redeem', { code, host: 'mac-mini' }));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.role).toBe('agent');
+    expect(body.scope.authorMessages).toBe(true); // an agent attachment authors
+    expect(body.leaseSecret).toMatch(/^lease_sk_/);
   });
 });

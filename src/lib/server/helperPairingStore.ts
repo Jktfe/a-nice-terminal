@@ -13,7 +13,7 @@
 import { randomBytes } from 'node:crypto';
 import { hashToken } from './chatInviteStore';
 import { getIdentityDb } from './db';
-import { mintLease, type StoredLease } from './helperLeaseStore';
+import { mintLease, type StoredLease, type AttachmentRole } from './helperLeaseStore';
 
 /** Operator has a 15-min window to hand the code to the app and redeem it. */
 export const PAIRING_CODE_TTL_MS = 15 * 60 * 1000;
@@ -29,6 +29,8 @@ export function mintPairingCode(bytes = randomBytes(6)): string {
 
 export type CreatePairingInput = {
   handle: string;
+  /** 'reader' (helper, default) or 'agent' (paneless authoring ANThandle). */
+  role?: AttachmentRole;
   owners: string[];
   createdBy?: string | null;
   ttlMs?: number;
@@ -57,12 +59,13 @@ export function createPairingCode(input: CreatePairingInput): CreatePairingResul
   const expiresAtMs = nowMs + ttlMs;
   const pairingId = input.pairingId ?? `pair_${randomBytes(9).toString('hex')}`;
   const code = input.code ?? mintPairingCode();
+  const role: AttachmentRole = input.role === 'agent' ? 'agent' : 'reader';
 
   db.prepare(
     `INSERT INTO helper_pairing_codes
-       (id, code_hash, handle, owners, created_by, created_at_ms, expires_at_ms, consumed_at_ms, lease_id_after_consume, paired_host)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`
-  ).run(pairingId, hashToken(code), handle, JSON.stringify(owners), input.createdBy ?? null, nowMs, expiresAtMs);
+       (id, code_hash, handle, role, owners, created_by, created_at_ms, expires_at_ms, consumed_at_ms, lease_id_after_consume, paired_host)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`
+  ).run(pairingId, hashToken(code), handle, role, JSON.stringify(owners), input.createdBy ?? null, nowMs, expiresAtMs);
 
   return { pairingId, code, expiresAtMs };
 }
@@ -78,6 +81,7 @@ export type RedeemPairingInput = {
 export type RedeemPairingResult = {
   pairingId: string;
   handle: string;
+  role: AttachmentRole;
   leaseId: string;
   /** plaintext lease secret — returned ONCE. */
   leaseSecret: string;
@@ -109,10 +113,12 @@ export function redeemPairingCode(input: RedeemPairingInput): RedeemPairingResul
   } catch { /* fall through with empty owners → mintLease will refuse, surfaced as null below */ }
 
   const handle = row.handle as string;
+  const role: AttachmentRole = (row.role as string | null) === 'agent' ? 'agent' : 'reader';
   let minted;
   try {
     minted = mintLease({
       handle,
+      role,
       owners,
       pairedHost: input.pairedHost ?? null,
       createdBy: (row.created_by as string | null) ?? null,
@@ -135,6 +141,7 @@ export function redeemPairingCode(input: RedeemPairingInput): RedeemPairingResul
   return {
     pairingId: row.id as string,
     handle,
+    role,
     leaseId: minted.leaseId,
     leaseSecret: minted.secret,
     lease: minted.lease

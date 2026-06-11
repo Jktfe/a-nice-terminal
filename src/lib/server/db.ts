@@ -141,6 +141,7 @@ const SCHEMA_DDL_STATEMENTS = [
     id                     TEXT PRIMARY KEY,
     code_hash              TEXT NOT NULL,
     handle                 TEXT NOT NULL,
+    role                   TEXT NOT NULL DEFAULT 'reader',
     owners                 TEXT NOT NULL,
     created_by             TEXT,
     created_at_ms          INTEGER NOT NULL,

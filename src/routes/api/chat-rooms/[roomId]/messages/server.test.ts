@@ -23,6 +23,7 @@ import {
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { bindHandle } from '$lib/server/handleBindingsStore';
 import { listLedger } from '$lib/server/identityLedgerStore';
+import { mintLease, revokeLease } from '$lib/server/helperLeaseStore';
 import { setListPanePidsForTests } from '$lib/server/paneFactCorroboration';
 import { createPermissionRequest, getPermissionRequest } from '$lib/server/permissionRequestsStore';
 import { upsertTerminal } from '$lib/server/terminalsStore';
@@ -1760,5 +1761,89 @@ describe('chat-typeable approve (JWPK taste ruling msg_n4gdutadlh)', () => {
     expect(response.status).toBe(201);
     expect((await response.json()).message.body).toContain('please approve');
     expect(getPermissionRequest(requestId)?.status).toBe('pending');
+  });
+});
+
+// The post-gate keystone (2026-06-11 ruling): in clean (witness-only) mode, a
+// daemon-verified `agent` ATTACHMENT authors without a pane — the issuance-class
+// witness. A paneless desktop AI (the fClaude case) becomes a full member.
+describe('post gate — agent attachment (issuance-class witness)', () => {
+  const prevMode = process.env.ANT_IDENTITY_READ;
+  const prevDbPath = process.env.ANT_FRESH_DB_PATH;
+  let attTmpDir: string;
+
+  beforeEach(() => {
+    attTmpDir = mkdtempSync(join(tmpdir(), 'ant-attach-post-'));
+    process.env.ANT_FRESH_DB_PATH = join(attTmpDir, 'test.db');
+    resetIdentityDbForTests();
+    resetChatRoomStoreForTests();
+    resetChatMessageStoreForTests();
+    process.env.ANT_IDENTITY_READ = 'clean';
+  });
+
+  afterEach(() => {
+    if (prevMode === undefined) delete process.env.ANT_IDENTITY_READ;
+    else process.env.ANT_IDENTITY_READ = prevMode;
+    setListPanePidsForTests(null);
+    resetIdentityDbForTests();
+    rmSync(attTmpDir, { recursive: true, force: true });
+    if (prevDbPath === undefined) delete process.env.ANT_FRESH_DB_PATH;
+    else process.env.ANT_FRESH_DB_PATH = prevDbPath;
+  });
+
+  function memberRoom(handle: string) {
+    const room = createChatRoom({ name: `attach-${handle}`, whoCreatedIt: handle });
+    const terminal = upsertTerminal({ pid: 1, pid_start: 'x', name: `term-${handle}` });
+    addMembership({ room_id: room.id, handle, terminal_id: terminal.id });
+    return room;
+  }
+
+  it('CLEAN: a verified agent attachment authors with NO pane or pidChain, and ledgers the use', async () => {
+    const room = memberRoom('@fClaude');
+    const { secret } = mintLease({ handle: '@fClaude', owners: ['@JWPK'], role: 'agent' });
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ body: 'first message from a paneless desk', authorHandle: '@fClaude' }),
+      headers: { 'x-ant-attachment': secret }
+    });
+    expect(response.status).toBe(201);
+    expect((await response.json()).message.authorHandle).toBe('@fClaude');
+    // guardrail (d): every authoring use is ledgered
+    expect(listLedger({}).filter((e) => e.kind === 'attachment.authored')).toHaveLength(1);
+  });
+
+  it('CLEAN: a reader (helper) attachment is REFUSED authoring — the helper never posts', async () => {
+    const room = memberRoom('@helper');
+    const { secret } = mintLease({ handle: '@helper', owners: ['@JWPK'], role: 'reader' });
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ body: 'helper trying to post', authorHandle: '@helper' }),
+      headers: { 'x-ant-attachment': secret }
+    });
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(listLedger({}).filter((e) => e.kind === 'attachment.authored')).toHaveLength(0);
+  });
+
+  it('CLEAN: a REVOKED agent attachment cannot author (instant deafness)', async () => {
+    const room = memberRoom('@fClaude');
+    const { leaseId, secret } = mintLease({ handle: '@fClaude', owners: ['@JWPK'], role: 'agent' });
+    revokeLease(leaseId);
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ body: 'should not land', authorHandle: '@fClaude' }),
+      headers: { 'x-ant-attachment': secret }
+    });
+    expect(response.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it('CLEAN: an agent attachment cannot author AS a different handle', async () => {
+    const room = memberRoom('@fClaude');
+    const { secret } = mintLease({ handle: '@fClaude', owners: ['@JWPK'], role: 'agent' });
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ body: 'impersonation attempt', authorHandle: '@victim' }),
+      headers: { 'x-ant-attachment': secret }
+    });
+    expect(response.status).toBe(403);
   });
 });

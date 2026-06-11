@@ -17,7 +17,7 @@ import { getOperatorHandle } from '$lib/server/operatorHandle';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { createPairingCode } from '$lib/server/helperPairingStore';
 
-type Body = { handle?: unknown; owners?: unknown; ttlMs?: unknown };
+type Body = { handle?: unknown; role?: unknown; owners?: unknown; ttlMs?: unknown };
 
 export const POST: RequestHandler = async ({ request }) => {
   if (!tryAdminBearer(request) && !tryOperatorSession(request)) {
@@ -41,6 +41,13 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const ttlMs = typeof body.ttlMs === 'number' && Number.isFinite(body.ttlMs) && body.ttlMs > 0 ? body.ttlMs : undefined;
 
-  const res = createPairingCode({ handle, owners, createdBy: operator, ttlMs });
-  return json({ pairingId: res.pairingId, code: res.code, expiresAtMs: res.expiresAtMs, handle }, { status: 201 });
+  // 'reader' pairs the read-only helper; 'agent' pairs a paneless authoring
+  // ANThandle. Default reader — authoring is the deliberate choice.
+  if (body.role !== undefined && body.role !== 'reader' && body.role !== 'agent') {
+    throw error(400, "role must be 'reader' or 'agent'.");
+  }
+  const role: 'reader' | 'agent' = body.role === 'agent' ? 'agent' : 'reader';
+
+  const res = createPairingCode({ handle, role, owners, createdBy: operator, ttlMs });
+  return json({ pairingId: res.pairingId, code: res.code, expiresAtMs: res.expiresAtMs, handle, role }, { status: 201 });
 };

@@ -34,6 +34,8 @@ import { getRoomMode } from '$lib/server/roomModesStore';
 import { getTerminalIdByHandle, addMembership } from '$lib/server/roomMembershipsStore';
 import { mirrorAddMembership } from '$lib/server/v02ChatRoomBridge';
 import { lookupTerminalByPidChain, touchLastMessageSentAt } from '$lib/server/terminalsStore';
+import { resolveLeaseBySecret, touchLease, ATTACHMENT_SCOPES } from '$lib/server/helperLeaseStore';
+import { appendLedger } from '$lib/server/identityLedgerStore';
 import {
   evaluateTokenTerminalBinding,
   tokenBindingAction,
@@ -542,7 +544,7 @@ type AuthorResolution = {
   /** plan_consent_gate_2026_05_20 T6: how the caller authenticated. The
    *  consent gate treats 'bearer' as authenticated self-post (no grant
    *  needed) because a bearer token is a first-party human credential. */
-  authPath: 'bearer' | 'cookie' | 'pidchain' | 'caller-grant' | 'ant-session' | 'witness';
+  authPath: 'bearer' | 'cookie' | 'pidchain' | 'caller-grant' | 'ant-session' | 'witness' | 'attachment';
 };
 
 async function resolveAccountsBearerHandle(token: string): Promise<string | null> {
@@ -569,12 +571,61 @@ async function resolveAccountsBearerHandle(token: string): Promise<string | null
  *    binding; the legacy machinery is never invoked for them (amended AC1).
  *    Unresolved → the same fail-closed 403 as every other identity failure.
  */
+/**
+ * Issuance-class witness (2026-06-11 ruling): resolve a daemon-verified `agent`
+ * ATTACHMENT from the `x-ant-attachment` header to its handle. A paneless
+ * desktop / mcp / api agent authors with this credential the daemon minted and
+ * checks — same trust direction as observation (a pane), just not pane-shaped.
+ *
+ * Returns null for anything but a LIVE agent-role attachment (absent / wrong
+ * role / revoked / expired → falls through to the other resolution paths). The
+ * reader role (the helper) is refused here — the helper never posts. Ledgers
+ * every authoring use (guardrail d) and touches last-seen.
+ */
+function resolveAgentAttachmentAuthor(request: Request, roomId: string): string | null {
+  const secret = request.headers.get('x-ant-attachment');
+  if (!secret || secret.trim().length === 0) return null;
+  const lease = resolveLeaseBySecret(secret.trim());
+  if (!lease) return null; // absent / revoked / expired — instant deafness on revoke
+  if (lease.role !== 'agent') return null; // reader (helper) never authors
+  if (!ATTACHMENT_SCOPES[lease.role].authorMessages) return null; // belt-and-braces vs scope drift
+  try {
+    appendLedger({
+      kind: 'attachment.authored',
+      handle: lease.handle,
+      roomId,
+      actor: 'daemon',
+      detail: { leaseId: lease.id }
+    });
+    touchLease(lease.id);
+  } catch {
+    /* ledger/touch best-effort — never blocks a verified author */
+  }
+  return lease.handle;
+}
+
 async function resolveMessageAuthorOnSeam(
   roomId: string,
   request: Request,
   rawBody: unknown,
   clientAuthorHandle: string | null
 ): Promise<AuthorResolution> {
+  // Issuance-class attachment first: it is self-contained (daemon-minted +
+  // verified) and an attachment-only caller carries no pidChain/session to be
+  // "agent-shaped" by, so it must resolve before that gate. owner-gated,
+  // scoped, TTL'd, revocable, ledgered — the five guardrails that keep it from
+  // being the buried token-crutch (asserted identity on an unwitnessed token);
+  // this is the witness itself, daemon-issued. Opposite trust direction.
+  const attachmentHandle = resolveAgentAttachmentAuthor(request, roomId);
+  if (attachmentHandle !== null) {
+    if (
+      clientAuthorHandle !== null &&
+      canonicalClaimedHandle(clientAuthorHandle) !== attachmentHandle
+    ) {
+      rejectMessageIdentity(roomId, 'authorHandle does not match the attachment identity.');
+    }
+    return { handle: attachmentHandle, authPath: 'attachment' };
+  }
   const pidChain = parsePidChainFromBody(rawBody);
   const durableSessionPresent =
     typeof request.headers.get('x-ant-session-id') === 'string' &&

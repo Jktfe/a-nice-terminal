@@ -5,17 +5,18 @@
  * separate auth is required here — possession of a live code is the proof.
  *
  * Body: { code: "7F3A29", host?: "mac-mini" }
- *   → 201 { handle, leaseId, leaseSecret, scope, expiresAtMs }
+ *   → 201 { handle, role, leaseId, leaseSecret, scope, expiresAtMs }
  *   → 410 when the code is unknown / expired / already used
  *
  * The leaseSecret is returned ONCE — the app stores it in the OS keychain. The
- * scope is the fixed contract scope (subscribe-feed / fire-routes / post-status;
- * never author / claim / approve).
+ * scope is the FIXED profile for the pairing's role: a 'reader' (helper) may
+ * subscribe + fire routes but never posts; an 'agent' may author + post status.
+ * Claiming handles / approving asks are never granted by an attachment.
  */
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { redeemPairingCode } from '$lib/server/helperPairingStore';
-import { HELPER_LEASE_SCOPE } from '$lib/server/helperLeaseStore';
+import { ATTACHMENT_SCOPES } from '$lib/server/helperLeaseStore';
 
 type Body = { code?: unknown; host?: unknown };
 
@@ -32,9 +33,10 @@ export const POST: RequestHandler = async ({ request }) => {
   return json(
     {
       handle: redeemed.handle,
+      role: redeemed.role,
       leaseId: redeemed.leaseId,
       leaseSecret: redeemed.leaseSecret,
-      scope: HELPER_LEASE_SCOPE,
+      scope: ATTACHMENT_SCOPES[redeemed.role],
       expiresAtMs: redeemed.lease.expires_at_ms
     },
     { status: 201 }

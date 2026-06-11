@@ -21,7 +21,8 @@ export type IdentityLedgerKind =
   | 'owner.notified'
   | 'room.assigned'
   | 'resolver.disagreement'
-  | 'pane.uncorroborated';
+  | 'pane.uncorroborated'
+  | 'attachment.authored';
 
 export type IdentityLedgerRow = {
   id: number;
