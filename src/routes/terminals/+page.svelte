@@ -296,6 +296,20 @@
   function statusDot(s?: string | null): string {
     return STATUS_DOT[(s ?? 'idle')] ?? '#7d8da0';
   }
+  // The account panel's usage badge must reflect the ACCOUNT's provider, not
+  // the CLI (JWPK 2026-06-11: an Ollama Subscription panel wrongly showed
+  // "Codex" usage). Non-billable accounts (Local/External/unset) → null so NO
+  // figure shows — a wrong number is worse than none.
+  const ACCOUNT_USAGE_KIND: Record<string, string | null> = {
+    'Claude Subscription': 'claude', 'Codex Subscription': 'codex',
+    'Ollama Subscription': 'ollama', 'Gemini Subscription': 'gemini',
+    'Qwen Subscription': 'qwen', 'Copilot Subscription': 'copilot',
+    'Quiver Subscription': 'quiver', 'Local': null, 'External': null,
+    'No account set': null
+  };
+  function accountUsageKind(account: string): string | null {
+    return ACCOUNT_USAGE_KIND[account] ?? null;
+  }
 
   function buildModelSubgroups(records: TerminalRecord[]): ModelSubgroup[] {
     const byModel = new Map<string, TerminalRecord[]>();
@@ -447,7 +461,7 @@
                 <div class="acct-heading">
                   <span class="acct-name">{acct.label}</span>
                   <span class="acct-usage">
-                    <UsageBadge agentKind={group.kind || null} usage={pageUsage} />
+                    <UsageBadge agentKind={accountUsageKind(acct.account)} usage={pageUsage} />
                     <span class="acct-count">{acct.deskCount} desk{acct.deskCount === 1 ? '' : 's'}</span>
                   </span>
                 </div>
