@@ -22,8 +22,11 @@
     sessionId: string;
     name: string;
     handle?: string | null;
+    derivedHandle?: string | null;
     agentKind?: string | null;
     model?: string | null;
+    agentStatus?: string | null;
+    roomCount?: number;
     autoForwardRoomId: string | null;
     autoForwardChat: number;
     createdBy?: string;
@@ -190,6 +193,13 @@
   }
 
   function chipLabel(record: TerminalRecord): string {
+    // v2 handle-FIRST (JWPK 2026-06-11): the witnessed handle is the identity;
+    // the auto:t_xxx name only shows when no handle exists. This is the fix for
+    // "the handles look weird AF" — names stop masquerading as identities.
+    const h = (record.handle ?? '').trim();
+    if (h.length > 0) return h;
+    const derived = (record.derivedHandle ?? '').trim();
+    if (derived.length > 0) return derived;
     return record.name && record.name.length > 0 ? record.name : record.sessionId.slice(0, 12) + '…';
   }
 
@@ -198,6 +208,9 @@
   // recreates each tmux pane in its original cwd, re-runs the agent launch
   // command, and rebinds identity. See src/lib/server/sessionRecovery.ts.
   let selectedStale = $state<Set<string>>(new Set());
+  // v2: archived desks are hidden by default (JWPK: the [A] rows cluttered the
+  // view). Toggle reveals them for recovery.
+  let showArchived = $state(false);
   let resumeOnRecover = $state(false);
   let recovering = $state(false);
   let recoverPreview = $state<string>('');
@@ -255,7 +268,35 @@
   // of ModelSubgroups; unspecified models fold into one "unspecified"
   // subgroup that always renders last.
   type ModelSubgroup = { model: string; label: string; records: TerminalRecord[] };
-  type Group = { kind: string; label: string; subgroups: ModelSubgroup[] };
+  type AccountGroup = { account: string; label: string; subgroups: ModelSubgroup[]; deskCount: number };
+  type Group = { kind: string; label: string; accounts: AccountGroup[] };
+
+  // Terminals v2 (JWPK sketch 2026-06-11): CLI → ACCOUNT TYPE → model family
+  // → desk chips. Account type derived from agent kind; the page surfaces an
+  // honest "Unclassified" bucket rather than hiding kind-detection gaps.
+  const CLI_LABEL: Record<string, string> = {
+    'claude-code': 'Claude', claude: 'Claude', codex: 'Codex', codex_cli: 'Codex',
+    gemini: 'Gemini', qwen: 'Qwen', copilot: 'CoPilot', pi: 'Pi', ollama: 'Ollama',
+    antigravity: 'Antigravity', minimax: 'MiniMax', kimi: 'Kimi', remote: 'Remote', aider: 'Aider'
+  };
+  const ACCOUNT_LABEL: Record<string, string> = {
+    'claude-code': 'Claude Subscription', claude: 'Claude Subscription',
+    codex: 'Codex Subscription', codex_cli: 'Codex Subscription',
+    gemini: 'Gemini Subscription', antigravity: 'Gemini Subscription',
+    qwen: 'Qwen Subscription', copilot: 'Copilot Subscription',
+    ollama: 'Ollama Subscription', pi: 'Local', remote: 'External'
+  };
+  function accountTypeFor(kind: string): string {
+    return ACCOUNT_LABEL[kind] ?? (kind ? 'External' : 'Unclassified');
+  }
+  // Desk-chip status → colour. Mirrors the agent_status enum.
+  const STATUS_DOT: Record<string, string> = {
+    working: '#5aa9ff', thinking: '#b58cff', idle: '#3fd07a',
+    'response-required': '#e0a93e'
+  };
+  function statusDot(s?: string | null): string {
+    return STATUS_DOT[(s ?? 'idle')] ?? '#7d8da0';
+  }
 
   function buildModelSubgroups(records: TerminalRecord[]): ModelSubgroup[] {
     const byModel = new Map<string, TerminalRecord[]>();
@@ -279,6 +320,25 @@
     return subgroups;
   }
 
+  function buildAccountGroups(records: TerminalRecord[]): AccountGroup[] {
+    const byAccount = new Map<string, TerminalRecord[]>();
+    for (const r of records) {
+      const acct = accountTypeFor((r.agentKind ?? '').toString());
+      const arr = byAccount.get(acct) ?? [];
+      arr.push(r);
+      byAccount.set(acct, arr);
+    }
+    const accounts: AccountGroup[] = [];
+    for (const acct of [...byAccount.keys()].sort()) {
+      const recs = byAccount.get(acct) ?? [];
+      accounts.push({
+        account: acct, label: acct, deskCount: recs.length,
+        subgroups: buildModelSubgroups(recs)
+      });
+    }
+    return accounts;
+  }
+
   const groupedTerminals = $derived.by<Group[]>(() => {
     const byKind = new Map<string, TerminalRecord[]>();
     for (const r of liveTerminals) {
@@ -287,28 +347,22 @@
       arr.push(r);
       byKind.set(key, arr);
     }
-    const known = ['claude-code', 'codex', 'gemini', 'aider', 'copilot'];
+    // Stable CLI order; unknown kinds fold to their own buckets, raw-PTY last.
+    const known = ['claude-code', 'claude', 'codex', 'codex_cli', 'gemini', 'antigravity', 'qwen', 'copilot', 'pi', 'ollama', 'aider'];
+    const seen = new Set<string>();
     const groups: Group[] = [];
-    for (const k of known) {
-      const records = byKind.get(k);
-      if (records && records.length > 0) {
-        groups.push({ kind: k, label: k, subgroups: buildModelSubgroups(records) });
-      }
-    }
+    const pushGroup = (k: string, records: TerminalRecord[]) => {
+      if (!records || records.length === 0) return;
+      groups.push({ kind: k, label: CLI_LABEL[k] ?? k, accounts: buildAccountGroups(records) });
+    };
+    for (const k of known) { if (byKind.has(k)) { pushGroup(k, byKind.get(k)!); seen.add(k); } }
     for (const [k, records] of byKind) {
-      if (known.includes(k)) continue;
-      if (k === '') continue;
-      if (records.length > 0) {
-        groups.push({ kind: k, label: k, subgroups: buildModelSubgroups(records) });
-      }
+      if (seen.has(k) || k === '') continue;
+      pushGroup(k, records);
     }
     const ungrouped = byKind.get('') ?? [];
     if (ungrouped.length > 0) {
-      groups.push({
-        kind: '',
-        label: 'no agent (raw PTY)',
-        subgroups: buildModelSubgroups(ungrouped)
-      });
+      groups.push({ kind: '', label: 'No agent (raw PTY)', accounts: buildAccountGroups(ungrouped) });
     }
     return groups;
   });
@@ -364,45 +418,61 @@
     </button>
 
     <section class="tier tier-primary" aria-label="ANT terminals">
-      <h3 class="tier-heading">ANT terminals <span class="muted">— grouped by CLI then model</span></h3>
+      <h3 class="tier-heading">The desk directory <span class="muted">— CLI → account → model → desk</span></h3>
       {#if liveTerminals.length === 0}
         <p class="tier-empty">No ANT terminals yet — click "+ New ANT terminal" above to create one, or attach an existing tmux pane below.</p>
       {:else}
         {#each groupedTerminals as group (group.kind || 'none')}
-          <div class="group">
-            <h4 class="group-heading">{group.label}</h4>
-            {#each group.subgroups as subgroup (subgroup.model || 'unspecified')}
-              <div class="model-subgroup">
-                <h5 class="model-subheading"><span class="model-marker">●</span>{subgroup.label}</h5>
-                <div class="chips">
-                  {#each subgroup.records as record (record.sessionId)}
-                    <!-- Anchor target for the /agents card "go to terminal" deep-link. -->
-                    <span class="chip-with-model" id={`term-${record.sessionId}`}>
-                      <button
-                        type="button"
-                        class="chip ant-chip"
-                        class:active={activeId === record.sessionId}
-                        title={`${record.sessionId} • ${record.createdBy ?? ''}`}
-                        onclick={() => attach(record)}
-                      >{chipLabel(record)}</button>
-                      <UsageBadge agentKind={record.agentKind ?? null} usage={pageUsage} />
-                      <select
-                        class="model-picker"
-                        aria-label={`Model for ${chipLabel(record)}`}
-                        value={record.model ?? ''}
-                        onchange={(e) => patchTerminalModel(record, (e.currentTarget as HTMLSelectElement).value)}
-                      >
-                        <option value="">— model —</option>
-                        {#each modelKinds.enabled as model (model)}
-                          <option value={model}>{model}</option>
-                        {/each}
-                        {#if record.model && !modelKinds.enabled.includes(record.model)}
-                          <option value={record.model}>{record.model} (custom)</option>
-                        {/if}
-                      </select>
-                    </span>
-                  {/each}
+          <div class="cli-group">
+            <h4 class="cli-heading">{group.label}</h4>
+            {#each group.accounts as acct (acct.account)}
+              <div class="acct-group">
+                <div class="acct-heading">
+                  <span class="acct-name">{acct.label}</span>
+                  <span class="acct-usage">
+                    <UsageBadge agentKind={group.kind || null} usage={pageUsage} />
+                    <span class="acct-count">{acct.deskCount} desk{acct.deskCount === 1 ? '' : 's'}</span>
+                  </span>
                 </div>
+                {#each acct.subgroups as subgroup (subgroup.model || 'unspecified')}
+                  <div class="model-subgroup">
+                    <h5 class="model-subheading"><span class="model-marker">●</span>{subgroup.label}</h5>
+                    <div class="chips">
+                      {#each subgroup.records as record (record.sessionId)}
+                        <!-- Anchor target for the /agents card "go to terminal" deep-link. -->
+                        <span class="desk-chip" id={`term-${record.sessionId}`}>
+                          <button
+                            type="button"
+                            class="chip ant-chip"
+                            class:active={activeId === record.sessionId}
+                            title={`${record.name} • ${record.sessionId} • ${record.createdBy ?? ''}`}
+                            onclick={() => attach(record)}
+                          >{chipLabel(record)}</button>
+                          <span class="chip-bubble">
+                            <span class="status-dot" style={`background:${statusDot(record.agentStatus)}`}></span>
+                            <span class="bubble-text">{record.agentStatus ?? 'idle'}</span>
+                            {#if record.tmuxTargetPane}<span class="bubble-sep">·</span><span class="bubble-pane">{record.tmuxTargetPane}</span>{/if}
+                            <span class="bubble-sep">·</span><span class="bubble-rooms">{record.roomCount ?? 0} room{(record.roomCount ?? 0) === 1 ? '' : 's'}</span>
+                          </span>
+                          <select
+                            class="model-picker"
+                            aria-label={`Model for ${chipLabel(record)}`}
+                            value={record.model ?? ''}
+                            onchange={(e) => patchTerminalModel(record, (e.currentTarget as HTMLSelectElement).value)}
+                          >
+                            <option value="">— model —</option>
+                            {#each modelKinds.enabled as model (model)}
+                              <option value={model}>{model}</option>
+                            {/each}
+                            {#if record.model && !modelKinds.enabled.includes(record.model)}
+                              <option value={record.model}>{record.model} (custom)</option>
+                            {/if}
+                          </select>
+                        </span>
+                      {/each}
+                    </div>
+                  </div>
+                {/each}
               </div>
             {/each}
           </div>
@@ -411,6 +481,11 @@
     </section>
 
     {#if staleTerminals.length > 0}
+      <button type="button" class="archived-toggle" onclick={() => (showArchived = !showArchived)}>
+        {showArchived ? '▾ Hide' : '▸ Show'} {staleTerminals.length} archived desk{staleTerminals.length === 1 ? '' : 's'}
+      </button>
+    {/if}
+    {#if staleTerminals.length > 0 && showArchived}
       <section class="tier tier-stale" aria-label="Archived terminals">
         <h3 class="tier-heading">Archived terminals <span class="muted">— tmux pane gone; select to recover</span></h3>
         <div class="recover-bar">
@@ -563,12 +638,24 @@
   .tier-empty { margin: 0; color: var(--ink-soft); font-size: 0.85rem; font-style: italic; }
   .tier-secondary { margin-top: 1.5rem; padding-top: 0.85rem; border-top: 1px dashed var(--surface-edge); opacity: 0.85; }
   .tier-secondary .tier-heading { font-size: 0.78rem; font-weight: 600; color: var(--ink-soft); }
-  .group { display: grid; gap: 0.25rem; margin-top: 0.45rem; }
-  .group-heading { margin: 0; font-size: 0.78rem; color: var(--ink-soft); font-weight: 600; font-family: ui-monospace, monospace; }
+  /* v2 desk directory (JWPK sketch 2026-06-11): CLI → account → model → desk */
+  .cli-group { display: grid; gap: 0.4rem; margin-top: 0.9rem; }
+  .cli-heading { margin: 0 0 0.2rem 0; font-size: 0.95rem; font-weight: 700; color: var(--accent); font-family: ui-monospace, monospace; letter-spacing: 0.03em; border-bottom: 1px solid var(--surface-edge); padding-bottom: 0.35rem; }
+  .acct-group { display: grid; gap: 0.25rem; margin-left: 0.4rem; padding: 0.55rem 0.65rem; background: var(--surface-card); border: 1px solid var(--line-soft); border-radius: 0.6rem; }
+  .acct-heading { display: flex; align-items: center; gap: 0.7rem; }
+  .acct-name { font-size: 0.8rem; font-weight: 600; color: var(--ink-strong); font-family: ui-monospace, monospace; }
+  .acct-usage { margin-left: auto; display: inline-flex; align-items: center; gap: 0.5rem; }
+  .acct-count { font-size: 0.7rem; color: var(--ink-soft); font-family: ui-monospace, monospace; }
+  .desk-chip { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0.2rem; padding: 0.1rem; }
+  .chip-bubble { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.66rem; color: var(--ink-soft); font-family: ui-monospace, monospace; padding-left: 0.15rem; }
+  .status-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; display: inline-block; flex: none; }
+  .bubble-sep { opacity: 0.4; }
+  .bubble-pane { color: var(--ink-strong); opacity: 0.75; }
+  .archived-toggle { margin-top: 0.8rem; width: fit-content; padding: 0.3rem 0.7rem; border: 1px dashed var(--surface-edge); border-radius: 999px; background: transparent; color: var(--ink-soft); font-size: 0.72rem; font-family: ui-monospace, monospace; cursor: pointer; }
+  .archived-toggle:hover { color: var(--ink-strong); border-color: var(--line-soft); }
   .model-subgroup { display: grid; gap: 0.2rem; margin-left: 0.6rem; padding-left: 0.5rem; border-left: 1px solid var(--surface-edge); }
   .model-subheading { margin: 0.2rem 0 0.1rem 0; font-size: 0.7rem; color: var(--ink-soft); font-weight: 500; font-family: ui-monospace, monospace; display: inline-flex; align-items: center; gap: 0.3rem; }
   .model-marker { color: var(--accent); opacity: 0.7; }
-  .chip-with-model { display: inline-flex; align-items: center; gap: 0.25rem; }
   .model-picker { font-size: 0.7rem; padding: 0.15rem 0.3rem; border: 1px solid var(--line-soft); border-radius: 0.35rem; background: var(--surface-card); color: var(--ink-soft); font-family: ui-monospace, monospace; }
   .model-picker:focus { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--ink-strong); }
   .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }

@@ -11,6 +11,7 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { getIdentityDb } from '$lib/server/db';
 import { spawnTerminal, listTerminals } from '$lib/server/ptyClient';
 import {
   createTerminalRecord,
@@ -49,6 +50,26 @@ export const GET: RequestHandler = async () => {
   // antV4 2026-05-28). Fold null/missing into null so the UI can render
   // an "unspecified" subgroup cleanly.
   const modelById = listTerminalModelsByIds(rawRecords.map((r) => r.session_id));
+  // Terminals-page v2 (JWPK sketch 2026-06-11): the desk chip carries a
+  // status bubble + room count. agent_status lives on `terminals` (keyed by
+  // id = session_id); room membership count comes from room_memberships.
+  // Both batched here so the page stays one fetch — no N+1 per chip.
+  const db = getIdentityDb();
+  const statusById = new Map<string, string>();
+  const roomCountById = new Map<string, number>();
+  try {
+    for (const row of db.prepare(
+      `SELECT id, agent_status FROM terminals WHERE status = 'live'`
+    ).all() as { id: string; agent_status: string | null }[]) {
+      if (row.agent_status) statusById.set(row.id, row.agent_status);
+    }
+    for (const row of db.prepare(
+      `SELECT terminal_id, COUNT(DISTINCT room_id) AS n FROM room_memberships
+        WHERE revoked_at_ms IS NULL GROUP BY terminal_id`
+    ).all() as { terminal_id: string; n: number }[]) {
+      roomCountById.set(row.terminal_id, row.n);
+    }
+  } catch { /* status/room enrichment is best-effort; chips degrade gracefully */ }
   const records = rawRecords.map((r) => ({
     sessionId: r.session_id,
     name: r.name,
@@ -63,6 +84,8 @@ export const GET: RequestHandler = async () => {
     handle: r.handle,
     derivedHandle: deriveHandle(r),
     bootCommand: r.boot_command,
+    agentStatus: statusById.get(r.session_id) ?? null,
+    roomCount: roomCountById.get(r.session_id) ?? 0,
     createdAtMs: r.created_at_ms,
     updatedAtMs: r.updated_at_ms,
     alive: aliveSet.has(r.session_id)
