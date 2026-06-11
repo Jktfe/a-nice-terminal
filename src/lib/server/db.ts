@@ -129,6 +129,23 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_helper_leases_handle ON helper_leases (handle, created_at_ms DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_helper_leases_secret ON helper_leases (secret_hash)`,
+  // antAppHelper pairing code (SPEC §3): operator-minted, short-lived,
+  // SINGLE-USE handshake token shown in ANT on the handle being paired. The
+  // operator's login is the security anchor (the mint is operator-gated); the
+  // code is worthless without it. Redeem consumes the code and mints the lease.
+  `CREATE TABLE IF NOT EXISTS helper_pairing_codes (
+    id                     TEXT PRIMARY KEY,
+    code_hash              TEXT NOT NULL,
+    handle                 TEXT NOT NULL,
+    owners                 TEXT NOT NULL,
+    created_by             TEXT,
+    created_at_ms          INTEGER NOT NULL,
+    expires_at_ms          INTEGER NOT NULL,
+    consumed_at_ms         INTEGER,
+    lease_id_after_consume TEXT,
+    paired_host            TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_helper_pairing_code ON helper_pairing_codes (code_hash)`,
   `CREATE TABLE IF NOT EXISTS chat_remote_mappings (
     id                     TEXT PRIMARY KEY,
     room_id                TEXT NOT NULL,
