@@ -31,6 +31,16 @@ import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-sessi
 import { renderPermissionDeniedIfPresent } from './ant-cli-permission-denied.mjs';
 
 const ALLOWED_KIND_TAGS = new Set(['human', 'agent', 'system', 'system-break']);
+
+// Cutover soak fix (2026-06-11): posts present the pane FACT like whoami does
+// (contract step 3 — the CLI presents pane/pidChain facts, the daemon
+// verifies). Without it every post logs a false nothing-witnessed row and the
+// soak gate can never pass. Absent outside tmux — simply not presented.
+function paneFact() {
+  const pane = process.env.TMUX_PANE;
+  return typeof pane === 'string' && pane.trim().length > 0 ? { pane: pane.trim() } : {};
+}
+
 const BOOLEAN_FLAGS = new Set(['once', 'json', 'clear', 'msg-stdin', 'stdin', 'broadcast-ok']);
 // Known top-level action verbs for `ant chat <action>`. Anything else
 // in the first slot is treated as a chat identifier (name or id) per
@@ -231,7 +241,7 @@ async function runNameAwarePost(chatIdentifier, args, runtime, CliInputError, pa
   }
   if (!body) throw new CliInputError('post needs a message (positional or --msg / --msg-file / --msg-stdin)');
   const room = await resolveChatRoomIdentifier(runtime, chatIdentifier, CliInputError);
-  const payload = withDurableSessionIdentity(runtime, room.id, { body, pidChain: processIdentityChain() });
+  const payload = withDurableSessionIdentity(runtime, room.id, { body, pidChain: processIdentityChain(), ...paneFact() });
   if (parentMessageId) payload.parentMessageId = parentMessageId;
   if (flags.handle) payload.authorHandle = flags.handle;
   if (flags.kind) {
@@ -282,7 +292,7 @@ async function runSend(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
   const body = resolveMessageBody(flags, runtime, CliInputError);
   assertSendIntentIsSafe(body, flags, CliInputError);
-  const payload = withDurableSessionIdentity(runtime, room, { body, pidChain: processIdentityChain() });
+  const payload = withDurableSessionIdentity(runtime, room, { body, pidChain: processIdentityChain(), ...paneFact() });
   if (flags.handle) payload.authorHandle = flags.handle;
   if (flags.kind) {
     if (!ALLOWED_KIND_TAGS.has(flags.kind)) {
@@ -363,7 +373,7 @@ async function runReply(flags, runtime, CliInputError) {
   if (!parent || typeof parent.roomId !== 'string' || parent.roomId.length === 0) {
     throw new CliInputError(`Could not resolve parent message ${parentMessageId} to a room.`);
   }
-  const payload = withDurableSessionIdentity(runtime, parent.roomId, { body, parentMessageId, pidChain: processIdentityChain() });
+  const payload = withDurableSessionIdentity(runtime, parent.roomId, { body, parentMessageId, pidChain: processIdentityChain(), ...paneFact() });
   if (flags.handle) payload.authorHandle = flags.handle;
   if (flags.kind) {
     if (!ALLOWED_KIND_TAGS.has(flags.kind)) {

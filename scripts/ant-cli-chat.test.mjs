@@ -507,3 +507,29 @@ describe('ant chat send — message body input modes', () => {
     ).rejects.toThrow(/--msg-file .* could not be read: ENOENT/);
   });
 });
+
+describe('chat send/reply — pane fact presentation (cutover soak fix)', () => {
+  const prevPane = process.env.TMUX_PANE;
+  const restorePane = () => {
+    if (prevPane === undefined) delete process.env.TMUX_PANE;
+    else process.env.TMUX_PANE = prevPane;
+  };
+
+  it('send includes pane in the POST body when TMUX_PANE is set', async () => {
+    process.env.TMUX_PANE = '%41';
+    try {
+      const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'm1', authorHandle: '@x' } }, 201));
+      await handleChatVerb('send', ['room-a', '--msg', 'hello'], runtime, { CliInputError });
+      expect(bodyAt(captured).pane).toBe('%41');
+    } finally { restorePane(); }
+  });
+
+  it('send omits pane when TMUX_PANE is unset', async () => {
+    delete process.env.TMUX_PANE;
+    try {
+      const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'm1', authorHandle: '@x' } }, 201));
+      await handleChatVerb('send', ['room-a', '--msg', 'hello'], runtime, { CliInputError });
+      expect('pane' in bodyAt(captured)).toBe(false);
+    } finally { restorePane(); }
+  });
+});
