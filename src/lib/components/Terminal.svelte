@@ -266,4 +266,33 @@
   }
   /* xterm-js handles its own internal layout; the host just provides the
      bounding box + the black background that bleeds through any padding. */
+
+  /* Visible, always-on scrollbar on xterm's scrollback viewport (JWPK
+     2026-06-11: "can we just add a scroll bar?"). Plain-wheel is bound to
+     page-scroll (see onwheelcapture above), so a draggable bar is the
+     discoverable way to reach the 5000-line scrollback — dragging the thumb
+     is a mouse drag, not a wheel event, so it sidesteps the wheel override.
+     Explicitly styling ::-webkit-scrollbar overrides the macOS overlay
+     scrollbar's auto-hide so the bar stays visible. (Full-screen TUI panes —
+     the agents — still have little in scrollback by nature; that history
+     lives in the ANT view.) :global() because xterm renders .xterm-viewport
+     itself, outside this component's scoped markup. */
+  .ant-terminal-host :global(.xterm-viewport) {
+    scrollbar-width: thin;
+    scrollbar-color: #555 #1a1a1a;
+  }
+  .ant-terminal-host :global(.xterm-viewport)::-webkit-scrollbar {
+    width: 12px;
+  }
+  .ant-terminal-host :global(.xterm-viewport)::-webkit-scrollbar-track {
+    background: #1a1a1a;
+  }
+  .ant-terminal-host :global(.xterm-viewport)::-webkit-scrollbar-thumb {
+    background: #555;
+    border-radius: 6px;
+    border: 2px solid #1a1a1a;
+  }
+  .ant-terminal-host :global(.xterm-viewport)::-webkit-scrollbar-thumb:hover {
+    background: #777;
+  }
 </style>
