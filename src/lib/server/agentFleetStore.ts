@@ -13,7 +13,6 @@ import { getIdentityDb } from './db';
 import { getTelemetryDb, telemetrySidecarEnabled } from './telemetryDb';
 import { listAgents, type AgentRegistryEntry, type AgentRoomMembership } from './agentRegistryStore';
 import { listTerminalRecords, deriveHandle } from './terminalRecordsStore';
-import { listTerminalModelsByIds } from './terminalsStore';
 import { defaultParticipantColor, defaultParticipantIcon } from './chatRoomStore';
 import { ALLOWED_REACTION_EMOJI } from '../reactions/canonicalEmoji';
 
@@ -501,7 +500,6 @@ export function listFleetAgents(
   const registry = listAgents();
   const registryByHandle = new Map(registry.map((a) => [a.handle, a] as const));
   const collabByHandle = loadCollaborators(registry);
-  const modelById = listTerminalModelsByIds(records.map((r) => r.session_id));
   const terminalHandles = new Set(records.map((r) => r.handle ?? deriveHandle(r)));
 
   // UNION — registered agents that hold an ACTIVE room seat but have NO
@@ -546,7 +544,7 @@ export function listFleetAgents(
       sessionId: r.session_id,
       name: r.name,
       agentKind: r.agent_kind,
-      model: modelById.get(r.session_id) ?? null,
+      model: null, // terminals.model column dropped 2026-06-11 (JWPK) — family supersedes it
       displayName,
       displayColor: reg?.displayColor ?? defaultParticipantColor(handle),
       displayIcon: reg?.displayIcon ?? defaultParticipantIcon(displayName),

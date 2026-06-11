@@ -368,39 +368,6 @@ export function updatePaneTarget(
  * result (so callers default to null/"unspecified"). Used by the
  * /api/terminals GET handler to avoid N round-trips.
  */
-export function listTerminalModelsByIds(ids: readonly string[]): Map<string, string | null> {
-  const result = new Map<string, string | null>();
-  if (ids.length === 0) return result;
-  const db = getIdentityDb();
-  const placeholders = ids.map(() => '?').join(',');
-  const rows = db
-    .prepare(`SELECT id, model FROM terminals WHERE id IN (${placeholders})`)
-    .all(...ids) as Array<{ id: string; model: string | null }>;
-  for (const row of rows) result.set(row.id, row.model ?? null);
-  return result;
-}
-
-/**
- * Set (or clear) the per-terminal model flag. JWPK msg_fespxsi2lu antV4
- * 2026-05-28. Passing null clears the flag back to "unspecified". The
- * input is treated as opaque — settings owns the canonical list, and
- * grouping logic on /terminals folds NULL into its own subgroup.
- *
- * Returns true when a row was updated, false when the terminalId
- * didn't match any row (so the PATCH endpoint can 404 cleanly).
- */
-export function setTerminalModel(terminalId: string, model: string | null): boolean {
-  const db = getIdentityDb();
-  const trimmed = typeof model === 'string' ? model.trim() : null;
-  const value = trimmed && trimmed.length > 0 ? trimmed : null;
-  const info = db.prepare(
-    `UPDATE terminals
-     SET model = ?, updated_at = ?
-     WHERE id = ?`
-  ).run(value, currentUnixSeconds(), terminalId);
-  return info.changes > 0;
-}
-
 /**
  * Terminals v2 (JWPK msg_om51nvohx5 2026-06-11): account_type and
  * model_family are operator-selected per terminal, orthogonal to the CLI

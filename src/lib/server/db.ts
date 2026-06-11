@@ -173,9 +173,6 @@ const SCHEMA_DDL_STATEMENTS = [
   // 2026-05-28). Free-form string so settings can manage its own list
   // (mirrors agentKinds localStorage pattern). NULL = unspecified; UI
   // collects "unspecified" into its own subheading per CLI group. The
-  // string is the user's tag, not a canonical model id — purely aesthetic
-  // grouping ("Kimi running in codex" vs "codex running in codex").
-  `ALTER TABLE terminals ADD COLUMN model TEXT`,
   // Terminals v2 desk directory (JWPK msg_om51nvohx5 2026-06-11): CLI,
   // account, and model-family are THREE orthogonal per-terminal attributes,
   // each operator-selectable on the desk pane. agent_kind already stores the

@@ -27,7 +27,6 @@ import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle'
 import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 import {
   autoRegisterTerminalForSpawnedSession,
-  listTerminalModelsByIds,
   listTerminalClassByIds
 } from '$lib/server/terminalsStore';
 
@@ -50,7 +49,6 @@ export const GET: RequestHandler = async () => {
   // Batched lookup of the per-terminal model flag (JWPK msg_fespxsi2lu
   // antV4 2026-05-28). Fold null/missing into null so the UI can render
   // an "unspecified" subgroup cleanly.
-  const modelById = listTerminalModelsByIds(rawRecords.map((r) => r.session_id));
   const classById = listTerminalClassByIds(rawRecords.map((r) => r.session_id));
   // Terminals-page v2 (JWPK sketch 2026-06-11): the desk chip carries a
   // status bubble + room count. agent_status lives on `terminals` (keyed by
@@ -78,7 +76,6 @@ export const GET: RequestHandler = async () => {
     autoForwardRoomId: r.auto_forward_room_id,
     autoForwardChat: r.auto_forward_chat,
     agentKind: r.agent_kind,
-    model: modelById.get(r.session_id) ?? null,
     tmuxTargetPane: r.tmux_target_pane,
     linkedChatRoomId: r.linked_chat_room_id,
     createdBy: r.created_by,
