@@ -255,7 +255,7 @@ async function runNameAwarePost(chatIdentifier, args, runtime, CliInputError, pa
     `/api/chat-rooms/${encodeURIComponent(room.id)}/messages`,
     'POST',
     payload,
-    durableSessionHeaders(runtime, room.id)
+    { ...attachmentHeaders(flags), ...durableSessionHeaders(runtime, room.id) }
   );
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
@@ -321,7 +321,7 @@ async function runSend(flags, runtime, CliInputError) {
   const roomServerUrl = resolveRoomServerUrl(runtime, room);
   let result;
   try {
-    result = await sendJson(runtime, messagesPath, 'POST', payload, roomServerUrl, durableSessionHeaders(runtime, room));
+    result = await sendJson(runtime, messagesPath, 'POST', payload, roomServerUrl, { ...attachmentHeaders(flags), ...durableSessionHeaders(runtime, room) });
   } catch (firstAttemptError) {
     const isIdentityWedge =
       firstAttemptError instanceof Error &&
@@ -388,7 +388,7 @@ async function runReply(flags, runtime, CliInputError) {
     'POST',
     payload,
     roomServerUrl,
-    durableSessionHeaders(runtime, parent.roomId)
+    { ...attachmentHeaders(flags), ...durableSessionHeaders(runtime, parent.roomId) }
   );
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
@@ -485,6 +485,24 @@ export function withDurableSessionIdentity(runtime, roomId, payload) {
 export function durableSessionHeaders(runtime, roomId) {
   const sessionId = durableSessionIdForRoom(runtime, roomId);
   return sessionId ? { 'x-ant-session-id': sessionId } : {};
+}
+
+/**
+ * Attachment-lease authoring (issuance-class witness, 2026-06-11): the
+ * server resolves the x-ant-attachment header FIRST, before the
+ * pidChain/session paths, and authors the post as the lease's handle.
+ * Secret comes from --attachment, falling back to the
+ * ANT_ATTACHMENT_SECRET env var. Role is not pre-judged client-side —
+ * a reader-role lease never authors (the server ignores it for authoring —
+ * the post only succeeds if another credential resolves), and
+ * letting that 403 speak keeps the server the single source of truth.
+ */
+export function attachmentHeaders(flags) {
+  const flagSecret = typeof flags?.attachment === 'string' && flags.attachment.trim().length > 0
+    ? flags.attachment.trim()
+    : null;
+  const secret = flagSecret ?? normaliseDurableSessionId(process.env.ANT_ATTACHMENT_SECRET);
+  return secret ? { 'x-ant-attachment': secret } : {};
 }
 
 async function sendJsonWithCookie(runtime, path, method, body, cookieValue, baseUrl) {
@@ -596,8 +614,9 @@ function parseFlags(rawArgs, CliInputError) {
 
 function writeUsage(runtime) {
   runtime.writeOut('ant chat <send|reply|tail|break|read|typing|draft|focus|unfocus|decide> [flags]');
-  runtime.writeOut('  send <roomId> (--msg TEXT | --msg-file PATH | --stdin) [--handle @h] [--kind human|agent|system] [--broadcast-ok]');
-  runtime.writeOut('  reply <messageId> (--msg TEXT | --msg-file PATH | --stdin) [--handle @h] [--kind human|agent]');
+  runtime.writeOut('  send <roomId> (--msg TEXT | --msg-file PATH | --stdin) [--handle @h] [--kind human|agent|system] [--broadcast-ok] [--attachment SECRET]');
+  runtime.writeOut('  reply <messageId> (--msg TEXT | --msg-file PATH | --stdin) [--handle @h] [--kind human|agent] [--attachment SECRET]');
+  runtime.writeOut('    --attachment SECRET (or env ANT_ATTACHMENT_SECRET) posts as the lease\'s handle (agent-role leases only — reader leases never author)');
   runtime.writeOut('  tail --room ROOM_ID [--since-order N] [--poll-ms 2000] [--once]');
   runtime.writeOut('  break --room ROOM_ID [--reason TEXT] [--handle @you]');
   runtime.writeOut('  read --room ROOM_ID --message MESSAGE_ID [--handle @you] [--json]');

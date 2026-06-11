@@ -230,6 +230,26 @@ describe('ant chat state wrappers', () => {
     expect(bodyAt(captured).sessionId).toBeUndefined();
   });
 
+  it('S1e: send adds the x-ant-attachment header from --attachment', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'msg-attach', authorHandle: '@helper-agent' } }, 201));
+
+    await handleChatVerb('send', ['room-a', '--msg', 'authored via lease', '--attachment', 'lease-secret-1'], runtime, { CliInputError });
+
+    expect(captured.requests[0].init.headers['x-ant-attachment']).toBe('lease-secret-1');
+  });
+
+  it('S1f: send falls back to ANT_ATTACHMENT_SECRET when --attachment is absent', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'msg-attach-env', authorHandle: '@helper-agent' } }, 201));
+    process.env.ANT_ATTACHMENT_SECRET = 'lease-secret-env';
+    try {
+      await handleChatVerb('send', ['room-a', '--msg', 'authored via env lease'], runtime, { CliInputError });
+    } finally {
+      delete process.env.ANT_ATTACHMENT_SECRET;
+    }
+
+    expect(captured.requests[0].init.headers['x-ant-attachment']).toBe('lease-secret-env');
+  });
+
   it('S2: reply derives the target room from the parent message id', async () => {
     const { runtime, captured } = makeRuntime((callIndex, { url }) => {
       const parsed = new URL(url);

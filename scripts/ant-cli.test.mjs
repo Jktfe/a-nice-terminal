@@ -484,3 +484,23 @@ describe('rooms post flag stripping', () => {
     expect(body.body).toBe('hello');
   });
 });
+
+// Identity-cutover help sweep (2026-06-12): the usage text must lead with
+// the identity-era verbs (whoami/register/chat send), must not advertise
+// tombstoned verbs (bind, rooms post), and must not use the banned word
+// "session" in identity prose.
+describe('help text (identity cutover)', () => {
+  it('lists whoami, register and chat send; drops bind and rooms post', async () => {
+    const { runner, writtenOut } = setupRunner();
+    const exitCode = await runner.run(['help']);
+    expect(exitCode).toBe(0);
+    const usage = writtenOut.join('\n');
+    expect(usage).toContain('whoami [--json]');
+    expect(usage).toContain('register --handle @h --name NAME');
+    expect(usage).toContain('chat send <room>');
+    expect(usage).toContain('to post, use ant chat send');
+    expect(usage).not.toContain('bind --room');
+    expect(usage).not.toContain('rooms list|create|members|invite|post');
+    expect(usage).not.toMatch(/session/i);
+  });
+});

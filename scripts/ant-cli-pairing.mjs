@@ -70,6 +70,7 @@ function writeUsage(runtime) {
   runtime.writeOut('  list --room ROOM_ID [--json]');
   runtime.writeOut('  revoke <token> [--json]');
   runtime.writeOut('  qr <token> [--json]');
+  runtime.writeOut('QR device onboarding for rooms (pairing-tokens). For helper-app/agent attachment pairing use: ant helper pair');
 }
 
 async function fetchJson(runtime, path, init = {}) {

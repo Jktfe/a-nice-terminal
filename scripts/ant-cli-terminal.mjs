@@ -1,7 +1,7 @@
 /**
  * `ant terminal ...` — operations on a named terminal (JWPK 2026-05-16).
  *
- *   ant terminal name|handle              show the terminal handle for the current pid
+ *   ant terminal name|handle              show the ANThandle for the current pid
  *   ant terminal <name>                   show info for the named terminal
  *   ant terminal <name> namechange <new>  rename
  *   ant terminal <name> post <msg>        post a message into the terminal chat
@@ -14,12 +14,10 @@
  * current-pid action, not a terminal called "name"/"handle". Tradeoff
  * accepted at the verb-design level.
  *
- * Deferred (need Phase 8 subsystems):
- *   listchatrooms (needs membership-by-terminal query)
- *   listtasks (needs tasks subsystem port)
- *   listmemories (needs memory CRUD port)
- *   listfiles (needs file-refs port)
- *   search (needs search-by-terminal endpoint)
+ * All verbs below are implemented (the Phase-8 deferrals — listchatrooms,
+ * listtasks, listmemories, listfiles, search — have since landed in this
+ * file; see runListChatrooms/runListTasks/runListMemories/runListFiles/
+ * runSearch).
  */
 
 import { processIdentityChain, pidStart as readPidStart } from './ant-cli-identity-chain.mjs';
@@ -122,7 +120,7 @@ function parseFlags(rawArgs, CliInputError) {
 
 function writeUsage(runtime) {
   runtime.writeOut('ant terminal <subcommand>');
-  runtime.writeOut('  name | handle                              current pid → terminal handle');
+  runtime.writeOut('  name | handle                              current pid → ANThandle');
   runtime.writeOut('  <name>                                     show info for the named terminal');
   runtime.writeOut('  <name> namechange <new-name>');
   runtime.writeOut('  <name> post <msg...>                       post into terminal chat');
@@ -458,7 +456,7 @@ async function runListMemories(identifier, args, runtime, CliInputError) {
  * `ant terminal <name> antread --lines N` — ANT-cleaned view (skips trust=raw "guff").
  *
  * Backed by GET /api/terminals/[id]/run-events?limit=N&kinds=...
- * The kind filter on antread excludes "raw" rows; everything else passes through.
+ * antread applies a curated kind ALLOWLIST (ANTREAD_KINDS) — only those kinds render; read passes everything.
  */
 
 /**
@@ -498,7 +496,7 @@ async function runHistory(identifier, args, runtime, CliInputError) {
     runtime.writeOut(`Matches for "${result.query}" in ${terminal.name} (${events.length} hits):`);
     for (const ev of events) {
       const ts = new Date(ev.ts_ms).toISOString().slice(11, 23);
-      const text = (ev.text ?? "").replace(/\n/g, "\\\\n");
+      const text = (ev.text ?? "").replace(/\n/g, "\\n");
       runtime.writeOut(`${ts}  [${ev.kind}]  ${text}`);
     }
     return 0;

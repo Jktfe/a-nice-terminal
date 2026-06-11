@@ -64,6 +64,7 @@ import { handleTunnelVerb } from './ant-cli-tunnel.mjs';
 import { handleVoiceVerb } from './ant-cli-voice.mjs';
 import { handleVoteVerb } from './ant-cli-vote.mjs';
 import { handleWhoamiVerb } from './ant-cli-whoami.mjs';
+import { handleHelperVerb } from './ant-cli-helper.mjs';
 import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-session.mjs';
 import { renderPermissionDeniedIfPresent } from './ant-cli-permission-denied.mjs';
 import { existsSync, readFileSync } from 'node:fs';
@@ -76,7 +77,7 @@ const ENV_SERVER_URL = process.env.ANT_SERVER_URL?.trim();
 const DISPATCH = {
   plan: handlePlanVerb, ask: handleAskVerb, artefact: handleArtefactVerb, attach: handleAttachVerb, bind: handleBindVerb, invite: handleInviteVerb, chat: handleChatVerb, connect: handleConnectVerb, room: handleRoomVerb,
   queue: handleQueueVerb, reaction: handleReactionVerb, reclaim: handleReclaimVerb, handle: handleHandleVerb, status: handleStatusVerb, delivery: handleDeliveryVerb, audit: handleAuditVerb, docs: handleDocsVerb,
-  deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, tools: handleToolsVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, request: handleRequestVerb, task: handleTaskVerb, memory: handleMemoryVerb, brief: handleBriefVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, vote: handleVoteVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb, whoami: handleWhoamiVerb
+  deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, tools: handleToolsVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, request: handleRequestVerb, task: handleTaskVerb, memory: handleMemoryVerb, brief: handleBriefVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, vote: handleVoteVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb, whoami: handleWhoamiVerb, helper: handleHelperVerb
 };
 
 export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, serverUrlSource: suppliedServerUrlSource, config, envTmuxPane } = {}) {
@@ -480,7 +481,9 @@ const WEDGE_HINT = `
     ant register --name <your-terminal-name> --handle <@your-handle>
   On Windows MSYS2 bash, if the implicit pidChain still anchors to a
   short-lived helper, pass --pid <stable-PID> to anchor to your long-
-  lived shell (run \`ps\` and pick the bash or wezterm process).`;
+  lived shell (run \`ps\` and pick the bash or wezterm process).
+  Re-running the same register is safe: it now declares the handle
+  even on a fresh terminal (this fixes previously wedged shells).`;
 
 function appendWedgeHintIfApplicable(rendered, message) {
   if (typeof message !== 'string') return rendered;
@@ -516,9 +519,12 @@ function printUsage({ writeOut, serverUrl }) {
   writeOut(`ant — fresh-ant CLI (server: ${serverUrl} — override with ANT_SERVER_URL)
 
 Verbs:
-  rooms list|create|members|invite|post|break|messages   Manage rooms + post + breaks.
-  connect --handle @h --name NAME       Connect this terminal with a durable ANT session.
-  bind --room ROOM --handle @h --terminal "Name"   Bind a friendly terminal to a room handle.
+  whoami [--json]                      Which ANThandle is mine? (exit 0 bound / 2 no-handle / 3 unregistered)
+  register --handle @h --name NAME     Register this terminal and declare its ANThandle (safe to re-run).
+  chat send <room> (--msg|--msg-file|--stdin)   Post a message with the durable witnessed credential.
+  helper pair|redeem|leases|revoke     Attachment lifecycle for paneless apps (NEVER paste pairing codes in rooms).
+  rooms list|create|members|invite|break|messages   Manage rooms (to post, use ant chat send).
+  connect --handle @h --name NAME       Connect this terminal and store its durable ANT credential.
   room members|add-member|aliases     Manage room admission and aliases.
   reaction list|add|remove            Manage message reactions.
   status show --room ROOM_ID          Show pane/terminal delivery status per room member.

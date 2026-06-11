@@ -86,7 +86,7 @@ export async function handleWhoamiVerb(action, args, runtime) {
       writeOut(
         flags.json
           ? JSON.stringify(payload, null, 2)
-          : `terminal ${payload.terminalName ?? payload.terminalId} registered but no handle — run: ant register --handle @<you>`
+          : `terminal ${payload.terminalName ?? payload.terminalId} registered but no handle — run: ant register --handle @<you> --name ${payload.terminalName ?? '<terminal-name>'}`
       );
     }
     return 2;
@@ -96,7 +96,7 @@ export async function handleWhoamiVerb(action, args, runtime) {
       writeOut(
         flags.json
           ? JSON.stringify(payload, null, 2)
-          : `no terminal record on this PID chain — run: ant register --handle @<you>`
+          : `no terminal record on this PID chain — run: ant register --handle @<you> --name <terminal-name>`
       );
     }
     return 3;
@@ -116,7 +116,7 @@ export async function handleWhoamiVerb(action, args, runtime) {
       writeOut(
         flags.json
           ? JSON.stringify(payload, null, 2)
-          : `stale-rebind: terminal ${payload.name ?? payload.terminalId} has a different pid_start than recorded — run: ant register --handle @<you>`
+          : `stale-rebind: terminal ${payload.name ?? payload.terminalId} has a different pid_start than recorded — run: ant register --handle @<you> --name ${payload.name ?? payload.terminalName ?? '<terminal-name>'}`
       );
     }
     return 6;
