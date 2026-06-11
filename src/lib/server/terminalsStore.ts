@@ -402,6 +402,50 @@ export function setTerminalModel(terminalId: string, model: string | null): bool
 }
 
 /**
+ * Terminals v2 (JWPK msg_om51nvohx5 2026-06-11): account_type and
+ * model_family are operator-selected per terminal, orthogonal to the CLI
+ * (agent_kind). Same opaque-string + null-clears semantics as setTerminalModel.
+ * The column is a fixed allow-list (NOT caller input) so there is no
+ * injection surface.
+ */
+export function setTerminalAccountType(terminalId: string, accountType: string | null): boolean {
+  const db = getIdentityDb();
+  const trimmed = typeof accountType === 'string' ? accountType.trim() : null;
+  const value = trimmed && trimmed.length > 0 ? trimmed : null;
+  const info = db.prepare(
+    `UPDATE terminals SET account_type = ?, updated_at = ? WHERE id = ?`
+  ).run(value, currentUnixSeconds(), terminalId);
+  return info.changes > 0;
+}
+
+export function setTerminalModelFamily(terminalId: string, family: string | null): boolean {
+  const db = getIdentityDb();
+  const trimmed = typeof family === 'string' ? family.trim() : null;
+  const value = trimmed && trimmed.length > 0 ? trimmed : null;
+  const info = db.prepare(
+    `UPDATE terminals SET model_family = ?, updated_at = ? WHERE id = ?`
+  ).run(value, currentUnixSeconds(), terminalId);
+  return info.changes > 0;
+}
+
+/** Batched {account_type, model_family} by id for the desk-directory GET. */
+export function listTerminalClassByIds(
+  ids: readonly string[]
+): Map<string, { accountType: string | null; modelFamily: string | null }> {
+  const result = new Map<string, { accountType: string | null; modelFamily: string | null }>();
+  if (ids.length === 0) return result;
+  const db = getIdentityDb();
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db
+    .prepare(`SELECT id, account_type, model_family FROM terminals WHERE id IN (${placeholders})`)
+    .all(...ids) as Array<{ id: string; account_type: string | null; model_family: string | null }>;
+  for (const row of rows) {
+    result.set(row.id, { accountType: row.account_type ?? null, modelFamily: row.model_family ?? null });
+  }
+  return result;
+}
+
+/**
  * Single authority for terminal lifecycle transitions. The status flip
  * and the name rewrite are fused into ONE transaction so "becoming
  * archived" and "vacating the base name" can never be partially applied.

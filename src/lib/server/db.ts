@@ -176,6 +176,14 @@ const SCHEMA_DDL_STATEMENTS = [
   // string is the user's tag, not a canonical model id — purely aesthetic
   // grouping ("Kimi running in codex" vs "codex running in codex").
   `ALTER TABLE terminals ADD COLUMN model TEXT`,
+  // Terminals v2 desk directory (JWPK msg_om51nvohx5 2026-06-11): CLI,
+  // account, and model-family are THREE orthogonal per-terminal attributes,
+  // each operator-selectable on the desk pane. agent_kind already stores the
+  // CLI; these two add the other dimensions (a Codex CLI on Ollama-cloud, a
+  // Claude CLI on Bedrock — the kind no longer implies the account or family).
+  // Opaque strings; the canonical pick-lists live in the UI.
+  `ALTER TABLE terminals ADD COLUMN account_type TEXT`,
+  `ALTER TABLE terminals ADD COLUMN model_family TEXT`,
   // Terminal lifecycle status (JWPK A Team msg_w7sfmc4hpp + msg_8m9xsw8d62
   // 2026-05-29). Source of truth for "is this terminal usable for routing
   // right now". Distinct from pane_status (verified/stale/unknown — last

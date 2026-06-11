@@ -27,7 +27,8 @@ import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle'
 import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 import {
   autoRegisterTerminalForSpawnedSession,
-  listTerminalModelsByIds
+  listTerminalModelsByIds,
+  listTerminalClassByIds
 } from '$lib/server/terminalsStore';
 
 function makeSessionId(): string {
@@ -50,6 +51,7 @@ export const GET: RequestHandler = async () => {
   // antV4 2026-05-28). Fold null/missing into null so the UI can render
   // an "unspecified" subgroup cleanly.
   const modelById = listTerminalModelsByIds(rawRecords.map((r) => r.session_id));
+  const classById = listTerminalClassByIds(rawRecords.map((r) => r.session_id));
   // Terminals-page v2 (JWPK sketch 2026-06-11): the desk chip carries a
   // status bubble + room count. agent_status lives on `terminals` (keyed by
   // id = session_id); room membership count comes from room_memberships.
@@ -86,6 +88,8 @@ export const GET: RequestHandler = async () => {
     bootCommand: r.boot_command,
     agentStatus: statusById.get(r.session_id) ?? null,
     roomCount: roomCountById.get(r.session_id) ?? 0,
+    accountType: classById.get(r.session_id)?.accountType ?? null,
+    modelFamily: classById.get(r.session_id)?.modelFamily ?? null,
     createdAtMs: r.created_at_ms,
     updatedAtMs: r.updated_at_ms,
     alive: aliveSet.has(r.session_id)
