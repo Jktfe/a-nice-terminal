@@ -587,9 +587,14 @@ async function resolveMessageAuthorOnSeam(
   const presentedPane =
     typeof paneRaw === 'string' && paneRaw.trim().length > 0 ? paneRaw.trim() : null;
   const mode = readIdentityReadMode();
+  // pidChain → terminal lets the witness resolve by terminal when the live
+  // pane can't be corroborated (desktop apps / detached spawns).
+  const pidChainTerminalId = pidChain.length > 0
+    ? (lookupTerminalByPidChain(pidChain)?.id ?? null)
+    : null;
   if (mode === 'clean') {
     const { pane } = corroboratePaneFact(presentedPane, pidChain);
-    const witnessed = resolveCallerIdentity({ pane, legacy: () => null });
+    const witnessed = resolveCallerIdentity({ pane, terminalId: pidChainTerminalId, legacy: () => null });
     if (!witnessed.ok) {
       rejectMessageIdentity(roomId, 'No daemon-witnessed binding for this caller (clean identity mode).');
     }
@@ -615,6 +620,7 @@ async function resolveMessageAuthorOnSeam(
     const { pane } = corroboratePaneFact(presentedPane, pidChain);
     resolveCallerIdentity({
       pane,
+      terminalId: pidChainTerminalId,
       legacy: () => ({
         handle: legacyResolution.handle,
         terminalId: legacyResolution.callerTerminalId ?? null

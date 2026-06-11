@@ -86,6 +86,24 @@ export function getLiveBindingByPane(pane: string): HandleBindingRow | null {
   return row ?? null;
 }
 
+/**
+ * Witness read by TERMINAL: the live binding whose terminal_id matches. This
+ * is the read the resolver uses when a caller's pidChain resolves to a known
+ * terminal but the live pane can't be corroborated (desktop apps / detached
+ * spawns whose process tree doesn't include the tmux pane shell — the
+ * grandfathered-straggler hole, fableClaude specimen 2026-06-11). The binding
+ * is still daemon-witnessed; we are keying the lookup on the terminal the
+ * pidChain proves, not on a fresh pane corroboration.
+ */
+export function getLiveBindingByTerminal(terminalId: string): HandleBindingRow | null {
+  const db = getIdentityDb();
+  const row = db.prepare(
+    `SELECT * FROM handle_bindings WHERE terminal_id = ? AND tombstoned_at_ms IS NULL
+     ORDER BY bound_at_ms DESC LIMIT 1`
+  ).get(terminalId) as HandleBindingRow | undefined;
+  return row ?? null;
+}
+
 export function listLiveBindings(): HandleBindingRow[] {
   const db = getIdentityDb();
   return db.prepare(

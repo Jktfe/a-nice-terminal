@@ -133,3 +133,26 @@ describe('resolveCallerIdentity — SHADOW (the proving mode)', () => {
     expect(rows[0].detail).toMatchObject({ legacy_handle: '@dave', witness_handle: null });
   });
 });
+
+describe('resolveCallerIdentity — terminal fallback (grandfathered-straggler hole)', () => {
+  beforeEach(() => { process.env.ANT_IDENTITY_READ = 'clean'; });
+
+  it('CLEAN: resolves by pidChain-proven terminal when the pane cannot be corroborated', () => {
+    bindHandle({ handle: '@desk', pane: '%9', pid: 1, pidStart: null, terminalId: 't_desk' });
+    // caller presents NO corroborated pane (desktop app), but pidChain proved t_desk
+    const result = resolveCallerIdentity({ pane: null, terminalId: 't_desk', legacy: () => null });
+    expect(result).toEqual({ ok: true, identity: { handle: '@desk', terminalId: 't_desk', source: 'witness' } });
+  });
+
+  it('CLEAN: no binding for the terminal and no pane → still unresolved', () => {
+    const result = resolveCallerIdentity({ pane: null, terminalId: 't_nobinding', legacy: () => null });
+    expect(result).toEqual({ ok: false, reason: 'identity_unresolved' });
+  });
+
+  it('CLEAN: corroborated pane wins over terminal (strongest fresh signal first)', () => {
+    bindHandle({ handle: '@bypane', pane: '%9', pid: 1, pidStart: null, terminalId: 't_a' });
+    bindHandle({ handle: '@byterm', pane: '%8', pid: 2, pidStart: null, terminalId: 't_b' });
+    const result = resolveCallerIdentity({ pane: '%9', terminalId: 't_b', legacy: () => null });
+    expect(result.ok && result.identity.handle).toBe('@bypane');
+  });
+});

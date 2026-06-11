@@ -21,7 +21,7 @@
  *    amended AC1). No witnessed binding → identity_unresolved.
  */
 
-import { getLiveBindingByPane } from './handleBindingsStore';
+import { getLiveBindingByPane, getLiveBindingByTerminal } from './handleBindingsStore';
 import { appendLedger } from './identityLedgerStore';
 
 export type IdentityReadMode = 'legacy' | 'shadow' | 'clean';
@@ -41,6 +41,13 @@ export type IdentityResolution =
 export type ResolveCallerInput = {
   /** tmux pane the transport presented (delivery envelope / register), if any. */
   pane: string | null;
+  /**
+   * Terminal the caller's pidChain resolved to, if the endpoint already did
+   * that lookup. The witness binding is keyed to the terminal, so a caller
+   * whose pidChain proves the terminal is witnessed even when the live pane
+   * can't be corroborated (desktop apps / detached spawns).
+   */
+  terminalId?: string | null;
   /** The endpoint's current resolution path, deferred so clean mode never runs it. */
   legacy: () => LegacyIdentity | null;
 };
@@ -50,9 +57,12 @@ export function readIdentityReadMode(): IdentityReadMode {
   return raw === 'shadow' || raw === 'clean' ? raw : 'legacy';
 }
 
-function witnessAnswer(pane: string | null): ResolvedIdentity | null {
-  if (!pane) return null;
-  const binding = getLiveBindingByPane(pane);
+function witnessAnswer(pane: string | null, terminalId?: string | null): ResolvedIdentity | null {
+  // Pane corroboration first (the strongest fresh signal); fall back to the
+  // pidChain-proven terminal's binding (daemon-witnessed, just not freshly
+  // pane-corroborated — the desktop/detached case).
+  const binding = (pane ? getLiveBindingByPane(pane) : null)
+    ?? (terminalId ? getLiveBindingByTerminal(terminalId) : null);
   if (!binding) return null;
   return { handle: binding.handle, terminalId: binding.terminal_id, source: 'witness' };
 }
@@ -61,7 +71,7 @@ export function resolveCallerIdentity(input: ResolveCallerInput): IdentityResolu
   const mode = readIdentityReadMode();
 
   if (mode === 'clean') {
-    const witness = witnessAnswer(input.pane);
+    const witness = witnessAnswer(input.pane, input.terminalId);
     if (!witness) return { ok: false, reason: 'identity_unresolved' };
     return { ok: true, identity: witness };
   }
@@ -69,7 +79,7 @@ export function resolveCallerIdentity(input: ResolveCallerInput): IdentityResolu
   const legacy = input.legacy();
 
   if (mode === 'shadow') {
-    const witness = witnessAnswer(input.pane);
+    const witness = witnessAnswer(input.pane, input.terminalId);
     const legacyHandle = legacy?.handle ?? null;
     const witnessHandle = witness?.handle ?? null;
     if (legacyHandle !== witnessHandle) {

@@ -133,6 +133,10 @@ export const POST: RequestHandler = async ({ request }) => {
   const legacyHandle = handle;
   const resolution = resolveCallerIdentity({
     pane: corroboratedPane,
+    // pidChain already proved this terminal; the witness binding is keyed to
+    // it, so clean-mode resolves even when the live pane can't be corroborated
+    // (desktop apps / detached spawns — the grandfathered-straggler hole).
+    terminalId: terminal.id,
     legacy: () => (legacyHandle ? { handle: legacyHandle, terminalId: terminal.id } : null)
   });
 
