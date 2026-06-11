@@ -1020,6 +1020,67 @@ describe('POST /api/identity/register', () => {
       expect(listLedger({}).filter((e) => e.kind === 'resolver.disagreement')).toHaveLength(0);
       expect(getLiveBinding('@comeback')?.pane).toBe('%93');
     });
+
+    describe('CLEAN mode: refuse-or-claim (AC3, the cutover behaviour)', () => {
+      beforeEach(() => { process.env.ANT_IDENTITY_READ = 'clean'; });
+
+      it('occupied handle (live witnessed binding on another pane) → 403 handle_occupied, nothing inherited, ledgered + owner notified', async () => {
+        bindHandle({ handle: '@taken-clean', pane: '%60', pid: 6100, pidStart: 'occ', terminalId: 't_occ' });
+        getIdentityDb().prepare(`UPDATE handles SET owners = ? WHERE handle = ?`)
+          .run(JSON.stringify(['@JWPK']), '@taken-clean');
+        corroborate('%61', 6101);
+        const response = await callPost(JSON.stringify({
+          name: 'CleanIntruder', pids: [{ pid: 6101, pid_start: 'clean-intruder' }],
+          pane: '%61', handle: '@taken-clean'
+        }));
+        expect(response.status).toBe(403);
+        const payload = await response.json();
+        expect(payload.permission_denied.reason).toBe('handle_occupied');
+        expect(payload.permission_denied.approvers[0].handle).toBe('@JWPK');
+        // the incumbent binding is untouched; no suffix terminal was minted under the handle
+        expect(getLiveBinding('@taken-clean')?.pane).toBe('%60');
+        const kinds = listLedger({ handle: '@taken-clean' }).map((e) => e.kind);
+        expect(kinds).toContain('handle.claim-refused');
+        expect(kinds).toContain('owner.notified');
+      });
+
+      it('vacant handle → instant claim, 201, binding witnessed on the new pane', async () => {
+        bindHandle({ handle: '@vacant-clean', pane: '%62', pid: 6200, pidStart: 'old', terminalId: 't_old' });
+        const { tombstoneBinding } = await import('$lib/server/handleBindingsStore');
+        tombstoneBinding('@vacant-clean', 'pane-not-found');
+        corroborate('%63', 6201);
+        const response = await callPost(JSON.stringify({
+          name: 'CleanReclaimer', pids: [{ pid: 6201, pid_start: 'clean-reclaim' }],
+          pane: '%63', handle: '@vacant-clean'
+        }));
+        expect(response.status).toBe(201);
+        expect(getLiveBinding('@vacant-clean')?.pane).toBe('%63');
+      });
+
+      it('own-pane re-register of an occupied handle is a reclaim of your own desk, not a collision', async () => {
+        corroborate('%64', 6301);
+        const first = await callPost(JSON.stringify({
+          name: 'CleanSelf', pids: [{ pid: 6301, pid_start: 'clean-self' }],
+          pane: '%64', handle: '@self-clean'
+        }));
+        expect(first.status).toBe(201);
+        const again = await callPost(JSON.stringify({
+          name: 'CleanSelf', pids: [{ pid: 6301, pid_start: 'clean-self' }],
+          pane: '%64', handle: '@self-clean'
+        }));
+        expect(again.status).toBe(201);
+      });
+
+      it('free handle (never bound) → 201 with no refusal machinery touched', async () => {
+        corroborate('%65', 6401);
+        const response = await callPost(JSON.stringify({
+          name: 'CleanFresh', pids: [{ pid: 6401, pid_start: 'clean-fresh' }],
+          pane: '%65', handle: '@fresh-clean'
+        }));
+        expect(response.status).toBe(201);
+        expect(listLedger({ handle: '@fresh-clean' }).map((e) => e.kind)).not.toContain('handle.claim-refused');
+      });
+    });
   });
 
 });

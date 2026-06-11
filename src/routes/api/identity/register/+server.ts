@@ -43,9 +43,10 @@ import { backfillActiveLeasesFromRoomMemberships } from '$lib/server/roomHandleL
 import { reclaimCleanHandleIfStale } from '$lib/server/roomHandleLeaseClean';
 import { listRoomsForHandle, rebindMemberSessionIfStale } from '$lib/server/membershipStore';
 import { resolveOrNull } from '$lib/server/sessionResolver';
-import { bindHandle, getLiveBinding } from '$lib/server/handleBindingsStore';
+import { bindHandle, getHandleRow, getLiveBinding } from '$lib/server/handleBindingsStore';
 import { appendLedger } from '$lib/server/identityLedgerStore';
 import { corroboratePaneFact } from '$lib/server/paneFactCorroboration';
+import { buildHandleOccupiedPayload } from '$lib/server/permissionDeniedPayload';
 import { readIdentityReadMode } from '$lib/server/callerIdentityResolver';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
@@ -247,9 +248,51 @@ export const POST: RequestHandler = async ({ request }) => {
   // Third-adopter shadow (msg_i5mnwve57r): remember what the caller ASKED
   // for and what the witness shows BEFORE any suffix/dual-write mutates
   // either — the AC3 comparison is requested-vs-granted against what
-  // refuse-or-claim would have done at claim time.
+  // refuse-or-claim would have done at claim time. Corroboration runs ONCE
+  // here and is reused by every consumer below (refusal check, dual-write,
+  // shadow comparison) so a spoofed pane ledgers exactly one signature row.
   const requestedHandle = handleValue;
   const witnessBindingAtClaim = requestedHandle ? getLiveBinding(requestedHandle) : null;
+  const { pane: corroboratedPane } = paneValue
+    ? corroboratePaneFact(paneValue, pidsList)
+    : { pane: null };
+  // CUTOVER BEHAVIOUR — refuse-or-claim (AC3, contract ratified 2026-06-10;
+  // soak sequencing msg_l7gimewpiy). Active ONLY when ANT_IDENTITY_READ=clean:
+  // a handle with a LIVE witnessed binding on a pane that is not the caller's
+  // own corroborated pane is OCCUPIED → the registration is refused with the
+  // structured handle_occupied payload (owners as approvers, rebind as the
+  // remedy), the refusal is ledgered, and the owners are notified. Nothing is
+  // inherited; no suffix is minted. Vacant or never-bound handles claim
+  // instantly. LEGACY and SHADOW behaviour is untouched.
+  if (
+    requestedHandle &&
+    readIdentityReadMode() === 'clean' &&
+    witnessBindingAtClaim !== null &&
+    witnessBindingAtClaim.pane !== corroboratedPane
+  ) {
+    const handleRow = getHandleRow(requestedHandle);
+    const owners = handleRow?.owners ?? [];
+    try {
+      appendLedger({
+        kind: 'handle.claim-refused', handle: requestedHandle, actor: 'daemon',
+        detail: {
+          claimant_pane: corroboratedPane, claimant_pid: leafPid.pid,
+          incumbent_pane: witnessBindingAtClaim.pane
+        }
+      });
+      if (owners.length > 0) {
+        appendLedger({
+          kind: 'owner.notified', handle: requestedHandle, actor: 'daemon',
+          detail: { reason: 'claim-refused', owners, pane: corroboratedPane }
+        });
+      }
+    } catch { /* ledger best-effort; the refusal itself is the contract act */ }
+    throw error(403, buildHandleOccupiedPayload({
+      handle: requestedHandle,
+      owners,
+      ...(corroboratedPane ? { claimant_pane: corroboratedPane } : {})
+    }) as unknown as App.Error);
+  }
   if (handleValue) {
     const claimedBy = findActiveTerminalRecordByHandle(handleValue);
     if (
@@ -332,9 +375,7 @@ export const POST: RequestHandler = async ({ request }) => {
       // Corroboration gate (msg_fjbp2o97h9, applies in EVERY mode): register
       // WRITES the witness table, so an uncorroborated pane must never feed
       // it — that would poison the very data the cutover flatline measures.
-      // corroboratePaneFact ledgers the spoof signature itself; registration
-      // responses are unaffected.
-      const { pane: corroboratedPane } = corroboratePaneFact(paneValue, pidsList);
+      // The corroboration ran once above; reuse its verdict here.
       if (corroboratedPane) {
         bindHandle({
           handle: handleValue,
