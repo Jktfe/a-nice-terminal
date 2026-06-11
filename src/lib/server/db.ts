@@ -109,6 +109,26 @@ const SCHEMA_DDL_STATEMENTS = [
     revoked_at_ms      INTEGER
   )`,
   `CREATE INDEX IF NOT EXISTS idx_admissions_room_created ON chat_remote_admissions (room_id, created_at_ms DESC)`,
+  // antAppHelper lease (SPEC §3): a revocable, TTL'd, SCOPED credential bound to
+  // ONE handle, carrying owners[]. The scope is FIXED by the contract (a
+  // lease-holder may subscribe to the handle's delivery feed, fire routes, and
+  // post status — never author, claim handles, or approve), so it lives as a
+  // code constant in helperLeaseStore, not a per-row column. A lease-holder is
+  // never a member — the two-identity-class rule survives untouched.
+  `CREATE TABLE IF NOT EXISTS helper_leases (
+    id              TEXT PRIMARY KEY,
+    handle          TEXT NOT NULL,
+    owners          TEXT NOT NULL,
+    secret_hash     TEXT NOT NULL,
+    paired_host     TEXT,
+    created_by      TEXT,
+    created_at_ms   INTEGER NOT NULL,
+    expires_at_ms   INTEGER,
+    revoked_at_ms   INTEGER,
+    last_seen_at_ms INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_helper_leases_handle ON helper_leases (handle, created_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_helper_leases_secret ON helper_leases (secret_hash)`,
   `CREATE TABLE IF NOT EXISTS chat_remote_mappings (
     id                     TEXT PRIMARY KEY,
     room_id                TEXT NOT NULL,
