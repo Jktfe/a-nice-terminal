@@ -3,7 +3,7 @@
  *
  * The verb every fresh shell runs first. Walks the caller's PID chain
  * locally, POSTs it to /api/identity/whoami, and exits with a code the
- * agent's shell can branch on instead of guessing from stale session
+ * agent's shell can branch on instead of guessing from stale conversation
  * context. Spec: docs/concepts/ant-whoami-primitive.md. Co-signed by
  * @speedy + @v4claude in Heroes room (msg_so9awpjlmw + msg_eqce1j2cec).
  *
@@ -86,7 +86,7 @@ export async function handleWhoamiVerb(action, args, runtime) {
       writeOut(
         flags.json
           ? JSON.stringify(payload, null, 2)
-          : `terminal ${payload.terminalName ?? payload.terminalId} registered but no handle — run: ant register --handle @<you> --name ${payload.terminalName ?? '<terminal-name>'}`
+          : `terminal ${payload.terminalName ?? payload.terminalId} registered but no handle — run: ant register --handle @<you> --name "${payload.terminalName ?? '<terminal-name>'}"`
       );
     }
     return 2;
@@ -116,7 +116,7 @@ export async function handleWhoamiVerb(action, args, runtime) {
       writeOut(
         flags.json
           ? JSON.stringify(payload, null, 2)
-          : `stale-rebind: terminal ${payload.name ?? payload.terminalId} has a different pid_start than recorded — run: ant register --handle @<you> --name ${payload.name ?? payload.terminalName ?? '<terminal-name>'}`
+          : `stale-rebind: terminal ${payload.name ?? payload.terminalId} has a different pid_start than recorded — run: ant register --handle @<you> --name "${payload.name ?? payload.terminalName ?? '<terminal-name>'}"`
       );
     }
     return 6;

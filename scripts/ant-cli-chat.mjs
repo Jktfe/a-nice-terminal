@@ -540,7 +540,6 @@ async function sendJsonWithCookie(runtime, path, method, body, cookieValue, base
  *   --stdin              — body read from process stdin. Pairs naturally
  *                          with a heredoc: `ant chat send R --stdin <<'EOF'`.
  *   --msg-stdin          — legacy alias for --stdin.
- *                          with a heredoc: `ant chat send R --msg-stdin <<'EOF'`.
  *
  * `--body` remains as a legacy alias for `--msg`. Exactly one of the four
  * inputs must be provided; supplying two raises CliInputError so callers

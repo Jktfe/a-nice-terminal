@@ -3,7 +3,8 @@
  * ant — small CLI driving the ANT vNext server from a terminal via fetch.
  * Default target http://127.0.0.1:6174 (override with ANT_SERVER_URL).
  * Sub-verbs dispatched to ./ant-cli-<verb>.mjs handlers. Tests mock fetch
- * and capture stdout/stderr. 9-year-old-readable; stay under 260 lines.
+ * and capture stdout/stderr. 9-year-old-readable; verb logic lives in the
+ * per-verb modules, this file stays a thin router.
  */
 
 import { processIdentityChain } from './ant-cli-identity-chain.mjs';
