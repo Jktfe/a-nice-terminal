@@ -11,7 +11,7 @@ import type { RequestHandler } from './$types';
 import { tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate';
 import { getTerminalById, setTerminalAccountType } from '$lib/server/terminalsStore';
 
-export const ACCOUNT_TYPES = [
+const ACCOUNT_TYPES = [
   'Claude Subscription', 'Codex Subscription', 'Ollama Subscription',
   'Gemini Subscription', 'Qwen Subscription', 'Quiver Subscription',
   'Copilot Subscription', 'Local', 'External'

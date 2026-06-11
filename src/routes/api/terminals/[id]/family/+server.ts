@@ -11,7 +11,7 @@ import type { RequestHandler } from './$types';
 import { tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate';
 import { getTerminalById, setTerminalModelFamily } from '$lib/server/terminalsStore';
 
-export const MODEL_FAMILIES = [
+const MODEL_FAMILIES = [
   'Claude', 'Codex', 'MiniMax', 'Kimi', 'Qwen', 'glm', 'Gemini', 'Quiver',
   'Gemma', 'GPT-OSS', 'AFM', 'Other-Ollama-Cloud', 'Other-Cloud', 'Other-Local'
 ] as const;
