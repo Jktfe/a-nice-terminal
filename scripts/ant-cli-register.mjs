@@ -171,6 +171,14 @@ export async function runRegister(runtime) {
   // mutating process.env.
   const detectedPane = flags.pane ?? runtime.envTmuxPane ?? process.env.TMUX_PANE ?? process.env.WEZTERM_PANE ?? null;
   if (detectedPane) registerBody.pane = detectedPane;
+  // Cut-live fix (2026-06-11, caught by the reclaim sweep): present the
+  // durable session token so a self-re-register passes the server's
+  // ownership exemption even when the calling shell's pid has drifted from
+  // the stored one (restarted shells, tool-spawned subshells). Without it
+  // the live-name 409 fires against the caller's OWN terminal. Same
+  // resolution order as resolve: ANT_SESSION_ID env, then config byPane.
+  const durableSessionId = durableSessionIdForRuntime(runtime);
+  if (durableSessionId) registerBody.sessionToken = durableSessionId;
   if (flags['agent-kind']) registerBody.agent_kind = flags['agent-kind'];
 
   // Explicit flags skip the prompt entirely.

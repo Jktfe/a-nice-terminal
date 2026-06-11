@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { handleRegisterVerb, handleAddVerb, handleResolveVerb, chooseRegisterPidChain } from './ant-cli-register.mjs';
+import { handleRegisterVerb, handleAddVerb, handleResolveVerb, chooseRegisterPidChain, runRegister } from './ant-cli-register.mjs';
 
 class CliInputError extends Error {}
 
@@ -320,5 +320,37 @@ describe('chooseRegisterPidChain', () => {
     const chain = [HELPER, BASH, WEZTERM];
     chooseRegisterPidChain(chain, false);
     expect(chain).toEqual([HELPER, BASH, WEZTERM]);
+  });
+});
+
+describe('register presents the durable session token (cut-live fix)', () => {
+  const prevEnv = process.env.ANT_SESSION_ID;
+  const restore = () => {
+    if (prevEnv === undefined) delete process.env.ANT_SESSION_ID;
+    else process.env.ANT_SESSION_ID = prevEnv;
+  };
+
+  it('includes sessionToken from ANT_SESSION_ID so self-re-register passes the ownership exemption', async () => {
+    process.env.ANT_SESSION_ID = 't_mine';
+    try {
+      const { runtime, captured } = makeRuntime([okJson({ terminal_id: 't_mine', name: 'n', session_id: 't_mine' })]);
+      runtime.flags = { name: 'n', handle: '@me' };
+      runtime.CliInputError = CliInputError;
+      await runRegister(runtime);
+      const body = JSON.parse(captured.calls[0].init.body);
+      expect(body.sessionToken).toBe('t_mine');
+    } finally { restore(); }
+  });
+
+  it('omits sessionToken when no durable session is known', async () => {
+    delete process.env.ANT_SESSION_ID;
+    try {
+      const { runtime, captured } = makeRuntime([okJson({ terminal_id: 't_x', name: 'n', session_id: 's' })]);
+      runtime.flags = { name: 'n' };
+      runtime.CliInputError = CliInputError;
+      await runRegister(runtime);
+      const body = JSON.parse(captured.calls[0].init.body);
+      expect('sessionToken' in body).toBe(false);
+    } finally { restore(); }
   });
 });
