@@ -84,6 +84,14 @@
     return own ? own.emoji : null;
   });
 
+  // Collapsed per-emoji summary (JWPK 2026-06-12): render each emoji ONCE
+  // with a reactor count + a tooltip listing who reacted — rather than one
+  // glyph per reactor, which floods the row when many agents 🧏‍♂️-ack.
+  // Only emojis that actually have reactors render.
+  const summaryEmojis = $derived(
+    FIXED_EMOJI_SET.filter((emoji) => reactorsForEmoji(emoji).length > 0)
+  );
+
   async function toggleReaction(emoji: string) {
     const method = userHasReactedWith(emoji) ? 'DELETE' : 'POST';
     try {
@@ -137,6 +145,24 @@
   role="group"
   aria-label="Reactions"
 >
+  {#each summaryEmojis as emoji (emoji)}
+    {@const reactors = reactorsForEmoji(emoji)}
+    <button
+      type="button"
+      class="reaction-summary"
+      class:active={reactors.includes(asHandle)}
+      title={`${REACTION_EMOJI_LABELS[emoji]} — ${reactors.join(', ')}`}
+      aria-label={`${REACTION_EMOJI_LABELS[emoji]}: ${reactors.length} reacted (${reactors.join(', ')}). Click to toggle yours.`}
+      onclick={(event) => {
+        event.stopPropagation();
+        void toggleReaction(emoji);
+      }}
+    >
+      <span class="summary-emoji" aria-hidden="true">{emoji}</span>
+      <span class="summary-count">{reactors.length}</span>
+    </button>
+  {/each}
+
   <button
     type="button"
     class="reaction-trigger"
@@ -193,6 +219,46 @@
     display: inline-flex;
     /* MessageRowActions owns bottom-right row placement. Keeping this
        component in flow prevents it from covering neighbouring actions. */
+  }
+  /* Collapsed reaction summary chip: emoji + count, one per emoji, with a
+     native tooltip (title) listing who reacted (JWPK 2026-06-12). */
+  .reaction-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.18rem;
+    height: 1.6rem;
+    padding: 0 0.45rem;
+    margin-right: 0.25rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    background: var(--surface-card);
+    color: var(--ink-strong);
+    font: inherit;
+    font-size: 0.9rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 0.12s ease, transform 0.12s ease;
+  }
+  .reaction-summary:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .reaction-summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .reaction-summary.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface-card));
+  }
+  .summary-count {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  .reaction-summary.active .summary-count {
+    color: var(--ink-strong);
   }
   .reaction-trigger {
     display: inline-flex;
