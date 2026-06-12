@@ -429,18 +429,26 @@ export function revokeInvite(inviteId: string): boolean {
  * (filtered to the operator's owned set) the pairable list for the helper.
  * Colony-wide and de-duplicated; ordered for stable display.
  */
-export function listAcceptedInviteHandles(): { handle: string; kind: InviteKind }[] {
+export function listAcceptedInviteHandles(): {
+  handle: string;
+  kind: InviteKind;
+  invitedBy: string | null;
+}[] {
   const db = getIdentityDb();
+  // The invite's creator OWNS the accepted handle (owner chain ends at a human —
+  // the inviter). We carry created_by so callers scope to the operator's own
+  // invitees without depending on the (patchily-populated) handles.owners table.
   const rows = db
     .prepare(
-      `SELECT handle, kind, MAX(last_seen_at) AS last_seen
-         FROM chat_invite_tokens
-        WHERE revoked_at IS NULL AND handle IS NOT NULL AND handle != ''
-        GROUP BY handle, kind
-        ORDER BY handle ASC`
+      `SELECT t.handle AS handle, t.kind AS kind, ci.created_by AS invited_by
+         FROM chat_invite_tokens t
+         JOIN chat_invites ci ON ci.id = t.invite_id
+        WHERE t.revoked_at IS NULL AND t.handle IS NOT NULL AND t.handle != ''
+        GROUP BY t.handle, t.kind, ci.created_by
+        ORDER BY t.handle ASC`
     )
-    .all() as { handle: string; kind: InviteKind; last_seen: string | null }[];
-  return rows.map((r) => ({ handle: r.handle, kind: r.kind }));
+    .all() as { handle: string; kind: InviteKind; invited_by: string | null }[];
+  return rows.map((r) => ({ handle: r.handle, kind: r.kind, invitedBy: r.invited_by }));
 }
 
 export function listActiveInvitesForRoom(roomId: string): PublicInviteSummary[] {
