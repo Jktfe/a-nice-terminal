@@ -3,14 +3,9 @@
  * Lives outside $lib/server so the client can import it without dragging
  * server-only modules into the bundle.
  *
- * Per JWPK 2026-05-13 EMOJI-TRIM: reactions are constrained to this
- * spectrum, labelled Bad / OK / Good / Celebrate / Question in the picker.
- *
- * Per JWPK 2026-06-12: 🧏‍♂️ "Heard" added as a lightweight acknowledge-
- * without-replying signal — agents react with it instead of posting
- * "Ack @x" / "thanks @y" text, which just burns tokens. It's an
- * acknowledgement marker rather than part of the Bad→Question sentiment
- * spectrum, so it sits last.
+ * Per JWPK 2026-05-13 EMOJI-TRIM plus 2026-06-12 heard/read: reactions are
+ * constrained to this small canonical spectrum so room coordination signals
+ * stay readable instead of becoming a free-for-all emoji protocol.
  */
 
 export const ALLOWED_REACTION_EMOJI = ['👎', '👌', '👍', '🙌', '🙋‍♂️', '🧏‍♂️'] as const;
@@ -28,5 +23,5 @@ export const REACTION_EMOJI_LABELS: Record<AllowedReactionEmoji, string> = {
   '👍': 'Good',
   '🙌': 'Celebrate',
   '🙋‍♂️': 'Question',
-  '🧏‍♂️': 'Heard'
+  '🧏‍♂️': 'Heard / read'
 };

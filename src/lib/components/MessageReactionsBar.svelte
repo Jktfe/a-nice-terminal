@@ -1,5 +1,5 @@
 <!--
-  MessageReactionsBar — JWPK-canonical 5-emoji reactions for one chat
+  MessageReactionsBar — JWPK-canonical reactions for one chat
   message, refactored to a single-trigger + popover-picker per JWPK
   msg_90prrrfb6x ("show it independently as then it stops managing
   different states and the reactions can go bottom right").
@@ -7,7 +7,7 @@
   Visual: ONE always-rendered trigger button in the message action strip.
   The trigger shows the caller's current reaction emoji
   (or a '+' placeholder if they haven't reacted). Clicking the trigger
-  opens a small popover with the 5 canonical emojis + their reactor
+  opens a small popover with the canonical emojis + their reactor
   counts. Clicking any emoji in the popover toggles the caller's
   reaction and closes the picker; clicking outside the picker closes it.
 
@@ -38,7 +38,7 @@
 
   let { roomId, messageId, asHandle = '@JWPK' }: Props = $props();
 
-  // EMOJI-TRIM canonical spectrum: Bad / OK / Good / Celebrate / Question.
+  // Canonical spectrum: Bad / OK / Good / Celebrate / Question / Heard-read.
   const FIXED_EMOJI_SET = ALLOWED_REACTION_EMOJI;
 
   let reactionsOnThisMessage = $state<MessageReaction[]>([]);

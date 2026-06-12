@@ -92,10 +92,10 @@ describe('messageReactionStore', () => {
   });
 
   it('accepts every emoji in the JWPK-canonical allowlist', () => {
-    for (const allowed of ['👎', '👌', '👍', '🙌', '🙋‍♂️']) {
+    for (const allowed of ['👎', '👌', '👍', '🙌', '🙋‍♂️', '🧏‍♂️']) {
       addReactionToMessage({ messageId: 'msg_a', reactorHandle: `@${allowed}`, emoji: allowed });
     }
-    expect(listReactionsForMessage('msg_a')).toHaveLength(5);
+    expect(listReactionsForMessage('msg_a')).toHaveLength(6);
   });
 
   it('rejects an emoji longer than the cap', () => {

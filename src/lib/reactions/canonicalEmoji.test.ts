@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
+
 import {
   ALLOWED_REACTION_EMOJI,
-  isAllowedReactionEmoji,
-  REACTION_EMOJI_LABELS
+  REACTION_EMOJI_LABELS,
+  isAllowedReactionEmoji
 } from './canonicalEmoji';
 
-describe('canonicalEmoji', () => {
+describe('canonical reaction emoji', () => {
   it('has exactly 6 allowed emojis', () => {
     expect(ALLOWED_REACTION_EMOJI).toHaveLength(6);
   });
@@ -32,6 +33,12 @@ describe('canonicalEmoji', () => {
     expect(REACTION_EMOJI_LABELS['👌']).toBe('OK');
     expect(REACTION_EMOJI_LABELS['🙌']).toBe('Celebrate');
     expect(REACTION_EMOJI_LABELS['🙋‍♂️']).toBe('Question');
-    expect(REACTION_EMOJI_LABELS['🧏‍♂️']).toBe('Heard');
+    expect(REACTION_EMOJI_LABELS['🧏‍♂️']).toBe('Heard / read');
+  });
+
+  it('includes the heard/read emoji as the low-noise acknowledgement signal', () => {
+    expect(ALLOWED_REACTION_EMOJI).toContain('🧏‍♂️');
+    expect(isAllowedReactionEmoji('🧏‍♂️')).toBe(true);
+    expect(REACTION_EMOJI_LABELS['🧏‍♂️']).toBe('Heard / read');
   });
 });

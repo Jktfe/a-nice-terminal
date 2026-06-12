@@ -1,4 +1,5 @@
 const BOOLEAN_FLAGS = new Set(['json']);
+const HEARD_READ_EMOJI = '🧏‍♂️';
 
 export async function handleReactionVerb(action, args, runtime, ctx) {
   const { CliInputError } = ctx;
@@ -7,9 +8,10 @@ export async function handleReactionVerb(action, args, runtime, ctx) {
     case 'list': return runList(flags, runtime, CliInputError);
     case 'add': return runAdd(flags, runtime, CliInputError);
     case 'remove': return runRemove(flags, runtime, CliInputError);
+    case 'heard': return runHeard(flags, runtime, CliInputError);
   }
   if (!action || action === 'help' || action === '--help') {
-    runtime.writeOut('ant reaction <list|add|remove> [flags]');
+    runtime.writeOut('ant reaction <list|add|remove|heard> [flags]');
     return action ? 0 : 1;
   }
   throw new CliInputError(`unknown reaction verb: ${action}`);
@@ -74,6 +76,18 @@ async function runAdd(flags, runtime, CliInputError) {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
   });
   writeJsonOrText(runtime, flags, payload, `Reaction added: ${body.emoji}`);
+  return 0;
+}
+
+async function runHeard(flags, runtime, CliInputError) {
+  const body = {
+    reactorHandle: requireFlag(flags, 'handle', CliInputError),
+    emoji: HEARD_READ_EMOJI
+  };
+  const payload = await fetchJson(runtime, reactionPath(flags, CliInputError), {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+  });
+  writeJsonOrText(runtime, flags, payload, `Heard/read reaction added: ${HEARD_READ_EMOJI}`);
   return 0;
 }
 

@@ -72,8 +72,17 @@ describe('ant reaction wrappers', () => {
     });
     await runner.run(['help']);
     const code = await runner.run(['reaction', 'list', '--room', 'room-a', '--message', 'msg-1']);
-    expect(out.join('\n')).toContain('  reaction list|add|remove');
+    expect(out.join('\n')).toContain('  reaction list|add|remove|heard');
     expect(code).toBe(0);
     expect(calls[0].url).toBe('http://test.local/api/chat-rooms/room-a/messages/msg-1/reactions');
+  });
+
+  it('R6: heard posts the canonical heard/read emoji without a freeform --emoji flag', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ reaction: { id: 'r1' } }, 201));
+    await handleReactionVerb('heard', ['--room', 'room-a', '--message', 'msg-1', '--handle', '@codex'], runtime, { CliInputError });
+
+    expect(captured.requests[0].init.method).toBe('POST');
+    expect(bodyAt(captured)).toMatchObject({ reactorHandle: '@codex', emoji: '🧏‍♂️' });
+    expect(captured.stdout.join('\n')).toContain('Heard/read reaction added: 🧏‍♂️');
   });
 });

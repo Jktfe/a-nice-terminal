@@ -527,7 +527,7 @@ Verbs:
   rooms list|create|members|invite|break|messages   Manage rooms (to post, use ant chat send).
   connect --handle @h --name NAME       Connect this terminal and store its durable ANT credential.
   room members|add-member|aliases     Manage room admission and aliases.
-  reaction list|add|remove            Manage message reactions.
+  reaction list|add|remove|heard      Manage message reactions.
   status show --room ROOM_ID          Show pane/terminal delivery status per room member.
   delivery verify --terminal ID       Show delivery state (verified/stale/unknown) + reason.
   audit permissions --room ROOM_ID    Audit identity proofs for every room member.
