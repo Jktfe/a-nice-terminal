@@ -44,11 +44,11 @@
 
   // Collapsed by default — it's a lot of real estate to keep open (JWPK).
   let expanded = $state(false);
-  // Handle is chosen from the ANThandles the operator OWNS (JWPK + fClaude
-  // 2026-06-12: "only ones I own… security and all that"). No free-typing and no
-  // "new handle" — you can't pair a handle you don't own, and the server
-  // enforces it too; creating a handle is a separate, deliberate act.
-  let availableHandles = $state<string[]>([]);
+  // The handle list is the EXACT live set the terminals page shows — passed in
+  // as a prop from the page so the dropdown matches it by construction (JWPK
+  // 2026-06-12: "this should match with this"; no separate liveness judgment in
+  // the dropdown). Ownership is still enforced SERVER-side at mint.
+  let { handles = [] }: { handles?: string[] } = $props();
   let selectedHandle = $state('');
   const effectiveHandle = $derived(selectedHandle.trim());
   let role = $state<Role>('reader');
@@ -62,13 +62,6 @@
   let loadingLeases = $state(true);
 
   const canMint = $derived(effectiveHandle.replace(/^@+/, '').length > 0 && !minting);
-
-  async function loadHandles() {
-    try {
-      const res = await fetch('/api/helper/handles', { credentials: 'include' });
-      if (res.ok) availableHandles = ((await res.json()).handles ?? []) as string[];
-    } catch { /* dropdown stays empty; nothing to pair if you own nothing */ }
-  }
 
   async function loadLeases() {
     loadingLeases = true;
@@ -106,7 +99,6 @@
       minted = { code: p.code, handle: p.handle, role: p.role, expiresAtMs: p.expiresAtMs };
       selectedHandle = '';
       void loadLeases();
-      void loadHandles();
     } catch (e) {
       mintError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -132,7 +124,7 @@
     return `expires ${new Date(ms).toLocaleString()}`;
   }
 
-  onMount(() => { void loadLeases(); void loadHandles(); });
+  onMount(loadLeases);
 </script>
 
 <section class="anthandles">
@@ -149,14 +141,14 @@
   <div class="grid">
     <form class="mint" onsubmit={(e) => { e.preventDefault(); if (canMint) void mint(); }}>
       <label>
-        <span>Handle to pair <span class="hint-inline">(only handles you own)</span></span>
+        <span>Handle to pair <span class="hint-inline">(your live desks — matches the directory below)</span></span>
         <select bind:value={selectedHandle}>
           <option value="" disabled>Choose an ANThandle…</option>
-          {#each availableHandles as h (h)}<option value={h}>{h}</option>{/each}
+          {#each handles as h (h)}<option value={h}>{h}</option>{/each}
         </select>
       </label>
-      {#if availableHandles.length === 0}
-        <p class="no-handles">You don't own any handles yet — nothing to pair.</p>
+      {#if handles.length === 0}
+        <p class="no-handles">No live desks to pair right now.</p>
       {/if}
 
       <fieldset class="roles">
