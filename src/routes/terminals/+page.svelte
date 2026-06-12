@@ -14,6 +14,7 @@
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import TerminalCard from '$lib/components/TerminalCard.svelte';
   import UsageStrip from '$lib/components/UsageStrip.svelte';
+  import HelperPairingPanel from '$lib/components/HelperPairingPanel.svelte';
   import UsageBadge from '$lib/components/UsageBadge.svelte';
   import type { UsagePayload } from '$lib/usage/types';
   import { agentKinds } from '$lib/stores/agentKinds.svelte';
@@ -443,6 +444,7 @@
 
 <SimplePageShell eyebrow="Terminals" title="Terminals." summary="Two-tier: tmux panes without a handle on top; handle-bearing ANT terminals below.">
   <UsageStrip />
+  <HelperPairingPanel />
   <section class="terminal-controls">
     <button type="button" class="primary" onclick={openSpawnModal} disabled={creating}>
       {creating ? 'Working…' : '+ New ANT terminal'}
