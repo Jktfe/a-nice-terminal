@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Stats } from 'node:fs';
-import { _resolveReadPlan } from './ptyClient';
+import { _resolveReadPlan, _resolveTmuxBin } from './ptyClient';
 
 // Minimal Stats stand-in — _resolveReadPlan only reads .size and .ino.
 function st(size: number, ino: number): Stats {
@@ -46,5 +46,34 @@ describe('_resolveReadPlan — .out recovery decision matrix', () => {
   it('oversized append: resets to EOF instead of replaying a giant chunk through the server', () => {
     const plan = _resolveReadPlan(100, 42, st(10_000, 42), 1024);
     expect(plan).toEqual({ from: 10_000, reset: true, skippedOversizedAppend: true });
+  });
+});
+
+describe('_resolveTmuxBin — tmux binary resolution order', () => {
+  it('ANT_TMUX_BIN env override wins over every existing well-known path', () => {
+    const bin = _resolveTmuxBin({ ANT_TMUX_BIN: '/custom/tmux' }, () => true);
+    expect(bin).toBe('/custom/tmux');
+  });
+
+  it('Apple Silicon Homebrew path preferred when both well-known paths exist', () => {
+    const bin = _resolveTmuxBin({}, () => true);
+    expect(bin).toBe('/opt/homebrew/bin/tmux');
+  });
+
+  it('falls back to /usr/local/bin/tmux on Intel Macs (no /opt/homebrew install)', () => {
+    // The audit bug: this machine class lost terminals entirely under the
+    // hardcoded /opt/homebrew path.
+    const bin = _resolveTmuxBin({}, (path) => path === '/usr/local/bin/tmux');
+    expect(bin).toBe('/usr/local/bin/tmux');
+  });
+
+  it('falls back to bare "tmux" (PATH lookup) when no well-known path exists', () => {
+    const bin = _resolveTmuxBin({}, () => false);
+    expect(bin).toBe('tmux');
+  });
+
+  it('empty-string ANT_TMUX_BIN is treated as unset (truthy guard — deliberately stricter than the ?? sites, which would spawn "")', () => {
+    const bin = _resolveTmuxBin({ ANT_TMUX_BIN: '' }, (path) => path === '/usr/local/bin/tmux');
+    expect(bin).toBe('/usr/local/bin/tmux');
   });
 });

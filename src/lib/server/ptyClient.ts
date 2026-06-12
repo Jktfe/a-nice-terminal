@@ -23,7 +23,26 @@ import { StringDecoder } from 'node:string_decoder';
 
 const execFile = promisify(execFileCb);
 
-const TMUX = '/opt/homebrew/bin/tmux';
+/** Well-known tmux install locations, in preference order: Homebrew on
+ *  Apple Silicon, then Homebrew/MacPorts-adjacent on Intel (/usr/local). */
+const TMUX_CANDIDATES = ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux'];
+
+/** Resolve the tmux binary this module spawns. Order: ANT_TMUX_BIN env
+ *  override (matches parsers/_shared.ts and the other TMUX_BIN sites),
+ *  first existing well-known path, then bare 'tmux' so PATH-only installs
+ *  still work. Exported for unit tests — production callers use TMUX. */
+export function _resolveTmuxBin(
+  env: Record<string, string | undefined> = process.env,
+  exists: (path: string) => boolean = existsSync
+): string {
+  if (env.ANT_TMUX_BIN) return env.ANT_TMUX_BIN;
+  for (const candidate of TMUX_CANDIDATES) {
+    if (exists(candidate)) return candidate;
+  }
+  return 'tmux';
+}
+
+const TMUX = _resolveTmuxBin();
 const ANT_DIR = join(process.env.HOME || '/tmp', '.ant');
 const PTY_DIR = join(ANT_DIR, 'pty');
 export const DEFAULT_MAX_PTY_DRAIN_BYTES = 16 * 1024;
