@@ -53,6 +53,37 @@ describe('buildExternalLLMPrompt', () => {
     expect(prompt).not.toContain('Open asks');
   });
 
+  test('includes linked rooms when present', () => {
+    const prompt = buildExternalPrompt({
+      ...samplePayload,
+      linkedRooms: [
+        {
+          direction: 'outgoing',
+          relationship: 'follows_up',
+          roomId: 'room_next',
+          roomName: 'Next room',
+          title: 'Follow-up room'
+        },
+        {
+          direction: 'incoming',
+          relationship: 'spawned_from',
+          roomId: 'room_source',
+          roomName: 'Source room',
+          title: null
+        }
+      ]
+    });
+
+    expect(prompt).toContain('Linked rooms:');
+    expect(prompt).toContain('links to **Follow-up room** (follows_up; room room_next)');
+    expect(prompt).toContain('linked from **Source room** (spawned_from; room room_source)');
+  });
+
+  test('omits linked-room section when absent', () => {
+    const prompt = buildExternalPrompt(samplePayload);
+    expect(prompt).not.toContain('Linked rooms:');
+  });
+
   test('omits recent-messages section when empty', () => {
     const prompt = buildExternalPrompt({ ...samplePayload, recentMessagesMarkdown: '' });
     expect(prompt).not.toContain('Recent conversation:');

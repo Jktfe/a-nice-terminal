@@ -8,6 +8,7 @@ import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoom
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { resetChatMessageStoreForTests, postMessage } from '$lib/server/chatMessageStore';
 import { listBringInLaunchesForOperator } from '$lib/server/bringInAppStore';
+import { createRoomLink } from '$lib/server/chatRoomLinkStore';
 
 const ADMIN_TOKEN = 'test-admin-token-bring-in-app';
 
@@ -116,6 +117,50 @@ describe('POST /api/chat-rooms/:roomId/bring-in-app', () => {
     expect(launches).toHaveLength(1);
     expect(launches[0].target).toBe('claude-desktop');
     expect(launches[0].roomId).toBe(room.id);
+  });
+
+  it('includes linked-room context in the payload', async () => {
+    const room = createChatRoom({ name: 'Main room', whoCreatedIt: '@you' });
+    const outgoing = createChatRoom({ name: 'Planning room', whoCreatedIt: '@you' });
+    const incoming = createChatRoom({ name: 'Source room', whoCreatedIt: '@you' });
+    createRoomLink({
+      sourceRoomId: room.id,
+      targetRoomId: outgoing.id,
+      relationship: 'follows_up',
+      title: 'Plan next cut',
+      createdBy: '@you'
+    });
+    createRoomLink({
+      sourceRoomId: incoming.id,
+      targetRoomId: room.id,
+      relationship: 'spawned_from',
+      title: null,
+      createdBy: '@you'
+    });
+
+    const res = await run(POST as unknown as AnyHandler, eventFor(room.id, {
+      bearer: ADMIN_TOKEN,
+      body: { target: 'claude-desktop' }
+    }));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.payload.linkedRooms).toEqual([
+      {
+        direction: 'outgoing',
+        relationship: 'follows_up',
+        roomId: outgoing.id,
+        roomName: 'Planning room',
+        title: 'Plan next cut'
+      },
+      {
+        direction: 'incoming',
+        relationship: 'spawned_from',
+        roomId: incoming.id,
+        roomName: 'Source room',
+        title: null
+      }
+    ]);
   });
 
   it('records distinct launches for each target', async () => {

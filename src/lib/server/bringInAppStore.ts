@@ -25,6 +25,11 @@
 import { getIdentityDb } from './db';
 import { findChatRoomById, type ChatRoom } from './chatRoomStore';
 import { listMessagesInRoom } from './chatMessageStore';
+import {
+  listIncomingRoomLinks,
+  listOutgoingRoomLinks,
+  type RoomLinkWithPeer
+} from './chatRoomLinkStore';
 
 const DEFAULT_MESSAGE_COUNT = 30;
 
@@ -51,9 +56,18 @@ export type RoomContextPayload = {
   roomId: string;
   roomName: string;
   roomDescription: string | null;
+  linkedRooms: RoomContextLinkedRoom[];
   recentMessagesMarkdown: string;
   openAsksMarkdown: string | null;
   generatedAtMs: number;
+};
+
+export type RoomContextLinkedRoom = {
+  direction: 'outgoing' | 'incoming';
+  relationship: string;
+  roomId: string;
+  roomName: string;
+  title: string | null;
 };
 
 export type BringInLaunchRecord = {
@@ -123,14 +137,32 @@ export function mintRoomContextPayload(input: {
     : askRows
         .map((a) => `- **${a.title}** (opened by ${a.opened_by_display_name ?? a.opened_by_handle})`)
         .join('\n');
+  const linkedRooms = [
+    ...listOutgoingRoomLinks(input.roomId).map((link) => roomLinkToPayload('outgoing', link)),
+    ...listIncomingRoomLinks(input.roomId).map((link) => roomLinkToPayload('incoming', link))
+  ];
 
   return {
     roomId: room.id,
     roomName: room.name,
     roomDescription: room.description,
+    linkedRooms,
     recentMessagesMarkdown,
     openAsksMarkdown,
     generatedAtMs: nowMs
+  };
+}
+
+function roomLinkToPayload(
+  direction: RoomContextLinkedRoom['direction'],
+  link: RoomLinkWithPeer
+): RoomContextLinkedRoom {
+  return {
+    direction,
+    relationship: link.relationship,
+    roomId: link.peerRoomId,
+    roomName: link.peerRoomName,
+    title: link.title
   };
 }
 
@@ -201,6 +233,14 @@ export function payloadByteSize(payload: RoomContextPayload): number {
   return (
     (payload.roomName?.length ?? 0)
     + (payload.roomDescription?.length ?? 0)
+    + payload.linkedRooms.reduce((sum, link) => (
+      sum
+      + link.direction.length
+      + link.relationship.length
+      + link.roomId.length
+      + link.roomName.length
+      + (link.title?.length ?? 0)
+    ), 0)
     + payload.recentMessagesMarkdown.length
     + (payload.openAsksMarkdown?.length ?? 0)
   );

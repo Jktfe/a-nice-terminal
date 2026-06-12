@@ -18,9 +18,18 @@ export type RoomContextPayload = {
   roomId: string;
   roomName: string;
   roomDescription: string | null;
+  linkedRooms?: RoomContextLinkedRoom[];
   recentMessagesMarkdown: string;
   openAsksMarkdown: string | null;
   generatedAtMs: number;
+};
+
+export type RoomContextLinkedRoom = {
+  direction: 'outgoing' | 'incoming';
+  relationship: string;
+  roomId: string;
+  roomName: string;
+  title: string | null;
 };
 
 export type BringInAppResponse = {

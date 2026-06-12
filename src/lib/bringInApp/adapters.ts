@@ -57,6 +57,14 @@ function buildExternalLLMPrompt(
   if (payload.openAsksMarkdown) {
     sections.push(`Open asks in this room:\n${payload.openAsksMarkdown}`);
   }
+  if (payload.linkedRooms?.length) {
+    const rows = payload.linkedRooms.map((link) => {
+      const direction = link.direction === 'outgoing' ? 'links to' : 'linked from';
+      const label = link.title || link.roomName;
+      return `- ${direction} **${label}** (${link.relationship}; room ${link.roomId})`;
+    });
+    sections.push(`Linked rooms:\n${rows.join('\n')}`);
+  }
   if (payload.recentMessagesMarkdown) {
     sections.push(`Recent conversation:\n${payload.recentMessagesMarkdown}`);
   }
