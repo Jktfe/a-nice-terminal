@@ -6,8 +6,8 @@ import {
 } from './canonicalEmoji';
 
 describe('canonicalEmoji', () => {
-  it('has exactly 5 allowed emojis', () => {
-    expect(ALLOWED_REACTION_EMOJI).toHaveLength(5);
+  it('has exactly 6 allowed emojis', () => {
+    expect(ALLOWED_REACTION_EMOJI).toHaveLength(6);
   });
 
   it('allows canonical emojis', () => {
@@ -16,6 +16,7 @@ describe('canonicalEmoji', () => {
     expect(isAllowedReactionEmoji('👌')).toBe(true);
     expect(isAllowedReactionEmoji('🙌')).toBe(true);
     expect(isAllowedReactionEmoji('🙋‍♂️')).toBe(true);
+    expect(isAllowedReactionEmoji('🧏‍♂️')).toBe(true);
   });
 
   it('rejects non-canonical emojis', () => {
@@ -31,5 +32,6 @@ describe('canonicalEmoji', () => {
     expect(REACTION_EMOJI_LABELS['👌']).toBe('OK');
     expect(REACTION_EMOJI_LABELS['🙌']).toBe('Celebrate');
     expect(REACTION_EMOJI_LABELS['🙋‍♂️']).toBe('Question');
+    expect(REACTION_EMOJI_LABELS['🧏‍♂️']).toBe('Heard');
   });
 });
