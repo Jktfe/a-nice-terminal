@@ -77,6 +77,28 @@ describe('ant reaction wrappers', () => {
     expect(calls[0].url).toBe('http://test.local/api/chat-rooms/room-a/messages/msg-1/reactions');
   });
 
+  it('R7: add/heard/remove attach the durable session identity so the post-gate resolves the ANThandle (not pidChain)', async () => {
+    // JWPK 2026-06-12: reactions 401'd because the CLI sent NO identity. Fix
+    // mirrors `chat send` — x-ant-session-id header + sessionId in body — so the
+    // mutation gate's clean-session path (Step 3c) resolves the witnessed
+    // binding. pidChain rides along only as corroboration, never as the identity.
+    const prev = process.env.ANT_SESSION_ID;
+    process.env.ANT_SESSION_ID = 't_reactor';
+    try {
+      for (const action of ['add', 'heard', 'remove']) {
+        const { runtime, captured } = makeRuntime(() => okJson({ reaction: { id: 'r1' } }, 201));
+        const args = ['--room', 'room-a', '--message', 'msg-1', '--handle', '@codex'];
+        if (action !== 'heard') args.push('--emoji', '👍');
+        await handleReactionVerb(action, args, runtime, { CliInputError });
+        expect(captured.requests[0].init.headers['x-ant-session-id']).toBe('t_reactor');
+        expect(bodyAt(captured).sessionId).toBe('t_reactor');
+      }
+    } finally {
+      if (prev === undefined) delete process.env.ANT_SESSION_ID;
+      else process.env.ANT_SESSION_ID = prev;
+    }
+  });
+
   it('R6: heard posts the canonical heard/read emoji without a freeform --emoji flag', async () => {
     const { runtime, captured } = makeRuntime(() => okJson({ reaction: { id: 'r1' } }, 201));
     await handleReactionVerb('heard', ['--room', 'room-a', '--message', 'msg-1', '--handle', '@codex'], runtime, { CliInputError });

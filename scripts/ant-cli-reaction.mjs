@@ -1,5 +1,30 @@
+import { processIdentityChain } from './ant-cli-identity-chain.mjs';
+import {
+  withDurableSessionIdentity,
+  durableSessionHeaders,
+  attachmentHeaders
+} from './ant-cli-chat.mjs';
+
 const BOOLEAN_FLAGS = new Set(['json']);
 const HEARD_READ_EMOJI = '🧏‍♂️';
+
+// Identity attachment for reaction mutations (JWPK 2026-06-12). Reactions used
+// to 401 because the CLI sent NO identity at all. The mutation gate's clean
+// path resolves the WITNESSED BINDING from the durable session (x-ant-session-id
+// header + sessionId in the body) — the ANThandle, NOT pidChain. pidChain rides
+// along only to corroborate the session→terminal binding; it is never the
+// identity. attachmentHeaders lets a paneless agent react via its lease. This
+// mirrors `ant chat send` exactly so reactions authenticate the same way posts do.
+function identifiedReaction(runtime, flags, room, body) {
+  return {
+    body: withDurableSessionIdentity(runtime, room, { ...body, pidChain: processIdentityChain() }),
+    headers: {
+      'content-type': 'application/json',
+      ...attachmentHeaders(flags),
+      ...durableSessionHeaders(runtime, room)
+    }
+  };
+}
 
 export async function handleReactionVerb(action, args, runtime, ctx) {
   const { CliInputError } = ctx;
@@ -68,36 +93,39 @@ async function runList(flags, runtime, CliInputError) {
 }
 
 async function runAdd(flags, runtime, CliInputError) {
-  const body = {
+  const room = requireFlag(flags, 'room', CliInputError);
+  const { body, headers } = identifiedReaction(runtime, flags, room, {
     reactorHandle: requireFlag(flags, 'handle', CliInputError),
     emoji: requireFlag(flags, 'emoji', CliInputError)
-  };
+  });
   const payload = await fetchJson(runtime, reactionPath(flags, CliInputError), {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+    method: 'POST', headers, body: JSON.stringify(body)
   });
   writeJsonOrText(runtime, flags, payload, `Reaction added: ${body.emoji}`);
   return 0;
 }
 
 async function runHeard(flags, runtime, CliInputError) {
-  const body = {
+  const room = requireFlag(flags, 'room', CliInputError);
+  const { body, headers } = identifiedReaction(runtime, flags, room, {
     reactorHandle: requireFlag(flags, 'handle', CliInputError),
     emoji: HEARD_READ_EMOJI
-  };
+  });
   const payload = await fetchJson(runtime, reactionPath(flags, CliInputError), {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+    method: 'POST', headers, body: JSON.stringify(body)
   });
   writeJsonOrText(runtime, flags, payload, `Heard/read reaction added: ${HEARD_READ_EMOJI}`);
   return 0;
 }
 
 async function runRemove(flags, runtime, CliInputError) {
-  const body = {
+  const room = requireFlag(flags, 'room', CliInputError);
+  const { body, headers } = identifiedReaction(runtime, flags, room, {
     reactorHandle: requireFlag(flags, 'handle', CliInputError),
     emoji: requireFlag(flags, 'emoji', CliInputError)
-  };
+  });
   const payload = await fetchJson(runtime, reactionPath(flags, CliInputError), {
-    method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+    method: 'DELETE', headers, body: JSON.stringify(body)
   });
   writeJsonOrText(runtime, flags, payload, `Reaction removed: ${body.emoji}`);
   return 0;
