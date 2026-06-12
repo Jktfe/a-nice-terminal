@@ -99,6 +99,19 @@ describe('ant reaction wrappers', () => {
     }
   });
 
+  it('R8: list (a read-gated GET) attaches x-ant-session-id so membership resolves', async () => {
+    const prev = process.env.ANT_SESSION_ID;
+    process.env.ANT_SESSION_ID = 't_reactor';
+    try {
+      const { runtime, captured } = makeRuntime(() => okJson({ reactions: [] }));
+      await handleReactionVerb('list', ['--room', 'room-a', '--message', 'msg-1'], runtime, { CliInputError });
+      expect(captured.requests[0].init.headers['x-ant-session-id']).toBe('t_reactor');
+    } finally {
+      if (prev === undefined) delete process.env.ANT_SESSION_ID;
+      else process.env.ANT_SESSION_ID = prev;
+    }
+  });
+
   it('R6: heard posts the canonical heard/read emoji without a freeform --emoji flag', async () => {
     const { runtime, captured } = makeRuntime(() => okJson({ reaction: { id: 'r1' } }, 201));
     await handleReactionVerb('heard', ['--room', 'room-a', '--message', 'msg-1', '--handle', '@codex'], runtime, { CliInputError });

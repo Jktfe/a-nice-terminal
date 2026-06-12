@@ -84,7 +84,13 @@ function writeJsonOrText(runtime, flags, payload, text) {
 }
 
 async function runList(flags, runtime, CliInputError) {
-  const payload = await fetchJson(runtime, reactionPath(flags, CliInputError));
+  // GET reactions is read-gated too — attach the durable session identity (and
+  // an attachment lease for paneless callers) so listing resolves the caller's
+  // membership the same way the post path does. No body on a GET, so just headers.
+  const room = requireFlag(flags, 'room', CliInputError);
+  const payload = await fetchJson(runtime, reactionPath(flags, CliInputError), {
+    headers: { ...attachmentHeaders(flags), ...durableSessionHeaders(runtime, room) }
+  });
   if (flags.json !== undefined) { runtime.writeOut(JSON.stringify(payload)); return 0; }
   for (const reaction of payload.reactions ?? []) {
     runtime.writeOut(`${reaction.reactorHandle}\t${reaction.emoji}`);
