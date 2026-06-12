@@ -422,6 +422,27 @@ export function revokeInvite(inviteId: string): boolean {
   return true;
 }
 
+/**
+ * Every ANThandle that has ACCEPTED an invite — a live (non-revoked) invite
+ * token carries a handle (JWPK + fClaude 2026-06-12: an invite went OUT and was
+ * ACCEPTED). These are the real cli/mcp/api agents the colony onboarded, and
+ * (filtered to the operator's owned set) the pairable list for the helper.
+ * Colony-wide and de-duplicated; ordered for stable display.
+ */
+export function listAcceptedInviteHandles(): { handle: string; kind: InviteKind }[] {
+  const db = getIdentityDb();
+  const rows = db
+    .prepare(
+      `SELECT handle, kind, MAX(last_seen_at) AS last_seen
+         FROM chat_invite_tokens
+        WHERE revoked_at IS NULL AND handle IS NOT NULL AND handle != ''
+        GROUP BY handle, kind
+        ORDER BY handle ASC`
+    )
+    .all() as { handle: string; kind: InviteKind; last_seen: string | null }[];
+  return rows.map((r) => ({ handle: r.handle, kind: r.kind }));
+}
+
 export function listActiveInvitesForRoom(roomId: string): PublicInviteSummary[] {
   const db = getIdentityDb();
   const rows = db

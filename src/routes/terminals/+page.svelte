@@ -444,7 +444,7 @@
 
 <SimplePageShell eyebrow="Terminals" title="Terminals." summary="Two-tier: tmux panes without a handle on top; handle-bearing ANT terminals below.">
   <UsageStrip />
-  <HelperPairingPanel handles={availableHandles} />
+  <HelperPairingPanel />
   <section class="terminal-controls">
     <button type="button" class="primary" onclick={openSpawnModal} disabled={creating}>
       {creating ? 'Working…' : '+ New ANT terminal'}
