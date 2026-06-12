@@ -30,18 +30,25 @@
     REACTION_EMOJI_LABELS
   } from '$lib/reactions/canonicalEmoji';
 
+  const HEARD_READ_EMOJI = '🧏‍♂️';
+
   type Props = {
     roomId: string;
     messageId: string;
     asHandle?: string;
+    initialReactions?: MessageReaction[];
   };
 
-  let { roomId, messageId, asHandle = '@JWPK' }: Props = $props();
+  let { roomId, messageId, asHandle = '@JWPK', initialReactions = [] }: Props = $props();
 
   // Canonical spectrum: Bad / OK / Good / Celebrate / Question / Heard-read.
   const FIXED_EMOJI_SET = ALLOWED_REACTION_EMOJI;
 
-  let reactionsOnThisMessage = $state<MessageReaction[]>([]);
+  function initialReactionSeed(): MessageReaction[] {
+    return initialReactions;
+  }
+
+  let reactionsOnThisMessage = $state<MessageReaction[]>(initialReactionSeed());
   let pickerOpen = $state(false);
   let containerElement = $state<HTMLDivElement | null>(null);
 
@@ -75,6 +82,8 @@
     return reactorsForEmoji(emoji).includes(asHandle);
   }
 
+  const heardReadReactors = $derived(reactorsForEmoji(HEARD_READ_EMOJI));
+
   // Caller's currently-chosen emoji, surfaced on the trigger button so
   // the bottom-right corner of every message shows what THIS user
   // already picked at a glance. Returns null when they haven't reacted.
@@ -84,20 +93,16 @@
     return own ? own.emoji : null;
   });
 
-  // Collapsed per-emoji summary (JWPK 2026-06-12): render each emoji ONCE
+  // Collapsed per-emoji summary (JWPK 2026-06-12): render each ordinary emoji ONCE
   // with a reactor count + a tooltip listing who reacted — rather than one
   // glyph per reactor, which floods the row when many agents 🧏‍♂️-ack.
-  // Only emojis that actually have reactors render.
+  // Heard/read renders in its own chip so the acknowledgement count + tooltip
+  // stays visually separate from sentiment/question reactions.
   const summaryEmojis = $derived(
-    FIXED_EMOJI_SET.filter((emoji) => reactorsForEmoji(emoji).length > 0)
+    FIXED_EMOJI_SET.filter(
+      (emoji) => emoji !== HEARD_READ_EMOJI && reactorsForEmoji(emoji).length > 0
+    )
   );
-
-  // 🧏‍♂️ "Heard / read" is a read-receipt, not an opinion — JWPK 2026-06-12
-  // wants it shown SEPARATELY from the sentiment reactions so its
-  // who's-heard tooltip reads cleanly. Split it out of the main summary.
-  const HEARD_EMOJI = '🧏‍♂️';
-  const sentimentSummary = $derived(summaryEmojis.filter((emoji) => emoji !== HEARD_EMOJI));
-  const heardReactors = $derived(reactorsForEmoji(HEARD_EMOJI));
 
   async function toggleReaction(emoji: string) {
     const method = userHasReactedWith(emoji) ? 'DELETE' : 'POST';
@@ -152,7 +157,24 @@
   role="group"
   aria-label="Reactions"
 >
-  {#each sentimentSummary as emoji (emoji)}
+  {#if heardReadReactors.length > 0}
+    <button
+      type="button"
+      class="heard-read-summary"
+      class:active={heardReadReactors.includes(asHandle)}
+      title={`${REACTION_EMOJI_LABELS[HEARD_READ_EMOJI]} — ${heardReadReactors.join(', ')}`}
+      aria-label={`${REACTION_EMOJI_LABELS[HEARD_READ_EMOJI]}: ${heardReadReactors.length} heard (${heardReadReactors.join(', ')}). Click to toggle yours.`}
+      onclick={(event) => {
+        event.stopPropagation();
+        void toggleReaction(HEARD_READ_EMOJI);
+      }}
+    >
+      <span class="summary-emoji" aria-hidden="true">{HEARD_READ_EMOJI}</span>
+      <span class="summary-count">{heardReadReactors.length}</span>
+    </button>
+  {/if}
+
+  {#each summaryEmojis as emoji (emoji)}
     {@const reactors = reactorsForEmoji(emoji)}
     <button
       type="button"
@@ -169,25 +191,6 @@
       <span class="summary-count">{reactors.length}</span>
     </button>
   {/each}
-
-  {#if heardReactors.length > 0}
-    <!-- Read-receipt, shown separately from sentiment reactions (JWPK
-         2026-06-12). Hover → who's heard. -->
-    <button
-      type="button"
-      class="reaction-summary heard"
-      class:active={heardReactors.includes(asHandle)}
-      title={`Heard / read — ${heardReactors.join(', ')}`}
-      aria-label={`Heard / read: ${heardReactors.length} (${heardReactors.join(', ')}). Click to toggle yours.`}
-      onclick={(event) => {
-        event.stopPropagation();
-        void toggleReaction(HEARD_EMOJI);
-      }}
-    >
-      <span class="summary-emoji" aria-hidden="true">{HEARD_EMOJI}</span>
-      <span class="summary-count">{heardReactors.length}</span>
-    </button>
-  {/if}
 
   <button
     type="button"
@@ -277,6 +280,35 @@
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 14%, var(--surface-card));
   }
+  .heard-read-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.18rem;
+    height: 1.6rem;
+    padding: 0 0.45rem;
+    margin-right: 0.35rem;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-card));
+    color: var(--ink-strong);
+    font: inherit;
+    font-size: 0.9rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 0.12s ease, transform 0.12s ease;
+  }
+  .heard-read-summary:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .heard-read-summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .heard-read-summary.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-card));
+  }
   .summary-count {
     font-size: 0.78rem;
     font-weight: 700;
@@ -285,12 +317,6 @@
   }
   .reaction-summary.active .summary-count {
     color: var(--ink-strong);
-  }
-  /* 🧏‍♂️ read-receipt: split off from the sentiment reactions with a clear
-     gap so it reads as "who's heard", not another opinion (JWPK). The pill
-     border already makes it a distinct chip — just space it apart. */
-  .reaction-summary.heard {
-    margin-left: 0.6rem;
   }
   .reaction-trigger {
     display: inline-flex;

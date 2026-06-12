@@ -2809,6 +2809,10 @@ function resolveDbFilePath(): string {
   return join(home, '.ant', 'fresh-ant.db');
 }
 
+function isVitestRuntime(): boolean {
+  return Boolean(process.env.VITEST);
+}
+
 function ensureParentDirectoryExists(dbFile: string): void {
   mkdirSync(dirname(dbFile), { recursive: true });
 }
@@ -3252,24 +3256,28 @@ export function getIdentityDb(): DatabaseInstance {
   // UNIQUE index. Idempotent + cheap (one SELECT when nothing to do). Cycle-safe
   // via dynamic import; runs AFTER the handle is cached so the re-entrant
   // getIdentityDb() inside setTerminalStatus returns the same instance.
-  try {
-    void import('./terminalsStore').then((module) => {
-      try { module.backfillArchivedTerminalTags(); } catch { /* idempotent — swallow */ }
-    });
-  } catch {
-    /* import failure (e.g. test env) — swallow */
+  if (!isVitestRuntime()) {
+    try {
+      void import('./terminalsStore').then((module) => {
+        try { module.backfillArchivedTerminalTags(); } catch { /* idempotent — swallow */ }
+      });
+    } catch {
+      /* import failure — swallow */
+    }
   }
   // JWPK cleanup 2026-06-03: do not auto-create hidden per-human inbox
   // chat rooms on boot. The live room model must only surface explicit rooms.
   // Manual canvas v2 seed (JWPK 2026-05-23 slice 1): hand-authored
   // annotations for the /rooms default state. Idempotent — only writes
   // when the table is empty. Cycle-safe via dynamic import.
-  try {
-    void import('./manualScreenSeed').then((module) => {
-      try { module.seedManualScreensIfEmpty(); } catch { /* idempotent — swallow */ }
-    });
-  } catch {
-    /* test env — swallow */
+  if (!isVitestRuntime()) {
+    try {
+      void import('./manualScreenSeed').then((module) => {
+        try { module.seedManualScreensIfEmpty(); } catch { /* idempotent — swallow */ }
+      });
+    } catch {
+      /* import failure — swallow */
+    }
   }
   return db;
 }
