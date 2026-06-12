@@ -73,6 +73,15 @@ export function retireHandle(
     const bindingTombstoned = getLiveBinding(handle) !== null
       ? tombstoneBinding(handle, opts.reason, nowMs)
       : false;
+    // Flip the handle's OWN lifecycle to RETIRED — the layer that distinguishes
+    // "killed, owner-gated reclaim, name still taken" from a merely-vacant
+    // active handle. Upsert so retiring a handle with leases but no handles row
+    // still records the state.
+    db.prepare(
+      `INSERT INTO handles (handle, created_at_ms, created_by, lifecycle)
+       VALUES (?, ?, NULL, 'retired')
+       ON CONFLICT(handle) DO UPDATE SET lifecycle = 'retired'`
+    ).run(handle, nowMs);
     appendLedger({
       kind: 'handle.retired',
       handle,

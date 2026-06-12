@@ -31,6 +31,8 @@ export type HandleBindingRow = {
   tombstone_reason: string | null;
 };
 
+export type HandleLifecycle = 'active' | 'retired' | 'deleted';
+
 export type HandleRow = {
   handle: string;
   owners: string[] | null;
@@ -38,6 +40,9 @@ export type HandleRow = {
   vacated_at_ms: number | null;
   created_at_ms: number;
   created_by: string | null;
+  /** ANThandle lifecycle state (JWPK ruling 2026-06-12); separate layer from
+   *  the binding state. 'active' | 'retired' | 'deleted'. */
+  lifecycle: HandleLifecycle;
 };
 
 export type BindHandleInput = {
@@ -145,7 +150,7 @@ export function bindHandle(input: BindHandleInput): HandleBindingRow {
     db.prepare(
       `INSERT INTO handles (handle, created_at_ms, created_by)
        VALUES (?, ?, ?)
-       ON CONFLICT(handle) DO UPDATE SET vacated_at_ms = NULL`
+       ON CONFLICT(handle) DO UPDATE SET vacated_at_ms = NULL, lifecycle = 'active'`
     ).run(handle, nowMs, input.spawnedBy ?? null);
     if (priorHandleRow?.vacated_at_ms != null && priorHandleRow.owners) {
       const owners = JSON.parse(priorHandleRow.owners) as string[];

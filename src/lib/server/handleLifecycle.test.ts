@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getIdentityDb, resetIdentityDbForTests } from './db';
 import { claimHandle, isMember } from './roomHandleLeaseClean';
-import { bindHandle, getLiveBinding } from './handleBindingsStore';
+import { bindHandle, getLiveBinding, getHandleRow } from './handleBindingsStore';
 import { listLedger } from './identityLedgerStore';
 import { retireHandle } from './handleLifecycle';
 
@@ -52,6 +52,19 @@ describe('retireHandle — the RETIRE verb (JWPK ruling msg_as5tbdtaf9, 2026-06-
       (e) => e.kind === 'handle.retired' && e.handle === '@straggler'
     );
     expect(retired).toHaveLength(1);
+  });
+
+  it('flips the handle lifecycle to RETIRED (and bind brings it back to ACTIVE)', () => {
+    bindHandle({ handle: '@cycle', pane: '%7', pid: 700, pidStart: 'x', terminalId: 't_cycle' });
+    expect(getHandleRow('@cycle')?.lifecycle).toBe('active');
+
+    retireHandle('@cycle', { reason: 'operator-retire', actor: '@JWPK' });
+    expect(getHandleRow('@cycle')?.lifecycle).toBe('retired');
+
+    // Owner reclaim re-binds → active again (owner-gating of the claim path is a
+    // later increment; this asserts the STATE transition).
+    bindHandle({ handle: '@cycle', pane: '%7', pid: 701, pidStart: 'y', terminalId: 't_cycle' });
+    expect(getHandleRow('@cycle')?.lifecycle).toBe('active');
   });
 
   it('is a safe summary when the handle holds nothing (idempotent re-retire)', () => {

@@ -2392,6 +2392,14 @@ const SCHEMA_DDL_STATEMENTS = [
     created_at_ms  INTEGER NOT NULL,
     created_by     TEXT
   )`,
+  // ANThandle LIFECYCLE state (JWPK ruling 2026-06-12, msg_gsn7k26f6n). The
+  // handle's OWN state, a SEPARATE layer from the binding state (bound/vacant
+  // lives in handle_bindings + vacated_at_ms). 'active' = assigned/in use;
+  // 'retired' = terminal killed but not deleted — unassigned, name still taken,
+  // reclaim is OWNER-gated; 'deleted' = anonymised to [A-#], name freed for
+  // reuse. Duplicate-column-tolerant (existing DBs keep their rows at the
+  // 'active' default; true state is set going forward by the lifecycle verbs).
+  `ALTER TABLE handles ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'active' CHECK (lifecycle IN ('active','retired','deleted'))`,
   // handle_bindings — ephemeral daemon-witnessed pane↔handle truth.
   // Exactly one live (un-tombstoned) row per handle, enforced structurally
   // by the partial unique index. spawned_by carries spawn lineage
