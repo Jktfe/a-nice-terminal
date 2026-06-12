@@ -371,6 +371,24 @@ export function retireActiveLeasesForHandle(
 }
 
 /**
+ * Every room in which this handle still holds an ACTIVE claim. Drives the
+ * all-rooms RETIRE sweep (handleLifecycle.retireHandle). ensureTable keeps it
+ * safe on a fresh DB that has never minted a lease (the table is created
+ * lazily, so a direct query would otherwise throw "no such table").
+ */
+export function listActiveLeaseRoomsForHandle(
+  rawHandle: string,
+  db = getIdentityDb()
+): string[] {
+  ensureTable(db);
+  const handle = normaliseBase(rawHandle);
+  const rows = db
+    .prepare(`SELECT DISTINCT room_id FROM room_handle_lease WHERE handle = ? AND active = 1`)
+    .all(handle) as Array<{ room_id: string }>;
+  return rows.map((r) => r.room_id);
+}
+
+/**
  * The display handle (@x or @x-N) for a session's lease in a room — drives both
  * current and historical post rendering. Returns the most recently-touched
  * lease for the session if it holds several (it should hold at most one).
