@@ -2379,7 +2379,7 @@ const SCHEMA_DDL_STATEMENTS = [
   // existing paths; nothing reads them for authority until the post-gate
   // read-flip (Step 2).
   // ---------------------------------------------------------------------
-  // handles — the durable TerminalHandle (the "desk"). Never deleted on
+  // handles — the durable ANThandle (the "desk"). Never deleted on
   // pane death; vacated_at_ms is set ONLY by the daemon witness. owners is
   // a JSON array of principals; the ≥1-human invariant is enforced in the
   // store layer (SQLite can't express it). approval: 0=off, 1=hold-for-

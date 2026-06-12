@@ -42,3 +42,12 @@ describe('substituteShortcutTokens', () => {
     );
   });
 });
+
+// 2026-06-12 naming ruling: [ANThandle] is the ruled token; the old
+// [terminalHandle] stays working so saved shortcuts never break.
+it('substitutes [ANThandle] and keeps [terminalHandle] as a legacy alias', () => {
+  expect(substituteShortcutTokens('/rename [ANThandle]', { terminalHandle: '@masterclaude' })).toBe(
+    '/rename @masterclaude'
+  );
+  expect(substituteShortcutTokens('[ANThandle] + [terminalHandle]', { terminalHandle: '@x' })).toBe('@x + @x');
+});

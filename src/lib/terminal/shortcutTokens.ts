@@ -29,11 +29,13 @@ export type ShortcutTokenValues = {
   terminalName?: string | null;
 };
 
-const TOKEN_RE = /\[(terminalHandle|terminalName)\]/g;
+// [ANThandle] is the ruled name (2026-06-12: terminalHandle → ANThandle);
+// [terminalHandle] stays as a legacy alias so saved shortcuts keep working.
+const TOKEN_RE = /\[(ANThandle|terminalHandle|terminalName)\]/g;
 
 export function substituteShortcutTokens(text: string, values: ShortcutTokenValues): string {
   return text.replace(TOKEN_RE, (whole, token: string) => {
-    const value = token === 'terminalHandle' ? values.terminalHandle : values.terminalName;
+    const value = token === 'terminalName' ? values.terminalName : values.terminalHandle;
     const trimmed = value?.trim();
     return trimmed && trimmed.length > 0 ? trimmed : whole;
   });
