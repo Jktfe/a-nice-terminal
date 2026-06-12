@@ -64,6 +64,15 @@ describe('COURIER body endpoint', () => {
     expect((await call('m1', 'untagged')).status).toBe(200);
   });
 
+  it('does NOT over-match: @bee is not mentioned by @beekeeper (no substring leak)', async () => {
+    h.msg = { ...h.msg!, body: 'ping @beekeeper about the hive' };
+    expect((await call('m1', 'direct')).status).toBe(204);
+    expect((await call('m1', 'everyone')).status).toBe(204);
+    // but a real token mention of @bee is admitted
+    h.msg = { ...h.msg!, body: 'thanks @bee!' };
+    expect((await call('m1', 'direct')).status).toBe(200);
+  });
+
   it('404 when the handle is not a member of the room', async () => {
     h.rooms = ['other_room'];
     await expect(call('m1', 'untagged')).rejects.toMatchObject({ status: 404 });

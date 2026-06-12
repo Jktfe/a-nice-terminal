@@ -33,10 +33,25 @@ function hasBareEveryone(body: string): boolean {
   return /(^|[^\w@])@everyone\b/i.test(body);
 }
 
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * A TOKEN mention of `handle` — word-boundary, NOT a substring. Mirrors
+ * hasBareEveryone so @bee does not match @beekeeper. This is the leak guard:
+ * substring matching here would courier a body intended for a longer handle.
+ */
+function mentions(body: string, handle: string): boolean {
+  const h = handle.replace(/^@/, '');
+  if (h.length === 0) return false;
+  return new RegExp(`(^|[^\\w@])@${escapeRe(h)}\\b`, 'i').test(body);
+}
+
 /** Does `body` fall within `scope` for `handle`? superset ladder. */
 function inScope(body: string, handle: string, scope: CourierScope): boolean {
   if (scope === 'untagged') return true;
-  const mentionsYou = body.toLowerCase().includes(handle.toLowerCase());
+  const mentionsYou = mentions(body, handle);
   if (scope === 'everyone') return mentionsYou || hasBareEveryone(body);
   return mentionsYou; // 'direct'
 }
