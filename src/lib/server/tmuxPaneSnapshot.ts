@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { getTerminalRecord } from './terminalRecordsStore';
-
-const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
+import { TMUX_BIN } from './tmuxBin';
 
 function scrubbedEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env } as Record<string, string | undefined>;

@@ -27,8 +27,7 @@ import {
   type AgentCli
 } from '$lib/server/agentStateReader';
 import { basename } from 'node:path';
-
-const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
+import { TMUX_BIN } from '$lib/server/tmuxBin';
 
 const AGENT_KIND_TO_CLI: Record<string, AgentCli> = {
   'claude': 'claude-code',

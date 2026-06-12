@@ -86,3 +86,17 @@ describe('/api/terminals/:id/agent-state', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('tmux binary resolution (rv1/tmux-unify)', () => {
+  it('probes pane cwd with the canonical TMUX_BIN from $lib/server/tmuxBin', async () => {
+    const { TMUX_BIN } = await import('$lib/server/tmuxBin');
+    const { spawnSync } = await import('node:child_process');
+    const spawnSyncMock = spawnSync as unknown as ReturnType<typeof vi.fn>;
+    spawnSyncMock.mockClear();
+    createTerminalRecord({ sessionId: 't-bin', name: 'Alpha', agentKind: 'claude-code', tmuxTargetPane: 'pane-1' });
+    const res = await run(GET as unknown as AnyHandler, eventFor('t-bin'));
+    expect(res.status).toBe(200);
+    expect(spawnSyncMock.mock.calls.length).toBeGreaterThan(0);
+    expect(spawnSyncMock.mock.calls[0][0]).toBe(TMUX_BIN);
+  });
+});

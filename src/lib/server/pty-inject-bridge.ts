@@ -28,8 +28,8 @@ import {
 } from './terminalsStore';
 import { getIdentityDb } from './db';
 import { tombstoneBindingsForPane } from './handleBindingsStore';
+import { TMUX_BIN } from './tmuxBin';
 
-const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
 const STALE_MARKER_WINDOW_SECONDS = 60 * 60;
 
 type SpawnImpl = (

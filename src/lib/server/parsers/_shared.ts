@@ -7,8 +7,9 @@ import { readdirSync, readSync, statSync, openSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
+import { TMUX_BIN } from '../tmuxBin';
 
-export const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
+export { TMUX_BIN };
 export const TMUX_PROBE_TIMEOUT_MS = 500;
 export const FIRST_LINE_CHUNK_BYTES = 16384;
 export const MAX_FIRST_LINE_BYTES = 131072; // 128 KB ceiling

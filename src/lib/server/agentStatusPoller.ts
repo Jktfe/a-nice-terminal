@@ -41,6 +41,7 @@ import {
   projectLiveAgentStateSnapshotToStatus,
   resolveAgentStateSnapshotForTerminal
 } from './agentStateProjection';
+import { TMUX_BIN } from './tmuxBin';
 export { defaultTmuxCaptureFn };
 export type { CaptureFn };
 
@@ -56,7 +57,6 @@ const HOOK_FRESH_MS = 30_000;
 // stops crawling promptly — the evidence-max guard prevents false-idling a
 // genuinely-busy agent mid-operation.
 const STALE_VOLATILE_DECAY_DEFAULT_MS = 45_000;
-const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
 const CWD_CACHE_TTL_MS = 5_000;
 
 type CwdCacheEntry = { value: string | null; expiresAtMs: number };

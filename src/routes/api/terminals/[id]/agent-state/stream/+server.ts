@@ -25,8 +25,8 @@ import { getTerminalRecord } from '$lib/server/terminalRecordsStore';
 import type { AgentStateSnapshot } from '$lib/server/agentStateReader';
 import { getAgentStatus, setAgentStatus, type AgentStatus } from '$lib/server/agentStatusStore';
 import { projectLiveAgentStateSnapshotToStatus, resolveAgentStateSnapshotForTerminal } from '$lib/server/agentStateProjection';
+import { TMUX_BIN } from '$lib/server/tmuxBin';
 
-const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
 // 1s server-side poll — 250ms was hammering the system because each tick
 // spawns a tmux subprocess + ps walk per open terminal stream. With N
 // open terminals that's ~4N subprocesses/sec which made everything feel

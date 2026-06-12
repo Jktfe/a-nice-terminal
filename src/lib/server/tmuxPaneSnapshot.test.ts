@@ -24,6 +24,7 @@ vi.mock('./terminalRecordsStore', () => ({
 }));
 
 const { capturePaneScrollback, tmuxTargetForSession } = await import('./tmuxPaneSnapshot');
+const { TMUX_BIN } = await import('./tmuxBin');
 
 beforeEach(() => { spawnCalls.length = 0; mockStdout = ''; mockStatus = 0; });
 
@@ -78,5 +79,13 @@ describe('capturePaneScrollback — current-screen seed (delta-2)', () => {
     mockStatus = 1;
     mockStdout = 'should be ignored';
     expect(capturePaneScrollback('p')).toBe('');
+  });
+});
+
+describe('tmux binary resolution (rv1/tmux-unify)', () => {
+  it('spawns the canonical TMUX_BIN from tmuxBin — no per-module ?? fallback', () => {
+    capturePaneScrollback('p');
+    expect(spawnCalls.length).toBeGreaterThan(0);
+    expect(spawnCalls[0].bin).toBe(TMUX_BIN);
   });
 });

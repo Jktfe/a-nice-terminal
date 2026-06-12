@@ -23,26 +23,14 @@ import { StringDecoder } from 'node:string_decoder';
 
 const execFile = promisify(execFileCb);
 
-/** Well-known tmux install locations, in preference order: Homebrew on
- *  Apple Silicon, then Homebrew/MacPorts-adjacent on Intel (/usr/local). */
-const TMUX_CANDIDATES = ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux'];
+/** Canonical tmux binary resolution lives in tmuxBin.ts (rv1/tmux-unify
+ *  lifted it out of this module so spawnSync-only call sites and their
+ *  tests don't have to import ptyClient's child_process machinery).
+ *  _resolveTmuxBin is re-exported to preserve the 6cd33e9 test surface. */
+import { TMUX_BIN } from './tmuxBin';
+export { _resolveTmuxBin } from './tmuxBin';
 
-/** Resolve the tmux binary this module spawns. Order: ANT_TMUX_BIN env
- *  override (matches parsers/_shared.ts and the other TMUX_BIN sites),
- *  first existing well-known path, then bare 'tmux' so PATH-only installs
- *  still work. Exported for unit tests — production callers use TMUX. */
-export function _resolveTmuxBin(
-  env: Record<string, string | undefined> = process.env,
-  exists: (path: string) => boolean = existsSync
-): string {
-  if (env.ANT_TMUX_BIN) return env.ANT_TMUX_BIN;
-  for (const candidate of TMUX_CANDIDATES) {
-    if (exists(candidate)) return candidate;
-  }
-  return 'tmux';
-}
-
-const TMUX = _resolveTmuxBin();
+const TMUX = TMUX_BIN;
 const ANT_DIR = join(process.env.HOME || '/tmp', '.ant');
 const PTY_DIR = join(ANT_DIR, 'pty');
 export const DEFAULT_MAX_PTY_DRAIN_BYTES = 16 * 1024;

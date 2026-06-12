@@ -12,8 +12,9 @@ import type { ContextFillReading } from '../contextFillTelemetry';
 import { contextFillFromTokens, numberValue } from '../contextFillTelemetry';
 import { resolveTerminalRecordCliSession } from '../terminalSessionLink';
 
+import { TMUX_BIN } from '../tmuxBin';
+
 const DEFAULT_CLAUDE_CONTEXT_WINDOW = 200_000;
-const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
 const TMUX_PROBE_TIMEOUT_MS = 500;
 const PROJECTS_DIR = join(homedir(), '.claude', 'projects');
 

@@ -374,3 +374,15 @@ describe('injectToTerminal end-to-end (no real tmux)', () => {
     expect(pasteCall?.args).toContain('-p');
   });
 });
+
+describe('tmux binary resolution (rv1/tmux-unify)', () => {
+  it('runs every scrubbed tmux call through the canonical TMUX_BIN', async () => {
+    const { TMUX_BIN } = await import('./tmuxBin');
+    const t = registerPaneTerminal('bin-check');
+    const { calls, impl } = captureSpawnCalls();
+    setSpawnImplForTests(impl);
+    verifyPaneTargetState(t);
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((c) => c.bin === TMUX_BIN)).toBe(true);
+  });
+});
