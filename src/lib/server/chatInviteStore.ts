@@ -451,6 +451,57 @@ export function listAcceptedInviteHandles(): {
   return rows.map((r) => ({ handle: r.handle, kind: r.kind, invitedBy: r.invited_by }));
 }
 
+export type InviteRegisterEntry = {
+  inviteId: string;
+  label: string;
+  roomId: string;
+  kinds: InviteKind[];
+  createdAt: string;
+  revoked: boolean;
+  accepted: { handle: string | null; kind: InviteKind; lastSeen: string | null }[];
+};
+
+/**
+ * The invite REGISTER (JWPK 2026-06-12): every invite the operator has issued
+ * (cli/mcp/api/web), across rooms, with who has ACCEPTED it (redeemed, live
+ * token) — so the operator sees what went out and what's still pending. Pure
+ * surfacing of data we already hold; newest first.
+ */
+export function listInviteRegisterForOperator(operator: string): InviteRegisterEntry[] {
+  const db = getIdentityDb();
+  const invites = db
+    .prepare(`SELECT * FROM chat_invites WHERE created_by = ? ORDER BY created_at DESC`)
+    .all(operator) as InviteRow[];
+  if (invites.length === 0) return [];
+  const ids = invites.map((i) => i.id);
+  const placeholders = ids.map(() => '?').join(',');
+  const tokens = db
+    .prepare(
+      `SELECT invite_id, kind, handle, last_seen_at FROM chat_invite_tokens
+        WHERE invite_id IN (${placeholders}) AND revoked_at IS NULL
+        ORDER BY created_at ASC`
+    )
+    .all(...ids) as { invite_id: string; kind: InviteKind; handle: string | null; last_seen_at: string | null }[];
+  const byInvite = new Map<string, { handle: string | null; kind: InviteKind; lastSeen: string | null }[]>();
+  for (const t of tokens) {
+    const arr = byInvite.get(t.invite_id) ?? [];
+    arr.push({ handle: t.handle, kind: t.kind, lastSeen: t.last_seen_at });
+    byInvite.set(t.invite_id, arr);
+  }
+  return invites.map((row) => {
+    const inv = rowToInvite(row);
+    return {
+      inviteId: inv.id,
+      label: inv.label,
+      roomId: inv.room_id,
+      kinds: inv.kinds,
+      createdAt: inv.created_at,
+      revoked: inv.revoked_at !== null,
+      accepted: byInvite.get(inv.id) ?? []
+    };
+  });
+}
+
 export function listActiveInvitesForRoom(roomId: string): PublicInviteSummary[] {
   const db = getIdentityDb();
   const rows = db

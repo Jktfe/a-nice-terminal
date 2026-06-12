@@ -61,6 +61,17 @@
   let leasesError = $state<string | null>(null);
   let loadingLeases = $state(true);
 
+  // The invite REGISTER — every invite the operator issued + who accepted it.
+  type InviteEntry = {
+    inviteId: string;
+    label: string;
+    roomId: string;
+    kinds: string[];
+    revoked: boolean;
+    accepted: { handle: string | null; kind: string; lastSeen: string | null }[];
+  };
+  let invites = $state<InviteEntry[]>([]);
+
   const canMint = $derived(effectiveHandle.replace(/^@+/, '').length > 0 && !minting);
 
   async function loadHandles() {
@@ -68,6 +79,13 @@
       const res = await fetch('/api/helper/handles', { credentials: 'include' });
       if (res.ok) availableHandles = ((await res.json()).handles ?? []) as string[];
     } catch { /* dropdown stays empty if the accepted set can't be read */ }
+  }
+
+  async function loadInvites() {
+    try {
+      const res = await fetch('/api/helper/invites', { credentials: 'include' });
+      if (res.ok) invites = ((await res.json()).invites ?? []) as InviteEntry[];
+    } catch { /* register just stays empty if it can't be read */ }
   }
 
   async function loadLeases() {
@@ -132,7 +150,7 @@
     return `expires ${new Date(ms).toLocaleString()}`;
   }
 
-  onMount(() => { void loadLeases(); void loadHandles(); });
+  onMount(() => { void loadLeases(); void loadHandles(); void loadInvites(); });
 </script>
 
 <section class="anthandles">
@@ -227,6 +245,28 @@
       </ul>
     {/if}
   </div>
+
+  <div class="invites">
+    <h3>Invites issued</h3>
+    {#if invites.length === 0}
+      <p class="muted">No invites issued yet.</p>
+    {:else}
+      <ul>
+        {#each invites as inv (inv.inviteId)}
+          <li class:revoked={inv.revoked}>
+            <span class="kinds">{inv.kinds.join('/')}</span>
+            <span class="ilabel">{inv.label}</span>
+            {#if inv.accepted.length > 0}
+              <span class="accepted">✓ {inv.accepted.map((a) => a.handle ?? '?').join(', ')}</span>
+            {:else}
+              <span class="pending">pending</span>
+            {/if}
+            {#if inv.revoked}<span class="tag-revoked">revoked</span>{/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </div>
   {/if}
 </section>
 
@@ -290,6 +330,16 @@
   .leases h3 { margin: 0 0 0.5rem; font-size: 0.9rem; }
   .leases ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
   .leases li { display: flex; align-items: center; gap: 0.6rem; font-size: 0.82rem; }
+  .invites { margin-top: 1.2rem; border-top: 1px solid var(--line-soft); padding-top: 0.9rem; }
+  .invites h3 { margin: 0 0 0.5rem; font-size: 0.9rem; }
+  .invites ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+  .invites li { display: flex; align-items: center; gap: 0.6rem; font-size: 0.82rem; }
+  .invites li.revoked { opacity: 0.5; }
+  .kinds { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; padding: 0.15rem 0.45rem; border-radius: 999px; background: var(--surface-raised); color: var(--ink-soft); }
+  .ilabel { font-weight: 700; }
+  .accepted { color: var(--ok, #2e9e5b); margin-left: auto; }
+  .pending { color: var(--ink-muted); margin-left: auto; }
+  .tag-revoked { font-size: 0.7rem; color: var(--accent); }
   .pill { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; padding: 0.15rem 0.45rem; border-radius: 999px; }
   .pill.agent { background: rgb(255 61 90 / 12%); color: var(--accent-strong, #d11f3c); }
   .pill.reader { background: var(--surface-raised, #f0eae3); color: var(--ink-soft, #6d635a); }
