@@ -61,7 +61,12 @@ export function backfillTelemetryTableBatch(db: DB, table: BackfillTable, batchS
     ).run(minId, maxId);
     db.prepare(`DELETE FROM ${table.name} WHERE id BETWEEN ? AND ?`).run(minId, maxId);
   });
-  move();
+  // IMMEDIATE: take the write lock up front. A deferred tx starts as a read
+  // and upgrades to write at the INSERT — if the live server wrote to the
+  // hot DB in between, the upgrade dies with SQLITE_BUSY_SNAPSHOT (seen on
+  // the first prod drain, 2026-06-12, ~950k rows in). With IMMEDIATE the
+  // busy_timeout does the waiting instead, and the snapshot can't go stale.
+  move.immediate();
   return ids.length;
 }
 
@@ -78,8 +83,23 @@ export function backfillTelemetry(
   const totals: Array<{ table: string; moved: number }> = [];
   for (const table of BACKFILL_TABLES) {
     let moved = 0;
+    let busyRetries = 0;
     for (;;) {
-      const n = backfillTelemetryTableBatch(db, table, batchSize);
+      let n: number;
+      try {
+        n = backfillTelemetryTableBatch(db, table, batchSize);
+        busyRetries = 0;
+      } catch (cause) {
+        const code = (cause as { code?: string }).code ?? '';
+        // Transient writer contention with the live server: back off and
+        // retry the SAME batch (per-batch atomicity means nothing moved).
+        if ((code === 'SQLITE_BUSY' || code === 'SQLITE_BUSY_SNAPSHOT') && busyRetries < 10) {
+          busyRetries += 1;
+          opts.onProgress?.({ table: table.name, moved, remaining: -busyRetries });
+          continue;
+        }
+        throw cause;
+      }
       if (n === 0) break;
       moved += n;
       opts.onProgress?.({ table: table.name, moved, remaining: countRemaining(db, table.name) });
