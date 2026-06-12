@@ -201,6 +201,34 @@ export function tombstoneBinding(rawHandle: string, reason: string, atMs?: numbe
   return run();
 }
 
+/**
+ * The proxy death-witness (fClaude's punch-list, 2026-06-12 "do it all"):
+ * a binding bound with NO pane is an ASSERTION, not an observation — no pane
+ * diff can ever end it, so unrenewed it would be immortal. Assertions decay:
+ * past the TTL the binding tombstones (`proxy-ttl-expired`) and the handle
+ * vacates, exactly like any other death. Re-binding renews the clock
+ * (supersede writes a fresh bound_at_ms). Pane-witnessed bindings are never
+ * touched here — the observation witness (pane diff / boot reconcile) owns
+ * those. Called from the agent-status poller's periodic tick.
+ */
+export const PROXY_BINDING_TTL_MS = 24 * 60 * 60 * 1000;
+
+export function sweepExpiredProxyBindings(
+  ttlMs: number = PROXY_BINDING_TTL_MS,
+  nowMs: number = Date.now()
+): string[] {
+  const db = getIdentityDb();
+  const rows = db.prepare(
+    `SELECT handle FROM handle_bindings
+      WHERE pane IS NULL AND tombstoned_at_ms IS NULL AND bound_at_ms <= ?`
+  ).all(nowMs - ttlMs) as { handle: string }[];
+  const swept: string[] = [];
+  for (const row of rows) {
+    if (tombstoneBinding(row.handle, 'proxy-ttl-expired', nowMs)) swept.push(row.handle);
+  }
+  return swept;
+}
+
 /** Witness write: pane died — tombstone every live binding sitting on it. */
 export function tombstoneBindingsForPane(pane: string, reason: string, atMs?: number): number {
   const db = getIdentityDb();

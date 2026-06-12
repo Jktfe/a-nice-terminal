@@ -34,6 +34,7 @@ import { detectFingerprint, applyFingerprintWriteBack } from './fingerprintDetec
 import { defaultTmuxCaptureFn, type CaptureFn } from './tmuxCapture';
 import { verifyPaneTargetState } from './pty-inject-bridge';
 import { reconcileBindingsAtBoot } from './bindingBootReconcile';
+import { sweepExpiredProxyBindings } from './handleBindingsStore';
 import { getIdentityDb } from './db';
 import { spawnSync } from 'node:child_process';
 import {
@@ -465,6 +466,10 @@ export function startPoller(input: StartPollerInput = {}): PollerController {
     // fingerprint/hook refresh earlier this tick already kept active terminals
     // fresh — only genuinely-stuck statuses remain to be decayed.
     try { reconcileStaleVolatileStatuses(); } catch { /* sweep isolation */ }
+    // Proxy death-witness: pane-less bindings are assertions and decay past
+    // their TTL (fClaude punch-list 2026-06-12) — observation-witnessed
+    // bindings are owned by the pane diff, never this sweep.
+    try { sweepExpiredProxyBindings(); } catch { /* sweep isolation */ }
   };
 
   const tick = (): void => { if (!stopped) void runOnce(); };

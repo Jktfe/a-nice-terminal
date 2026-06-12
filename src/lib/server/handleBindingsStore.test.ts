@@ -9,8 +9,7 @@ import {
   getLiveBinding,
   listLiveBindings,
   tombstoneBinding,
-  tombstoneBindingsForPane
-} from './handleBindingsStore';
+  tombstoneBindingsForPane, sweepExpiredProxyBindings } from './handleBindingsStore';
 import { listLedger } from './identityLedgerStore';
 
 let tmpDir: string;
@@ -127,5 +126,37 @@ describe('handleBindingsStore — tombstone', () => {
     expect(getLiveBinding('@a')).toBeNull();
     expect(getLiveBinding('@b')).toBeNull();
     expect(getLiveBinding('@c')?.pane).toBe('%8');
+  });
+});
+
+// fClaude's punch-list (msg_vdq378hblc): proxy bindings — bound with NO pane,
+// so no observation witness can ever end them — were immortal. They are
+// assertions, not observations, so they DECAY: unrenewed past the TTL they
+// tombstone. Pane-witnessed bindings are untouched (the pane diff owns those).
+describe('sweepExpiredProxyBindings — the proxy death-witness', () => {
+  it('tombstones a pane-less binding older than the TTL, with reason + ledger', () => {
+    bindHandle({ handle: '@proxy', pane: null, pid: 0, pidStart: null, atMs: 1000 });
+    const swept = sweepExpiredProxyBindings(60_000, 1000 + 60_001);
+    expect(swept).toEqual(['@proxy']);
+    expect(getLiveBinding('@proxy')).toBeNull();
+    const rows = listLedger({ handle: '@proxy' }).filter((e) => e.kind === 'binding.tombstoned');
+    expect(rows.length).toBeGreaterThan(0);
+  });
+
+  it('leaves fresh proxy bindings and ALL pane-witnessed bindings alone', () => {
+    bindHandle({ handle: '@freshproxy', pane: null, pid: 0, pidStart: null, atMs: 5000 });
+    bindHandle({ handle: '@olddesk', pane: '%9', pid: 9, pidStart: null, atMs: 0 });
+    const swept = sweepExpiredProxyBindings(60_000, 5000 + 30_000);
+    expect(swept).toEqual([]);
+    expect(getLiveBinding('@freshproxy')).not.toBeNull();
+    expect(getLiveBinding('@olddesk')).not.toBeNull(); // ancient but pane-witnessed: not ours to kill
+  });
+
+  it('re-binding renews the clock (supersede + fresh row survives)', () => {
+    bindHandle({ handle: '@renewed', pane: null, pid: 0, pidStart: null, atMs: 1000 });
+    bindHandle({ handle: '@renewed', pane: null, pid: 0, pidStart: null, atMs: 100_000 });
+    const swept = sweepExpiredProxyBindings(60_000, 130_000);
+    expect(swept).toEqual([]);
+    expect(getLiveBinding('@renewed')).not.toBeNull();
   });
 });
