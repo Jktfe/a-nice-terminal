@@ -9,6 +9,7 @@ import {
   getTerminalById,
   getTerminalByName,
   setTerminalStatus,
+  touchLastPtyByteAt,
   upsertTerminal
 } from '$lib/server/terminalsStore';
 import {
@@ -921,6 +922,77 @@ describe('POST /api/identity/register', () => {
       })));
       expect(response.status).toBe(201);
       expect(getLiveBinding('@paneless')).toBeNull();
+    });
+  });
+
+  // JWPK 2026-06-12: "if there are silent failures, make them loud." Register
+  // could declare a handle and quietly NOT witness-bind it (no pane / pane not
+  // corroborated) — leaving a terminal that receives but cannot post, with
+  // nothing telling the operator. And a contended handle was silently SUFFIXED
+  // (you asked for @x, got @x-2) — the "random changes" surprise. Both are now
+  // surfaced in the 201: the granted `handle`, a `witness_bound` flag, and a
+  // `warnings[]` array the CLI can print.
+  describe('register surfaces silent identity outcomes LOUDLY (JWPK 2026-06-12)', () => {
+    afterEach(() => setListPanePidsForTests(null));
+
+    it('witness-bound register reports the handle, witness_bound:true, no warnings', async () => {
+      setListPanePidsForTests(() => ({ status: 0, stdout: '%50 6001\n', stderr: '' }));
+      const res = await callPost(JSON.stringify({
+        name: 'LoudBound', pids: [{ pid: 6001, pid_start: 'loud-bound' }],
+        pane: '%50', handle: '@loudbound'
+      }));
+      expect(res.status).toBe(201);
+      const p = await res.json();
+      expect(p.handle).toBe('@loudbound');
+      expect(p.witness_bound).toBe(true);
+      expect(p.warnings ?? []).toEqual([]);
+    });
+
+    it('handle declared but NOT witness-bound (no pane) → witness_bound:false + a loud warning', async () => {
+      const res = await callPost(JSON.stringify({
+        name: 'LoudNoPane', pids: [{ pid: 6002, pid_start: 'loud-nopane' }],
+        handle: '@loudnopane'
+      }));
+      expect(res.status).toBe(201);
+      const p = await res.json();
+      expect(p.handle).toBe('@loudnopane');
+      expect(p.witness_bound).toBe(false);
+      expect(Array.isArray(p.warnings)).toBe(true);
+      expect(p.warnings.join(' ')).toMatch(/cannot post|receive but|--pane|not.*bound/i);
+    });
+
+    it('uncorroborated pane → witness_bound:false + a loud warning (still 201)', async () => {
+      setListPanePidsForTests(() => ({ status: 0, stdout: '%51 999999\n', stderr: '' }));
+      const res = await callPost(JSON.stringify({
+        name: 'LoudUncorr', pids: [{ pid: 6003, pid_start: 'loud-uncorr' }],
+        pane: '%51', handle: '@louduncorr'
+      }));
+      expect(res.status).toBe(201);
+      const p = await res.json();
+      expect(p.witness_bound).toBe(false);
+      expect(p.warnings.join(' ')).toMatch(/corroborat|pane/i);
+    });
+
+    it('contended handle silently suffixed → returns the changed handle + warns', async () => {
+      setListPanePidsForTests(() => ({ status: 0, stdout: '%52 6100\n', stderr: '' }));
+      const inc = await callPost(JSON.stringify({
+        name: 'IncumbentLoud', pids: [{ pid: 6100, pid_start: 'inc-loud' }],
+        pane: '%52', handle: '@contended'
+      }));
+      const incPayload = await inc.json();
+      expect(incPayload.handle).toBe('@contended');
+      // Make the incumbent look LIVE (fresh pty traffic) so the next claimant is
+      // SUFFIXED, not handed the handle via the stale-reclaim path.
+      touchLastPtyByteAt(incPayload.terminal_id, Date.now());
+      setListPanePidsForTests(() => ({ status: 0, stdout: '%53 6101\n', stderr: '' }));
+      const res = await callPost(JSON.stringify({
+        name: 'SuffixLoud', pids: [{ pid: 6101, pid_start: 'suf-loud' }],
+        pane: '%53', handle: '@contended'
+      }));
+      expect(res.status).toBe(201);
+      const p = await res.json();
+      expect(p.handle).not.toBe('@contended');
+      expect(p.warnings.join(' ')).toMatch(/@contended|already|different terminal|gave you/i);
     });
   });
 

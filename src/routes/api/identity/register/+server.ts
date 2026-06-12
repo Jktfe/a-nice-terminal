@@ -406,6 +406,14 @@ export const POST: RequestHandler = async ({ request }) => {
   // these for authority yet (that's the Step 2 read-flip); the witness layer
   // (pty-inject-bridge / boot reconcile) owns the tombstone side. No pane =
   // nothing witnessed = no binding. Best-effort: never blocks a 201.
+  // LOUD silent-failure surfacing (JWPK msg_0iikis5683, 2026-06-12: "if there
+  // are silent failures, make them loud"). A handle can be DECLARED above yet
+  // never witness-bound here — no pane, an uncorroborated pane, or a write
+  // failure — leaving a terminal that RECEIVES but cannot POST in clean mode,
+  // with nothing telling the operator. We track the outcome + reason so the
+  // 201 can carry a warning instead of swallowing it.
+  let witnessBound = false;
+  let bindSkipReason: string | null = null;
   if (handleValue && paneValue) {
     try {
       // Corroboration gate (msg_fjbp2o97h9, applies in EVERY mode): register
@@ -420,8 +428,22 @@ export const POST: RequestHandler = async ({ request }) => {
           pidStart: leafPid.pid_start,
           terminalId: terminal.id
         });
+        witnessBound = true;
+      } else {
+        bindSkipReason =
+          'the pane could not be corroborated (the process behind the pane did not match this caller)';
       }
-    } catch { /* clean-core write failure must not break registration */ }
+    } catch (bindErr) {
+      // Was a silent swallow; now loud. The 201 still stands (a binding hiccup
+      // must not fail registration) but the failure is no longer invisible.
+      bindSkipReason = 'the witness-binding write failed';
+      console.error(
+        `[register] witness binding FAILED handle=${handleValue} terminal=${terminal.id} pane=${corroboratedPane}:`,
+        bindErr
+      );
+    }
+  } else if (handleValue && !paneValue) {
+    bindSkipReason = 'no --pane was supplied, so nothing could be witnessed';
   }
   // AC3 outcome shadow (third adopter, msg_i5mnwve57r): in SHADOW mode,
   // ledger every registration whose LEGACY outcome diverges from what the
@@ -529,9 +551,40 @@ export const POST: RequestHandler = async ({ request }) => {
     } catch { /* best-effort: classify failure never blocks 201 */ }
   }
 
+  // LOUD outcome surfacing (JWPK 2026-06-12). Two formerly-silent surprises
+  // get a voice in the response (and a server log), so the operator/CLI never
+  // has to guess "is this a bug or a feature":
+  //  - the requested handle was already held by a live terminal → silently
+  //    SUFFIXED (the "random changes" complaint); and
+  //  - a handle was declared but NOT witness-bound → can receive, cannot post.
+  const warnings: string[] = [];
+  if (requestedHandle && handleValue && handleValue !== requestedHandle) {
+    warnings.push(
+      `Requested ${requestedHandle} but it is held by another live terminal — you were given ${handleValue}. ` +
+        `Retire the incumbent and re-register to claim ${requestedHandle}, or keep ${handleValue}.`
+    );
+    console.warn(
+      `[register] handle suffixed requested=${requestedHandle} granted=${handleValue} terminal=${terminal.id}`
+    );
+  }
+  if (handleValue && !witnessBound) {
+    warnings.push(
+      `Handle ${handleValue} is DECLARED but NOT witness-bound (${bindSkipReason ?? 'unknown reason'}). ` +
+        `This terminal can RECEIVE messages but CANNOT POST in clean-identity mode until a verified pane binds it. ` +
+        `Re-register from inside the target pane with --pane $TMUX_PANE.`
+    );
+    console.warn(
+      `[register] handle declared but UNBOUND handle=${handleValue} terminal=${terminal.id} reason=${bindSkipReason}`
+    );
+  }
   return json({ terminal_id: terminal.id, name: terminal.name,
     expires_at: terminal.expires_at, tmux_target_pane: paneValue,
     agent_kind: classifiedAgentKind,
+    // Granted handle + witness state are RETURNED now (not just discoverable
+    // via whoami) so a half-claim or a suffix is visible at the call site.
+    handle: handleValue ?? null,
+    witness_bound: witnessBound,
+    warnings,
     // ACTIVATION: the durable session id — the CLI persists this and sends it
     // back as `sessionToken` on register + as x-ant-session-id on post, so the
     // durable identity model is exercised end-to-end.
