@@ -42,7 +42,17 @@
     { label: '30 days', ms: 30 * 24 * 60 * 60_000 }
   ];
 
-  let handle = $state('');
+  // Collapsed by default — it's a lot of real estate to keep open (JWPK).
+  let expanded = $state(false);
+  // Handle is chosen from existing ANThandles (JWPK: "a dropdown of the
+  // ANThandles"), with a "new handle" escape for pairing a brand-new desktop AI.
+  let availableHandles = $state<string[]>([]);
+  let selectedHandle = $state('');
+  let newHandle = $state('');
+  const NEW = '__new__';
+  const effectiveHandle = $derived(
+    (selectedHandle === NEW ? newHandle : selectedHandle).trim()
+  );
   let role = $state<Role>('reader');
   let ttlMs = $state(TTL_CHOICES[1].ms);
   let minting = $state(false);
@@ -53,7 +63,14 @@
   let leasesError = $state<string | null>(null);
   let loadingLeases = $state(true);
 
-  const canMint = $derived(handle.trim().replace(/^@+/, '').length > 0 && !minting);
+  const canMint = $derived(effectiveHandle.replace(/^@+/, '').length > 0 && !minting);
+
+  async function loadHandles() {
+    try {
+      const res = await fetch('/api/terminals/handles', { credentials: 'include' });
+      if (res.ok) availableHandles = ((await res.json()).handles ?? []) as string[];
+    } catch { /* dropdown just stays empty; the "new handle" option still works */ }
+  }
 
   async function loadLeases() {
     loadingLeases = true;
@@ -79,7 +96,7 @@
         method: 'POST',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ handle: handle.trim(), role, ttlMs })
+        body: JSON.stringify({ handle: effectiveHandle, role, ttlMs })
       });
       if (res.status === 401) { mintError = 'Operator login required to mint.'; return; }
       if (!res.ok) {
@@ -89,8 +106,10 @@
       }
       const p = await res.json();
       minted = { code: p.code, handle: p.handle, role: p.role, expiresAtMs: p.expiresAtMs };
-      handle = '';
+      selectedHandle = '';
+      newHandle = '';
       void loadLeases();
+      void loadHandles();
     } catch (e) {
       mintError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -116,21 +135,36 @@
     return `expires ${new Date(ms).toLocaleString()}`;
   }
 
-  onMount(loadLeases);
+  onMount(() => { void loadLeases(); void loadHandles(); });
 </script>
 
 <section class="anthandles">
-  <header class="head">
-    <h2>Pair an app</h2>
-    <p class="sub">Mint a single-use code, choose what it can do, hand it over privately.</p>
-  </header>
+  <button type="button" class="head toggle" aria-expanded={expanded} onclick={() => (expanded = !expanded)}>
+    <span class="chev" class:open={expanded} aria-hidden="true">▸</span>
+    <span class="head-text">
+      <strong>Pair an app</strong>
+      <span class="sub">Mint a single-use code, choose what it can do, hand it over privately.</span>
+    </span>
+    <span class="count">{leases.length} live</span>
+  </button>
 
+  {#if expanded}
   <div class="grid">
     <form class="mint" onsubmit={(e) => { e.preventDefault(); if (canMint) void mint(); }}>
       <label>
         <span>Handle to pair</span>
-        <input type="text" placeholder="@desktop-claude" bind:value={handle} autocomplete="off" />
+        <select bind:value={selectedHandle}>
+          <option value="" disabled>Choose an ANThandle…</option>
+          {#each availableHandles as h (h)}<option value={h}>{h}</option>{/each}
+          <option value={NEW}>+ new handle…</option>
+        </select>
       </label>
+      {#if selectedHandle === NEW}
+        <label>
+          <span>New handle</span>
+          <input type="text" placeholder="@desktop-claude" bind:value={newHandle} autocomplete="off" />
+        </label>
+      {/if}
 
       <fieldset class="roles">
         <legend>Role</legend>
@@ -200,6 +234,7 @@
       </ul>
     {/if}
   </div>
+  {/if}
 </section>
 
 <style>
@@ -210,8 +245,19 @@
     padding: 1.1rem 1.2rem 1.3rem;
     margin: 1.2rem 0;
   }
-  .head h2 { margin: 0; font-size: 1.05rem; }
-  .head .sub { margin: 0.2rem 0 0.9rem; font-size: 0.82rem; color: var(--ink-muted, #8a7f74); }
+  .head.toggle {
+    display: flex; align-items: center; gap: 0.6rem; width: 100%;
+    background: transparent; border: 0; padding: 0.1rem; cursor: pointer; text-align: left;
+  }
+  .head-text { display: grid; gap: 0.1rem; margin-right: auto; }
+  .head-text strong { font-size: 1.05rem; color: var(--ink-strong, #2a211b); }
+  .head .sub { font-size: 0.82rem; color: var(--ink-muted, #8a7f74); }
+  .chev { transition: transform 0.15s; font-size: 0.9rem; color: var(--ink-muted, #8a7f74); }
+  .chev.open { transform: rotate(90deg); }
+  .count {
+    font-size: 0.72rem; font-weight: 800; text-transform: uppercase; color: var(--ink-muted, #8a7f74);
+    background: var(--surface-raised, #f0eae3); border-radius: 999px; padding: 0.2rem 0.6rem;
+  }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; }
   .mint { display: grid; gap: 0.7rem; align-content: start; }
   .mint label { display: grid; gap: 0.25rem; font-size: 0.8rem; font-weight: 700; }
