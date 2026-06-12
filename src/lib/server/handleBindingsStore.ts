@@ -109,6 +109,23 @@ export function getLiveBindingByTerminal(terminalId: string): HandleBindingRow |
   return row ?? null;
 }
 
+/**
+ * Every non-deleted handle the given owner is in owners[] of (JWPK + fClaude
+ * 2026-06-12, owned-handles-only). Drives the pairing dropdown — you can only
+ * pair a handle you own; the endpoint enforces the same, the dropdown is just
+ * the convenience view.
+ */
+export function listHandlesOwnedBy(rawOwner: string): HandleRow[] {
+  const db = getIdentityDb();
+  const owner = canonicalHandle(rawOwner);
+  const rows = db
+    .prepare(`SELECT * FROM handles WHERE (lifecycle IS NULL OR lifecycle != 'deleted') ORDER BY handle`)
+    .all() as RawHandleRow[];
+  return rows
+    .map((r) => ({ ...r, owners: r.owners ? (JSON.parse(r.owners) as string[]) : null }))
+    .filter((h) => (h.owners ?? []).some((o) => o.trim() === owner));
+}
+
 export function listLiveBindings(): HandleBindingRow[] {
   const db = getIdentityDb();
   return db.prepare(

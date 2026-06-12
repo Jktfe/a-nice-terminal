@@ -44,15 +44,13 @@
 
   // Collapsed by default — it's a lot of real estate to keep open (JWPK).
   let expanded = $state(false);
-  // Handle is chosen from existing ANThandles (JWPK: "a dropdown of the
-  // ANThandles"), with a "new handle" escape for pairing a brand-new desktop AI.
+  // Handle is chosen from the ANThandles the operator OWNS (JWPK + fClaude
+  // 2026-06-12: "only ones I own… security and all that"). No free-typing and no
+  // "new handle" — you can't pair a handle you don't own, and the server
+  // enforces it too; creating a handle is a separate, deliberate act.
   let availableHandles = $state<string[]>([]);
   let selectedHandle = $state('');
-  let newHandle = $state('');
-  const NEW = '__new__';
-  const effectiveHandle = $derived(
-    (selectedHandle === NEW ? newHandle : selectedHandle).trim()
-  );
+  const effectiveHandle = $derived(selectedHandle.trim());
   let role = $state<Role>('reader');
   let ttlMs = $state(TTL_CHOICES[1].ms);
   let minting = $state(false);
@@ -67,9 +65,9 @@
 
   async function loadHandles() {
     try {
-      const res = await fetch('/api/terminals/handles', { credentials: 'include' });
+      const res = await fetch('/api/helper/handles', { credentials: 'include' });
       if (res.ok) availableHandles = ((await res.json()).handles ?? []) as string[];
-    } catch { /* dropdown just stays empty; the "new handle" option still works */ }
+    } catch { /* dropdown stays empty; nothing to pair if you own nothing */ }
   }
 
   async function loadLeases() {
@@ -107,7 +105,6 @@
       const p = await res.json();
       minted = { code: p.code, handle: p.handle, role: p.role, expiresAtMs: p.expiresAtMs };
       selectedHandle = '';
-      newHandle = '';
       void loadLeases();
       void loadHandles();
     } catch (e) {
@@ -152,18 +149,14 @@
   <div class="grid">
     <form class="mint" onsubmit={(e) => { e.preventDefault(); if (canMint) void mint(); }}>
       <label>
-        <span>Handle to pair</span>
+        <span>Handle to pair <span class="hint-inline">(only handles you own)</span></span>
         <select bind:value={selectedHandle}>
           <option value="" disabled>Choose an ANThandle…</option>
           {#each availableHandles as h (h)}<option value={h}>{h}</option>{/each}
-          <option value={NEW}>+ new handle…</option>
         </select>
       </label>
-      {#if selectedHandle === NEW}
-        <label>
-          <span>New handle</span>
-          <input type="text" placeholder="@desktop-claude" bind:value={newHandle} autocomplete="off" />
-        </label>
+      {#if availableHandles.length === 0}
+        <p class="no-handles">You don't own any handles yet — nothing to pair.</p>
       {/if}
 
       <fieldset class="roles">

@@ -2,10 +2,20 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resetIdentityDbForTests } from '$lib/server/db';
+import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
 import { POST as MINT } from './+server';
 import { POST as REDEEM } from './redeem/+server';
 import { resolveLeaseBySecret } from '$lib/server/helperLeaseStore';
+
+/** Record @JWPK (the operator) as owner of a handle — pairing now requires it. */
+function own(handle: string): void {
+  getIdentityDb()
+    .prepare(
+      `INSERT INTO handles (handle, owners, created_at_ms) VALUES (?, '["@JWPK"]', 0)
+       ON CONFLICT(handle) DO UPDATE SET owners = '["@JWPK"]'`
+    )
+    .run(handle);
+}
 
 let tmpDir: string;
 const prevDb = process.env.ANT_FRESH_DB_PATH;
@@ -17,6 +27,9 @@ beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
   process.env.ANT_ADMIN_TOKEN = ADMIN;
   resetIdentityDbForTests();
+  // The operator owns the handles these tests pair (the new owned-only rule).
+  own('@fClaude');
+  own('@helper');
 });
 
 afterEach(() => {
@@ -89,6 +102,19 @@ describe('POST /api/helper/pairing (mint) — operator-gated', () => {
   it('rejects an invalid role', async () => {
     const res = await call(mint, req('/api/helper/pairing', { handle: '@fClaude', role: 'admin' }, { admin: true }));
     expect(res.status).toBe(400);
+  });
+
+  // OWNED-HANDLES-ONLY (JWPK + fClaude 2026-06-12): the server, not the dropdown,
+  // is the guard. You can only pair a handle you own.
+  it('refuses minting for a handle the operator does NOT own (403)', async () => {
+    const res = await call(mint, req('/api/helper/pairing', { handle: '@stranger' }, { admin: true }));
+    expect(res.status).toBe(403);
+  });
+
+  it('mints for a handle the operator owns (201)', async () => {
+    own('@mine');
+    const res = await call(mint, req('/api/helper/pairing', { handle: '@mine' }, { admin: true }));
+    expect(res.status).toBe(201);
   });
 });
 

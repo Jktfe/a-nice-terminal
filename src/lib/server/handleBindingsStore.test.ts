@@ -8,6 +8,7 @@ import {
   getHandleRow,
   getLiveBinding,
   listLiveBindings,
+  listHandlesOwnedBy,
   tombstoneBinding,
   tombstoneBindingsForPane, sweepExpiredProxyBindings } from './handleBindingsStore';
 import { listLedger } from './identityLedgerStore';
@@ -26,6 +27,26 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
   if (prev === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = prev;
+});
+
+describe('listHandlesOwnedBy — owned-handles-only (JWPK + fClaude 2026-06-12)', () => {
+  it('returns only handles the owner is in owners[] of', () => {
+    const db = getIdentityDb();
+    const ins = db.prepare(`INSERT INTO handles (handle, owners, created_at_ms) VALUES (?, ?, 0)`);
+    ins.run('@mine1', '["@JWPK"]');
+    ins.run('@mine2', '["@someone","@JWPK"]');
+    ins.run('@nope', '["@someone"]');
+    ins.run('@noowner', null);
+    expect(listHandlesOwnedBy('@JWPK').map((h) => h.handle).sort()).toEqual(['@mine1', '@mine2']);
+    expect(listHandlesOwnedBy('@someone').map((h) => h.handle).sort()).toEqual(['@mine2', '@nope']);
+  });
+
+  it('excludes deleted handles', () => {
+    const db = getIdentityDb();
+    db.prepare(`INSERT INTO handles (handle, owners, lifecycle, created_at_ms) VALUES (?, ?, ?, 0)`)
+      .run('@gone', '["@JWPK"]', 'deleted');
+    expect(listHandlesOwnedBy('@JWPK')).toHaveLength(0);
+  });
 });
 
 describe('handleBindingsStore — bind', () => {

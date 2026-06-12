@@ -16,6 +16,7 @@ import { tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate
 import { getOperatorHandle } from '$lib/server/operatorHandle';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { createPairingCode } from '$lib/server/helperPairingStore';
+import { getHandleRow } from '$lib/server/handleBindingsStore';
 
 type Body = { handle?: unknown; role?: unknown; owners?: unknown; ttlMs?: unknown };
 
@@ -33,6 +34,15 @@ export const POST: RequestHandler = async ({ request }) => {
   const handle = validation.canonicalHandle;
 
   const operator = getOperatorHandle();
+  // OWNED-HANDLES-ONLY (JWPK + fClaude 2026-06-12, "security and all that"): a
+  // SERVER rule, not just a dropdown filter — refuse minting an attachment for a
+  // handle the operator doesn't own. The dropdown showing only your handles is
+  // convenience; this refusal is the security. Also closes the old hole where
+  // minting silently stamped the caller as owner of ANY handle they named.
+  const handleOwners = (getHandleRow(handle)?.owners ?? []).map((o) => o.trim());
+  if (!handleOwners.includes(operator)) {
+    throw error(403, `${operator} is not an owner of ${handle} — you can only pair a handle you own.`);
+  }
   const extraOwners = Array.isArray(body.owners)
     ? body.owners.filter((o): o is string => typeof o === 'string')
     : [];
