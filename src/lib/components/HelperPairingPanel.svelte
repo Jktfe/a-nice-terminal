@@ -26,12 +26,14 @@
     reader: {
       label: 'Read-only helper — listens and rings bells, never speaks',
       can: ['Subscribe to the delivery feed (metadata only)', 'Fire routes (file / bell / app nudge)'],
-      cannot: ['Post or author messages', 'Post status', 'Claim or change handles', 'Approve asks']
+      cannot: ['Post status', 'Author messages', 'Claim or change handles', 'Approve asks']
     },
     agent: {
-      label: 'Agent — a paneless handle that can post as itself',
-      can: ['Subscribe to the delivery feed', 'Fire routes', 'Post status', 'Author messages as its handle'],
-      cannot: ['Claim or change handles', 'Approve asks']
+      // A lease-holder is never a member — it can post its own STATUS but
+      // NEVER authors room messages (JWPK 2026-06-13).
+      label: 'Agent — a paneless handle that posts its own status (never authors messages)',
+      can: ['Subscribe to the delivery feed', 'Fire routes', 'Post status'],
+      cannot: ['Author messages as its handle', 'Claim or change handles', 'Approve asks']
     }
   };
 
@@ -44,14 +46,15 @@
 
   // Collapsed by default — it's a lot of real estate to keep open (JWPK).
   let expanded = $state(false);
-  // The pairable list = ANThandles that ACCEPTED an invite, intersected with the
-  // ones the operator owns (JWPK + fClaude 2026-06-12: "mcps, apis, clis that
-  // have gone out AND accepted — those are the ones that can be paired"). Server
-  // computes it at /api/helper/handles; ownership is also enforced at mint.
+  // The pairable list = the LIVE ANThandles in the colony (JWPK 2026-06-13:
+  // "the ones on the terminals page AND the CLIs / MCPs that are live"). Server
+  // computes it at /api/helper/handles from the same live-session source the
+  // mint gate checks, so the list and the gate can never disagree.
   let availableHandles = $state<string[]>([]);
   let selectedHandle = $state('');
   const effectiveHandle = $derived(selectedHandle.trim());
-  let role = $state<Role>('reader');
+  // Fixed: the panel only mints read-only helpers (JWPK 2026-06-13). No choice.
+  const role: Role = 'reader';
   let ttlMs = $state(TTL_CHOICES[1].ms);
   let minting = $state(false);
   let mintError = $state<string | null>(null);
@@ -174,26 +177,19 @@
         </select>
       </label>
       {#if availableHandles.length === 0}
-        <p class="no-handles">No accepted agents to pair yet — invite a cli/mcp/api first.</p>
+        <p class="no-handles">No live agents to pair yet — start a cli/mcp/api session first.</p>
       {/if}
 
-      <fieldset class="roles">
-        <legend>Role</legend>
-        {#each (['reader', 'agent'] as Role[]) as r (r)}
-          <label class="role-opt" class:active={role === r}>
-            <input type="radio" name="role" value={r} bind:group={role} />
-            <strong>{r === 'reader' ? 'Read-only helper' : 'Agent (can post)'}</strong>
-          </label>
-        {/each}
-      </fieldset>
-
+      <!-- READ-ONLY ONLY (JWPK 2026-06-13): the panel mints a read-only helper.
+           A paired app is a lease-holder, never a member, so it can NEVER author
+           messages — the role is fixed, not a choice. -->
       <div class="scope-preview">
-        <p class="scope-label">{ROLE_SCOPE[role].label}</p>
+        <p class="scope-label">{ROLE_SCOPE.reader.label}</p>
         <ul class="can">
-          {#each ROLE_SCOPE[role].can as line (line)}<li>{line}</li>{/each}
+          {#each ROLE_SCOPE.reader.can as line (line)}<li>{line}</li>{/each}
         </ul>
         <ul class="cannot">
-          {#each ROLE_SCOPE[role].cannot as line (line)}<li>{line}</li>{/each}
+          {#each ROLE_SCOPE.reader.cannot as line (line)}<li>{line}</li>{/each}
         </ul>
       </div>
 
@@ -294,17 +290,10 @@
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; }
   .mint { display: grid; gap: 0.7rem; align-content: start; }
   .mint label { display: grid; gap: 0.25rem; font-size: 0.8rem; font-weight: 700; }
-  .mint input, .mint select {
+  .mint select {
     padding: 0.5rem 0.6rem; border-radius: 0.5rem;
     border: 1px solid var(--line-soft, #e6ddd4); background: var(--surface-raised, #faf6f1); font-size: 0.9rem;
   }
-  .roles { border: 0; padding: 0; margin: 0; display: grid; gap: 0.35rem; }
-  .roles legend { font-size: 0.8rem; font-weight: 700; padding: 0; margin-bottom: 0.1rem; }
-  .role-opt {
-    display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.6rem;
-    border: 1px solid var(--line-soft, #e6ddd4); border-radius: 0.5rem; font-weight: 600; cursor: pointer;
-  }
-  .role-opt.active { border-color: var(--accent, #ff3d5a); background: rgb(255 61 90 / 6%); }
   .scope-preview {
     border: 1px dashed var(--line-soft, #e6ddd4); border-radius: 0.6rem; padding: 0.6rem 0.7rem; background: var(--surface-raised, #faf6f1);
   }

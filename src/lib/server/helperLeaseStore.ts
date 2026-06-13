@@ -57,9 +57,12 @@ export const ATTACHMENT_SCOPES: Record<AttachmentRole, Readonly<AttachmentScope>
     approveAsks: false
   }),
   // A paneless ANThandle's authoring credential — the issuance-class witness
-  // for a desktop / mcp / api agent that has no observable pane. Authors and
-  // posts status like any member. Claiming handles and approving asks remain
-  // separate witnessed/gated acts, never granted by the attachment itself.
+  // for a desktop / mcp / api agent that has no observable pane (2026-06-11
+  // keystone). Authors and posts status like any member. NOTE (JWPK 2026-06-13):
+  // this role is NO LONGER mintable from the operator "pair an app" panel — that
+  // panel mints read-only helpers only. The role/capability remains here for the
+  // separate issuance path; whether to retire authoring-by-attachment entirely
+  // is an open ruling. Claiming handles and approving asks stay gated acts.
   agent: Object.freeze({
     subscribeFeed: true,
     fireRoutes: true,

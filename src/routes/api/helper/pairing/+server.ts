@@ -16,7 +16,7 @@ import { tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate
 import { getOperatorHandle } from '$lib/server/operatorHandle';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { createPairingCode } from '$lib/server/helperPairingStore';
-import { getHandleRow } from '$lib/server/handleBindingsStore';
+import { listLiveColonyHandles } from '$lib/server/liveColonyHandles';
 
 type Body = { handle?: unknown; role?: unknown; owners?: unknown; ttlMs?: unknown };
 
@@ -34,14 +34,15 @@ export const POST: RequestHandler = async ({ request }) => {
   const handle = validation.canonicalHandle;
 
   const operator = getOperatorHandle();
-  // OWNED-HANDLES-ONLY (JWPK + fClaude 2026-06-12, "security and all that"): a
-  // SERVER rule, not just a dropdown filter — refuse minting an attachment for a
-  // handle the operator doesn't own. The dropdown showing only your handles is
-  // convenience; this refusal is the security. Also closes the old hole where
-  // minting silently stamped the caller as owner of ANY handle they named.
-  const handleOwners = (getHandleRow(handle)?.owners ?? []).map((o) => o.trim());
-  if (!handleOwners.includes(operator)) {
-    throw error(403, `${operator} is not an owner of ${handle} — you can only pair a handle you own.`);
+  // The operator owns their own colony, so any LIVE colony handle is pairable
+  // (JWPK 2026-06-13, correcting the over-built invite/owners model that 403'd
+  // a handle that was in the dropdown). The authority is the operator browser
+  // session, already verified above. We still refuse a handle that isn't a live
+  // colony handle — that's the SAME list the dropdown shows, so the dropdown and
+  // the gate can never disagree.
+  const liveHandles = await listLiveColonyHandles();
+  if (!liveHandles.includes(handle)) {
+    throw error(403, `${handle} is not a live handle in this colony — only live sessions on the terminals page can be paired.`);
   }
   const extraOwners = Array.isArray(body.owners)
     ? body.owners.filter((o): o is string => typeof o === 'string')
@@ -51,12 +52,14 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const ttlMs = typeof body.ttlMs === 'number' && Number.isFinite(body.ttlMs) && body.ttlMs > 0 ? body.ttlMs : undefined;
 
-  // 'reader' pairs the read-only helper; 'agent' pairs a paneless authoring
-  // ANThandle. Default reader — authoring is the deliberate choice.
-  if (body.role !== undefined && body.role !== 'reader' && body.role !== 'agent') {
-    throw error(400, "role must be 'reader' or 'agent'.");
+  // READ-ONLY ONLY (JWPK 2026-06-13): the "pair an app" panel mints read-only
+  // helpers — a lease-holder is never a member, so it must NEVER author room
+  // messages. The authoring 'agent' role is refused here; authoring credentials,
+  // if ever issued, go through a separate witnessed path, not this panel.
+  if (body.role !== undefined && body.role !== 'reader') {
+    throw error(400, "this panel only pairs read-only helpers — a paired app can never author messages.");
   }
-  const role: 'reader' | 'agent' = body.role === 'agent' ? 'agent' : 'reader';
+  const role: 'reader' = 'reader';
 
   const res = createPairingCode({ handle, role, owners, createdBy: operator, ttlMs });
   return json({ pairingId: res.pairingId, code: res.code, expiresAtMs: res.expiresAtMs, handle, role }, { status: 201 });

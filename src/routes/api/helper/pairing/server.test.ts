@@ -1,20 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
+import { resetIdentityDbForTests } from '$lib/server/db';
 import { POST as MINT } from './+server';
 import { POST as REDEEM } from './redeem/+server';
 import { resolveLeaseBySecret } from '$lib/server/helperLeaseStore';
 
-/** Record @JWPK (the operator) as owner of a handle — pairing now requires it. */
-function own(handle: string): void {
-  getIdentityDb()
-    .prepare(
-      `INSERT INTO handles (handle, owners, created_at_ms) VALUES (?, '["@JWPK"]', 0)
-       ON CONFLICT(handle) DO UPDATE SET owners = '["@JWPK"]'`
-    )
-    .run(handle);
+// The mint gate now pairs only LIVE colony handles (JWPK 2026-06-13), via the
+// shared listLiveColonyHandles source — mock it so tests control the live set
+// without standing up real tmux/pty sessions.
+const live = vi.hoisted(() => ({ handles: [] as string[] }));
+vi.mock('$lib/server/liveColonyHandles', () => ({
+  listLiveColonyHandles: async () => live.handles
+}));
+
+/** Make a handle a live colony handle (the new pairing precondition). */
+function makeLive(handle: string): void {
+  if (!live.handles.includes(handle)) live.handles.push(handle);
 }
 
 let tmpDir: string;
@@ -27,9 +30,8 @@ beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
   process.env.ANT_ADMIN_TOKEN = ADMIN;
   resetIdentityDbForTests();
-  // The operator owns the handles these tests pair (the new owned-only rule).
-  own('@fClaude');
-  own('@helper');
+  // The handles these tests pair are live in the colony.
+  live.handles = ['@fClaude', '@helper'];
 });
 
 afterEach(() => {
@@ -92,11 +94,15 @@ describe('POST /api/helper/pairing (mint) — operator-gated', () => {
     expect(res.status).toBe(400);
   });
 
-  it('defaults to a reader pairing and accepts an explicit agent pairing', async () => {
+  it('mints a read-only (reader) pairing', async () => {
     const reader = await call(mint, req('/api/helper/pairing', { handle: '@helper' }, { admin: true }));
     expect((await reader.json()).role).toBe('reader');
-    const agent = await call(mint, req('/api/helper/pairing', { handle: '@fClaude', role: 'agent' }, { admin: true }));
-    expect((await agent.json()).role).toBe('agent');
+  });
+
+  // READ-ONLY ONLY (JWPK 2026-06-13): the panel can never grant authoring.
+  it('refuses an agent (authoring) pairing — a paired app never authors (400)', async () => {
+    const res = await call(mint, req('/api/helper/pairing', { handle: '@fClaude', role: 'agent' }, { admin: true }));
+    expect(res.status).toBe(400);
   });
 
   it('rejects an invalid role', async () => {
@@ -104,16 +110,17 @@ describe('POST /api/helper/pairing (mint) — operator-gated', () => {
     expect(res.status).toBe(400);
   });
 
-  // OWNED-HANDLES-ONLY (JWPK + fClaude 2026-06-12): the server, not the dropdown,
-  // is the guard. You can only pair a handle you own.
-  it('refuses minting for a handle the operator does NOT own (403)', async () => {
+  // LIVE-HANDLES-ONLY (JWPK 2026-06-13): the server pairs only live colony
+  // handles, and it's the SAME source the dropdown shows — so a handle can't be
+  // listed yet rejected (the @fableCD 403). A non-live handle is refused.
+  it('refuses minting for a handle that is NOT live in the colony (403)', async () => {
     const res = await call(mint, req('/api/helper/pairing', { handle: '@stranger' }, { admin: true }));
     expect(res.status).toBe(403);
   });
 
-  it('mints for a handle the operator owns (201)', async () => {
-    own('@mine');
-    const res = await call(mint, req('/api/helper/pairing', { handle: '@mine' }, { admin: true }));
+  it('mints for any live colony handle (201)', async () => {
+    makeLive('@nowlive');
+    const res = await call(mint, req('/api/helper/pairing', { handle: '@nowlive' }, { admin: true }));
     expect(res.status).toBe(201);
   });
 });
@@ -148,14 +155,14 @@ describe('POST /api/helper/pairing/redeem — open, single-use', () => {
     expect((await call(redeem, req('/api/helper/pairing/redeem', { code: '' }))).status).toBe(400);
   });
 
-  it('an agent pairing redeems to an AUTHORING attachment (scope + role)', async () => {
-    const minted = await call(mint, req('/api/helper/pairing', { handle: '@fClaude', role: 'agent' }, { admin: true }));
-    const code = (await minted.json()).code as string;
+  it('a paired (reader) redemption is read-only — never authors, never posts status', async () => {
+    const code = await mintCode();
     const res = await call(redeem, req('/api/helper/pairing/redeem', { code, host: 'mac-mini' }));
     expect(res.status).toBe(201);
     const body = await res.json();
-    expect(body.role).toBe('agent');
-    expect(body.scope.authorMessages).toBe(true); // an agent attachment authors
-    expect(body.leaseSecret).toMatch(/^lease_sk_/);
+    expect(body.role).toBe('reader');
+    expect(body.scope.authorMessages).toBe(false);
+    expect(body.scope.postStatus).toBe(false);
+    expect(body.scope.subscribeFeed).toBe(true);
   });
 });
