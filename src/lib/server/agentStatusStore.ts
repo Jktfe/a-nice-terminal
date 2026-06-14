@@ -24,7 +24,10 @@ export type AgentStatus = 'idle' | 'thinking' | 'working' | 'response-required';
 // own rendered status-strip label (paneStatusParser source==='label') observed
 // by the poller. Same trust tier as a hook event — the CLI asserted it, we
 // just read it off the pane instead of receiving a POST.
-export type AgentStatusSource = 'fingerprint' | 'hook' | 'pane' | 'ant-activity' | 'pid-cpu' | 'default';
+// 'helper' = relayed by the antAppHelper on a handle's behalf (Picture 3,
+// 2026-06-15): a paneless agent can't post its own status, so its bound helper
+// relays it (lease + postStatus scope gated). Same assert-tier as a hook.
+export type AgentStatusSource = 'fingerprint' | 'hook' | 'pane' | 'ant-activity' | 'pid-cpu' | 'default' | 'helper';
 
 export type AgentStatusRow = {
   terminal_id: string;
@@ -44,7 +47,7 @@ export type AgentStatusEvent = {
 };
 
 const ALLOWED_STATUSES: readonly AgentStatus[] = ['idle', 'thinking', 'working', 'response-required'];
-const ALLOWED_SOURCES: readonly AgentStatusSource[] = ['fingerprint', 'hook', 'pane', 'ant-activity', 'pid-cpu', 'default'];
+const ALLOWED_SOURCES: readonly AgentStatusSource[] = ['fingerprint', 'hook', 'pane', 'ant-activity', 'pid-cpu', 'default', 'helper'];
 
 export function isAllowedAgentStatus(value: unknown): value is AgentStatus {
   return typeof value === 'string' && (ALLOWED_STATUSES as readonly string[]).includes(value);
