@@ -27,6 +27,7 @@ import { getIdentityDb } from '$lib/server/db';
 import { dispatchPlanEvent } from '$lib/server/planTriggerDispatcher';
 import type { PlanTriggerEvent } from '$lib/server/planTriggerStore';
 import { listRoomsForPlan } from '$lib/server/planRoomLinkStore';
+import { resolveReadableRoomScope } from '$lib/server/chatRoomReadGate';
 import { broadcastPlanChanged, type PlanChangeAction } from '$lib/server/taskPlanRealtime';
 
 const VALID_ACTIONS = new Set(['archive', 'unarchive', 'delete', 'restore', 'hard-delete']);
@@ -41,11 +42,27 @@ const ACTION_TO_EVENT: Record<string, PlanTriggerEvent> = {
   // an empty table. We emit a one-off audit message in the route handler.
 };
 
-export const GET: RequestHandler = async ({ params }) => {
+/**
+ * rv1 data-scoping fix: a single-plan GET previously returned ANY plan by id
+ * with no auth. The caller must now be able to read a room hosting the plan
+ * (per-room public-read-if-in-room), else the plan is indistinguishable from
+ * not-existing (404, not 403 — don't confirm the id exists to a non-member).
+ * Admin-bearer keeps full access (containment).
+ */
+async function requirePlanReadAccess(request: Request, planId: string): Promise<void> {
+  const scope = await resolveReadableRoomScope(request);
+  if (scope.isAdminBearer) return;
+  const hostRooms = listRoomsForPlan(planId);
+  if (hostRooms.some((room) => scope.roomIds.has(room.roomId))) return;
+  throw error(404, 'plan not found');
+}
+
+export const GET: RequestHandler = async ({ params, request }) => {
   const planId = params.planId ?? '';
   if (planId.length === 0) throw error(400, 'planId is required.');
   const plan = getPlan(planId);
   if (!plan) throw error(404, 'plan not found');
+  await requirePlanReadAccess(request, planId);
   return json({ plan });
 };
 

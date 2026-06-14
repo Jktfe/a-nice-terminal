@@ -5,9 +5,15 @@ import { _resetTaskStoreForTests, createTask, deleteTask } from '$lib/server/tas
 import { GET } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+// rv1 data-scoping fix: GET /api/plans/:planId/tasks is now caller-scoped;
+// these tests assert the full plan-task feed, so authenticate as admin-bearer
+// (containment retains full access).
+const ADMIN_TOKEN_FOR_TESTS = 'plan-tasks-server-test-admin-token';
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN_FOR_TESTS;
   resetIdentityDbForTests();
   _resetTaskStoreForTests();
   _resetPlanStoreForTests();
@@ -19,11 +25,16 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
 function req(planId: string): Parameters<typeof GET>[0] {
   return {
-    params: { planId }
+    params: { planId },
+    request: new Request('http://x/api/plans/' + encodeURIComponent(planId) + '/tasks', {
+      headers: { authorization: `Bearer ${ADMIN_TOKEN_FOR_TESTS}` }
+    })
   } as Parameters<typeof GET>[0];
 }
 

@@ -8,10 +8,15 @@ import { GET } from './+server';
 
 let tmpDir: string;
 const prevDbPath = process.env.ANT_FRESH_DB_PATH;
+// rv1 data-scoping fix: cockpit is now caller-scoped; admin-bearer retains
+// full access (containment), which is what these projection tests assert.
+const ADMIN_TOKEN_FOR_TESTS = 'plan-cockpit-server-test-admin-token';
+const prevAdminToken = process.env.ANT_ADMIN_TOKEN;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-plan-cockpit-route-'));
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+  process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN_FOR_TESTS;
   resetIdentityDbForTests();
 });
 
@@ -20,11 +25,17 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
   if (prevDbPath === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = prevDbPath;
+  if (prevAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = prevAdminToken;
 });
 
 function event(planId: string): Parameters<typeof GET>[0] {
   const url = new URL(`http://localhost/api/plans/${planId}/cockpit`);
-  return { params: { planId }, request: new Request(url), url } as unknown as Parameters<typeof GET>[0];
+  return {
+    params: { planId },
+    request: new Request(url, { headers: { authorization: `Bearer ${ADMIN_TOKEN_FOR_TESTS}` } }),
+    url
+  } as unknown as Parameters<typeof GET>[0];
 }
 
 async function call(planId: string): Promise<{ status: number; body: Record<string, unknown> }> {

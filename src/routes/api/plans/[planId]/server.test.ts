@@ -33,8 +33,13 @@ afterEach(() => {
 });
 
 function getReq(planId: string): Parameters<typeof GET>[0] {
+  // rv1 data-scoping fix: GET /api/plans/:planId is now caller-scoped; admin
+  // -bearer retains full access (containment), which is what these tests need.
   return {
-    params: { planId }
+    params: { planId },
+    request: new Request('http://x/api/plans/' + encodeURIComponent(planId), {
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}` }
+    })
   } as Parameters<typeof GET>[0];
 }
 

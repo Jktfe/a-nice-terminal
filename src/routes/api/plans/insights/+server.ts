@@ -1,16 +1,23 @@
 /**
  * GET /api/plans/insights — Lane-D cross-plan analytics.
  *
- * Public read (no auth — same posture as /api/plans/completions). The
- * Cache-Control short max-age keeps rapid-refresh dashboards cheap on
- * SQLite while still feeling live.
+ * rv1 data-scoping fix: this is a SERVER-WIDE aggregate (cross-plan counts /
+ * rollups) that cannot be partitioned per room without leaking the global
+ * shape. It is therefore admin-bearer only (containment), mirroring the
+ * no-room aggregate path on /api/tasks. Non-admin callers get 401 rather
+ * than a global analytics surface. The Cache-Control short max-age keeps
+ * rapid-refresh operator dashboards cheap on SQLite while still feeling live.
  */
 
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { computeInsights } from '$lib/server/planInsightsStore';
+import { tryAdminBearer } from '$lib/server/chatRoomAuthGate';
 
-export const GET: RequestHandler = async () => {
+export const GET: RequestHandler = async ({ request }) => {
+  if (!tryAdminBearer(request)) {
+    throw error(401, 'Authentication required.');
+  }
   const insights = computeInsights();
   return json(
     { insights },

@@ -22,10 +22,31 @@ import {
   listPlanCompletions,
   listActivePlanCompletions,
   listArchivedPlanCompletions,
-  listDeletedPlanCompletions
+  listDeletedPlanCompletions,
+  type PlanCompletion
 } from '$lib/server/taskStore';
+import { resolveReadableRoomScope } from '$lib/server/chatRoomReadGate';
+import { listRoomsForPlan } from '$lib/server/planRoomLinkStore';
 
-export const GET: RequestHandler = async ({ url }) => {
+/**
+ * rv1 data-scoping fix: this feed used to return EVERY plan server-wide
+ * (the confirmed leak — `?` count == total plans regardless of caller).
+ * A caller may now only see a plan that is attached to a room they are a
+ * member of. Admin-bearer keeps full access (containment, like /api/tasks).
+ * A plan attached to no room is operator-only by the same rule.
+ */
+function scopePlans(
+  plans: PlanCompletion[],
+  scope: { isAdminBearer: boolean; roomIds: Set<string> }
+): PlanCompletion[] {
+  if (scope.isAdminBearer) return plans;
+  return plans.filter((plan) =>
+    listRoomsForPlan(plan.planId).some((room) => scope.roomIds.has(room.roomId))
+  );
+}
+
+export const GET: RequestHandler = async ({ url, request }) => {
+  const scope = await resolveReadableRoomScope(request);
   const deletedOnly = url.searchParams.get('deleted') === '1';
   const archivedOnly = url.searchParams.get('archived') === '1';
   const activeOnly = url.searchParams.get('active') === '1';
@@ -36,5 +57,5 @@ export const GET: RequestHandler = async ({ url }) => {
       : activeOnly
         ? listActivePlanCompletions()
         : listPlanCompletions();
-  return json({ plans });
+  return json({ plans: scopePlans(plans, scope) });
 };

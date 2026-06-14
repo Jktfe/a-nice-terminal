@@ -19,9 +19,16 @@ import {
   softDeleteArtefact
 } from '$lib/server/chatRoomArtefactStore';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
+import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 
-export const GET: RequestHandler = ({ params }) => {
-  if (!findChatRoomById(params.roomId)) throw error(404, 'Room not found.');
+export const GET: RequestHandler = async ({ params, request }) => {
+  const room = findChatRoomById(params.roomId);
+  if (!room) throw error(404, 'Room not found.');
+  // rv1 data-scoping fix: the artefacts list had NO read gate — any caller
+  // could read any room's artefacts. Gate it like every other room-scoped
+  // read (membership / admin-bearer containment). 404 for non-members so the
+  // room id space isn't probeable; the write paths below already gate.
+  await requireChatRoomReadAccess(request, room);
   return json({ artefacts: listArtefactsInRoom(params.roomId) });
 };
 

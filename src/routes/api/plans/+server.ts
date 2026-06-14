@@ -20,6 +20,8 @@ import {
   PlanExistsError,
   type PlanLifecycleState
 } from '$lib/server/planStore';
+import { resolveReadableRoomScope } from '$lib/server/chatRoomReadGate';
+import { listRoomsForPlan } from '$lib/server/planRoomLinkStore';
 
 function parseState(raw: string | null): PlanLifecycleState | 'all' {
   if (raw === 'archived' || raw === 'deleted' || raw === 'all') return raw;
@@ -28,9 +30,19 @@ function parseState(raw: string | null): PlanLifecycleState | 'all' {
   return 'active';
 }
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ url, request }) => {
+  // rv1 data-scoping fix: the persisted-plans list previously returned every
+  // plan row server-wide. A caller may now only see a plan attached to a room
+  // they are a member of; admin-bearer keeps full access (containment).
+  const scope = await resolveReadableRoomScope(request);
   const state = parseState(url.searchParams.get('state'));
-  return json({ plans: listPlans({ state }) });
+  const plans = listPlans({ state });
+  const scoped = scope.isAdminBearer
+    ? plans
+    : plans.filter((plan) =>
+        listRoomsForPlan(plan.id).some((room) => scope.roomIds.has(room.roomId))
+      );
+  return json({ plans: scoped });
 };
 
 export const POST: RequestHandler = async ({ request }) => {

@@ -29,8 +29,15 @@ afterEach(() => {
 });
 
 function getReq(search = ''): Parameters<typeof GET>[0] {
+  // rv1 data-scoping fix: GET /api/plans is now caller-scoped; these tests
+  // assert the full server-wide list, so authenticate as admin-bearer
+  // (containment retains full access).
+  const url = new URL('http://x/api/plans' + search);
   return {
-    url: new URL('http://x/api/plans' + search)
+    url,
+    request: new Request(url.toString(), {
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}` }
+    })
   } as Parameters<typeof GET>[0];
 }
 

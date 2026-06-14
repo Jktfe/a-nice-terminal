@@ -23,7 +23,7 @@ import {
 import { getCookieValuesFromRequest } from './authGate';
 import { resolveServerSideHandle, type PidChainEntry } from './identityGate';
 import { findHandleForAliasInRoom } from './chatRoomAliasStore';
-import type { ChatRoom } from './chatRoomStore';
+import { listChatRooms, type ChatRoom } from './chatRoomStore';
 import { expandHandlesToOwnerFamilies } from './agentFamilyStore';
 import { lookupTerminalByPidChain } from './terminalsStore';
 import { getTerminalRecord } from './terminalRecordsStore';
@@ -495,4 +495,44 @@ export async function listReadableChatRooms(
   }
   if (access.isAdminBearer) return rooms;
   return rooms.filter((room) => canReadChatRoom(room, access));
+}
+
+/**
+ * Caller → accessible-rooms scope for cross-room read aggregations.
+ *
+ * Privacy primitive shared by the plans/asks/verification/artefacts feeds
+ * (rv1 data-scoping fix). A caller may see a plan/ask/artefact only when it
+ * is attached to a room they are a member of. This resolves the caller's
+ * access ONCE, then materialises the set of room ids they can read, mirroring
+ * the inline filter the asks no-roomId branch already used
+ * (asks/+server.ts).
+ *
+ * Returns:
+ *   - `{ isAdminBearer: true,  roomIds: <all> }` for admin-bearer
+ *     (containment — full access, same posture as /api/tasks).
+ *   - `{ isAdminBearer: false, roomIds: <member rooms> }` for an
+ *     authenticated non-admin caller (browser-session cookie / antchat or
+ *     accounts bearer / pidChain / ant-session / room-invite bearer).
+ *   - 401 (throws) when no caller identity resolves at all — fail closed so a
+ *     stranger never receives a server-wide listing.
+ *
+ * The `roomIds` set is the authority callers filter their rows against. Admin
+ * callers also receive the full set so a single `roomIds.has(...)` predicate
+ * works uniformly, but most admin paths short-circuit on `isAdminBearer`.
+ */
+export async function resolveReadableRoomScope(
+  request: Request
+): Promise<{ isAdminBearer: boolean; roomIds: Set<string> }> {
+  const access = await resolveChatRoomReadAccess(request);
+  if (!access) {
+    throw error(401, 'Authentication required.');
+  }
+  const rooms = listChatRooms();
+  if (access.isAdminBearer) {
+    return { isAdminBearer: true, roomIds: new Set(rooms.map((room) => room.id)) };
+  }
+  const roomIds = new Set(
+    rooms.filter((room) => canReadChatRoom(room, access)).map((room) => room.id)
+  );
+  return { isAdminBearer: false, roomIds };
 }

@@ -7,9 +7,15 @@ import { addDependency, createTask, _resetTaskStoreForTests } from '$lib/server/
 import { GET } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+// rv1 data-scoping fix: /api/plans/insights is a server-wide aggregate, now
+// admin-bearer only (containment). These tests assert that aggregate, so they
+// authenticate as admin-bearer.
+const ADMIN_TOKEN_FOR_TESTS = 'plan-insights-server-test-admin-token';
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN_FOR_TESTS;
   resetIdentityDbForTests();
   resetChatRoomStoreForTests();
   _resetPlanRoomLinksForTests();
@@ -25,10 +31,16 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
 function req(): Parameters<typeof GET>[0] {
-  return {} as Parameters<typeof GET>[0];
+  return {
+    request: new Request('http://x/api/plans/insights', {
+      headers: { authorization: `Bearer ${ADMIN_TOKEN_FOR_TESTS}` }
+    })
+  } as Parameters<typeof GET>[0];
 }
 
 describe('GET /api/plans/insights', () => {
