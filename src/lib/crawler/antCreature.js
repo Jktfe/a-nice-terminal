@@ -380,7 +380,10 @@ export const AntCreature = (function () {
       const W = this.world, P = W.params, L = this.L, T = W.terrain;
       const f = this.facing;
       const fxm = (f < 0 ? -1 : 1) * Math.max(0.30, Math.abs(f));
-      const ink = W.antInk();
+      // Per-agent line-art colour in live-roster mode: each real agent's ant
+      // is inked in its own colour (a CSS strokeStyle, so an hsl() is fine).
+      // The neutral body fill + emerald eye stay world-level.
+      const ink = (W._liveRoster && this.agent && this.agent.color) ? this.agent.color : W.antInk();
       const fill = W.antFill();
       const B = this.bodyFrame();
       const lw = Math.max(0.9, L * 0.034);
