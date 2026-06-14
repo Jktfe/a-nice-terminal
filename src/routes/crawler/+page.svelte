@@ -8,6 +8,7 @@
   // is a deliberate follow-up; today the roster is the showpiece set.
   import { onMount, onDestroy } from 'svelte';
   import { Crawler } from '$lib/crawler/antWorld.js';
+  import { subscribeToRoomEvents } from '$lib/stores/realtimeRoom.svelte';
 
   // The values the design landed on (prototype TWEAK_DEFAULTS).
   const DEFAULTS = {
@@ -30,6 +31,17 @@
   let roomId = $state<string | null>(null);
   let liveCount = $state<number>(0);
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+  // SSE: push agent-status changes the instant they happen, with the poll
+  // kept as a slow safety net for anything that doesn't emit a room event.
+  let realtime = $state<ReturnType<typeof subscribeToRoomEvents> | null>(null);
+
+  // Refresh the swarm the moment a relevant room event lands. lastEvent is a
+  // reactive store value, so this $effect re-runs on every new event.
+  $effect(() => {
+    const e = realtime?.lastEvent;
+    if (!e) return;
+    if (e.type === 'agent_activity' || e.type === 'message_added') loadRoomAgents();
+  });
 
   function setDark(value: boolean) {
     dark = value;
@@ -80,13 +92,18 @@
       roomId = new URLSearchParams(window.location.search).get('room');
       if (roomId) {
         loadRoomAgents();
-        pollTimer = setInterval(loadRoomAgents, 15000);
+        // Live push on every room event; the $effect above reacts to it.
+        // onConnect also re-syncs on (re)connect after a dropped stream.
+        realtime = subscribeToRoomEvents(roomId, { onConnect: () => loadRoomAgents() });
+        // Slow safety-net poll for status that changes without a room event.
+        pollTimer = setInterval(loadRoomAgents, 30000);
       }
     }
   });
 
   onDestroy(() => {
     if (pollTimer) clearInterval(pollTimer);
+    realtime?.close();
     teardown?.();
   });
 </script>
