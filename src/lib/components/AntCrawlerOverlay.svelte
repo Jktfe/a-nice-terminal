@@ -17,8 +17,6 @@
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- engine is vanilla JS
   let world: any = null;
   let teardown: (() => void) | null = null;
-  let resizeObs: ResizeObserver | null = null;
-  let measureTimer: ReturnType<typeof setInterval> | null = null;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let realtime: ReturnType<typeof subscribeToRoomEvents> | null = null;
 
@@ -85,38 +83,34 @@
     }
   }
 
-  function remeasure() {
-    if (!world || !containerEl) return;
-    const m = measure();
-    world.updateTerrain(m.inner, m.blocks);
-  }
-
   $effect(() => {
     const e = realtime?.lastEvent;
     if (e && (e.type === 'agent_activity' || e.type === 'message_added')) loadAgents();
   });
 
   onMount(() => {
+    // Accessibility: respect prefers-reduced-motion — no animated overlay at all
+    // for users who ask for reduced motion.
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+
+    // Terrain is measured ONCE and held stable. The previous version rebuilt it
+    // on a 1.5s timer, which re-wrapped the ants to new positions every tick —
+    // i.e. they teleported/strobed. Measuring once keeps them crawling smoothly.
     const m = measure();
     world = new Crawler.AntWorld({ canvas: canvasEl, inner: m.inner, blocks: m.blocks, fx: null, tip: null, panelEl: null });
     world.setScale(window.devicePixelRatio || 1);
-    world.setParams({ dark, count: 3, size: 32, speed: 56, gait: 'skittery', mode: 'wander', color: 'ink', eyeGlow: true });
+    // Calm, ambient motion: few ants, slow, smooth (not skittery). Status
+    // ambience, not a stress animation.
+    world.setParams({ dark, count: 2, size: 30, speed: 22, gait: 'smooth', mode: 'wander', color: 'ink', eyeGlow: true });
     teardown = () => { world._stopped = true; };
 
     loadAgents();
     realtime = subscribeToRoomEvents(roomId, { onConnect: () => loadAgents() });
     pollTimer = setInterval(loadAgents, 30000);
-
-    const target = (containerEl.closest('.room-main') as HTMLElement) ?? containerEl;
-    resizeObs = new ResizeObserver(remeasure);
-    resizeObs.observe(target);
-    measureTimer = setInterval(remeasure, 1500); // catch scroll / new messages
   });
 
   onDestroy(() => {
-    if (measureTimer) clearInterval(measureTimer);
     if (pollTimer) clearInterval(pollTimer);
-    resizeObs?.disconnect();
     realtime?.close();
     teardown?.();
   });
