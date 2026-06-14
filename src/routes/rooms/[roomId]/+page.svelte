@@ -21,6 +21,7 @@
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import ChatComposer from '$lib/components/ChatComposer.svelte';
   import MessageList from '$lib/components/MessageList.svelte';
+  import AntCrawlerOverlay from '$lib/components/AntCrawlerOverlay.svelte';
   import AliasAppliedBanner from '$lib/components/AliasAppliedBanner.svelte';
   import AgentTimeline from '$lib/components/AgentTimeline.svelte';
   import AgentStatusFooter from '$lib/components/AgentStatusFooter.svelte';
@@ -109,6 +110,11 @@
 
   // Messages keep a quiet client merge layer so posts do not replace the list.
   const roomFromServer = $derived<ChatRoom>(data.room);
+  // Opt-in ant crawler overlay (real-element terrain): /rooms/<id>?crawler=1.
+  let showCrawler = $state(false);
+  onMount(() => {
+    showCrawler = new URLSearchParams(window.location.search).get('crawler') === '1';
+  });
   const messagesFromServer = $derived<ChatMessage[]>(data.messages);
   const aliasesInRoom = $derived<RoomAliasEntry[]>(data.aliases);
   const agentEventsFromServer = $derived<AgentEvent[]>(data.agentEvents ?? []);
@@ -547,6 +553,9 @@
   {#if agentEventsFromServer.length > 0}
     <AgentTimeline events={agentEventsFromServer} />
   {/if}
+      {#if showCrawler}
+        <AntCrawlerOverlay roomId={roomFromServer.id} />
+      {/if}
     </div>
 
     <RoomDetailContextRail
@@ -620,6 +629,7 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
+    position: relative; /* anchor for the opt-in ant crawler overlay */
   }
 
   /* Task #67: dock the composer to the bottom of the visual viewport on

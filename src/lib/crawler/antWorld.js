@@ -134,6 +134,16 @@ export const Crawler = (function () {
       this.canvas.height = Math.max(1, Math.round(this.inner.h * k));
     }
 
+    // Real-element overlay: rebuild the walk surface from live DOM rects so the
+    // ants crawl the ACTUAL screen elements (composer, send, …), not a drawn
+    // box. Re-measured on resize/scroll; ants keep walking (s is re-wrapped).
+    updateTerrain(inner, blocks) {
+      this.inner = inner;
+      this.terrain = AntTerrain.buildTerrain(inner, blocks && blocks.length ? blocks : []);
+      this.setScale(this.k);
+      for (const a of this.ants) { a.s = this.terrain.wrap(a.s); if (a.plantFeet) a.plantFeet(); }
+    }
+
     setParams(p) {
       const prev = this.params;
       this.params = { ...prev, ...p };
