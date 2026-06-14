@@ -389,6 +389,11 @@ describe('ant chat state wrappers', () => {
 
     await handleChatVerb('reply', ['msg_parent', '--stdin'], runtime, { CliInputError });
 
+    // The read-gated parent lookup (requests[0]) must ALSO carry the session.
+    // The bug: it sent pidChain only, so post-cutover witnessed agents 401'd
+    // on the lookup ("Authentication required") before the POST ever ran.
+    expect(captured.requests[0].init.method).toBe('GET');
+    expect(captured.requests[0].init.headers['x-ant-session-id']).toBe('sess-reply-1');
     expect(captured.requests[1].init.headers['x-ant-session-id']).toBe('sess-reply-1');
     expect(bodyAt(captured, 1)).toMatchObject({
       body: 'Reply from durable CLI.\n',

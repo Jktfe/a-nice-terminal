@@ -372,9 +372,16 @@ function looksReplyShaped(body) {
 async function runReply(flags, runtime, CliInputError) {
   const parentMessageId = requireFlag(flags, 'room', CliInputError);
   const body = resolveMessageBody(flags, runtime, CliInputError);
+  // The parent-message lookup is read-gated. Attach the durable witnessed
+  // session (+ attachment lease) the same way the post path does, so a
+  // post-cutover witnessed agent resolves here instead of 401'ing on a
+  // pidChain that no longer maps to a handle. Mirrors the reactions GET;
+  // the witness session is pane/env-derived so the room id isn't needed yet.
   const lookup = await getJson(
     runtime,
-    pathWithPidChain(`/api/chat-rooms/messages/${encodeURIComponent(parentMessageId)}`)
+    pathWithPidChain(`/api/chat-rooms/messages/${encodeURIComponent(parentMessageId)}`),
+    undefined,
+    { ...attachmentHeaders(flags), ...durableSessionHeaders(runtime, '') }
   );
   const parent = lookup?.message;
   if (!parent || typeof parent.roomId !== 'string' || parent.roomId.length === 0) {
@@ -641,11 +648,11 @@ function pathWithPidChain(path) {
   return `${url.pathname}${url.search}`;
 }
 
-async function getJson(runtime, path, baseUrl) {
+async function getJson(runtime, path, baseUrl, extraHeaders = {}) {
   const base = resolveBaseUrlForPath(runtime, path, baseUrl);
   const response = await runtime.fetchImpl(`${base}${path}`, {
     method: 'GET',
-    headers: { 'content-type': 'application/json' }
+    headers: { 'content-type': 'application/json', ...extraHeaders }
   });
   if (!response.ok) {
     const bodyText = await response.text().catch(() => '');
