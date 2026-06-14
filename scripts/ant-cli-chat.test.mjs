@@ -200,6 +200,41 @@ describe('ant chat state wrappers', () => {
     });
   });
 
+  it('S1b2: send recovers daemon-witnessed 403 by minting a bearer-backed browser-session cookie', async () => {
+    const { runtime, captured } = makeRuntime((callIndex) => {
+      if (callIndex === 1) {
+        return failure(403, 'No daemon-witnessed binding for this terminal.');
+      }
+      if (callIndex === 2) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'set-cookie': 'ant_browser_session=session-123; Path=/api/chat-rooms/room-a' }
+        });
+      }
+      return okJson({ message: { id: 'msg-retry', authorHandle: '@serverlaptop' } }, 201);
+    });
+    runtime.config = {
+      tokens: {
+        'room-a': {
+          token: 'room-token-1',
+          handle: '@serverlaptop',
+          server_url: 'http://remote.test'
+        }
+      }
+    };
+
+    await handleChatVerb('send', ['room-a', '--msg', 'hello from intel'], runtime, { CliInputError });
+
+    expect(captured.requests).toHaveLength(3);
+    expect(captured.requests[0].url).toBe('http://remote.test/api/chat-rooms/room-a/messages');
+    expect(captured.requests[1].url).toBe('http://remote.test/api/chat-rooms/room-a/browser-session');
+    expect(captured.requests[1].init.headers.authorization).toBe('Bearer room-token-1');
+    expect(bodyAt(captured, 1)).toMatchObject({ authorHandle: '@serverlaptop' });
+    expect(captured.requests[2].url).toBe('http://remote.test/api/chat-rooms/room-a/messages');
+    expect(captured.requests[2].init.headers.cookie).toBe('ant_browser_session=session-123');
+    expect(captured.stdout.join('\n')).toContain('Posted msg-retry as @serverlaptop into room-a.');
+  });
+
   it('S1c: send ignores shared global/per-room session ids and uses the terminal-scoped pane binding', async () => {
     const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'msg-pane-session', authorHandle: '@panedurable' } }, 201));
     runtime.envTmuxPane = '%pane-a';

@@ -243,6 +243,38 @@ describe('ant-cli', () => {
       expect(fetchCalls[0].init.headers['x-ant-session-id']).toBe('sess-roompost-1');
       expect(JSON.parse(fetchCalls[0].init.body).sessionId).toBe('sess-roompost-1');
     });
+
+    it('uses the chat send recovery path for daemon-witnessed remote posting', async () => {
+      const { runner, fetchCalls, writtenOut } = setupRunner({
+        config: {
+          tokens: {
+            r1: {
+              token: 'room-token-1',
+              handle: '@serverlaptop',
+              server_url: 'http://remote.test'
+            }
+          }
+        },
+        fetchReplies: [
+          makeTextResponse('No daemon-witnessed binding for this terminal.', 403),
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { 'set-cookie': 'ant_browser_session=session-123; Path=/api/chat-rooms/r1' }
+          }),
+          makeJsonResponse({ message: { id: 'm2', authorHandle: '@serverlaptop' } }, 201)
+        ]
+      });
+
+      const exitCode = await runner.run(['rooms', 'post', 'r1', 'hello', 'remote']);
+
+      expect(exitCode).toBe(0);
+      expect(fetchCalls).toHaveLength(3);
+      expect(fetchCalls[0].url).toBe('http://remote.test/api/chat-rooms/r1/messages');
+      expect(fetchCalls[1].url).toBe('http://remote.test/api/chat-rooms/r1/browser-session');
+      expect(fetchCalls[1].init.headers.authorization).toBe('Bearer room-token-1');
+      expect(fetchCalls[2].init.headers.cookie).toBe('ant_browser_session=session-123');
+      expect(writtenOut.join('\n')).toContain('Posted m2 as @serverlaptop into r1.');
+    });
   });
 
   describe('rooms break', () => {

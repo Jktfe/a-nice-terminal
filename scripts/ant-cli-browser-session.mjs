@@ -37,12 +37,15 @@ export async function mintAntCliBrowserSessionCookie(runtime, roomId, explicitHa
   // fallback hits the same server that serves the room's writes.
   const base = resolveRoomServerUrl(runtime, roomId);
   const url = `${base}/api/chat-rooms/${encodeURIComponent(roomId)}/browser-session`;
+  const bearerToken = lookupRoomToken(runtime, roomId);
+  const headers = {
+    'content-type': 'application/json',
+    origin: base
+  };
+  if (bearerToken) headers.authorization = `Bearer ${bearerToken}`;
   const response = await runtime.fetchImpl(url, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      origin: base
-    },
+    headers,
     body: JSON.stringify({ authorHandle: handle, pidChain: processIdentityChain() })
   });
   if (!response.ok) return null;
@@ -75,7 +78,7 @@ export async function mintAntCliBrowserSessionCookie(runtime, roomId, explicitHa
 // 502 we fixed for the bearer path in ant 0.1.9. Reproducer: drop the
 // flat `token` field from a tokens[roomId] entry that still has
 // byHandle and watch the router 502-storm.
-function lookupRoomToken(runtime, roomId) {
+export function lookupRoomToken(runtime, roomId) {
   if (typeof roomId !== 'string' || roomId.length === 0) return null;
   const tokens = runtime.config?.tokens;
   if (!tokens || typeof tokens !== 'object') return null;

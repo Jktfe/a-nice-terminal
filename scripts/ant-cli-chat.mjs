@@ -27,7 +27,10 @@ import {
   resolveRoomServerUrl
 } from './ant-cli-shared-resolve.mjs';
 import { handleChatPendingVerb } from './ant-cli-chat-pending.mjs';
-import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-session.mjs';
+import {
+  fetchRoomJsonWithBrowserSessionFallback,
+  mintAntCliBrowserSessionCookie
+} from './ant-cli-browser-session.mjs';
 import { renderPermissionDeniedIfPresent } from './ant-cli-permission-denied.mjs';
 
 const ALLOWED_KIND_TAGS = new Set(['human', 'agent', 'system', 'system-break']);
@@ -323,12 +326,9 @@ async function runSend(flags, runtime, CliInputError) {
   try {
     result = await sendJson(runtime, messagesPath, 'POST', payload, roomServerUrl, { ...attachmentHeaders(flags), ...durableSessionHeaders(runtime, room) });
   } catch (firstAttemptError) {
-    const isIdentityWedge =
-      firstAttemptError instanceof Error &&
-      /returned 403/.test(firstAttemptError.message) &&
-      /Server-resolved identity required/.test(firstAttemptError.message);
+    const isIdentityWedge = isPostIdentityWedge(firstAttemptError);
     if (!isIdentityWedge) throw firstAttemptError;
-    const mintedCookie = await mintBrowserSessionCookie(runtime, room, flags.handle, roomServerUrl);
+    const mintedCookie = await mintAntCliBrowserSessionCookie(runtime, room, flags.handle);
     if (!mintedCookie) throw firstAttemptError;
     result = await sendJsonWithCookie(runtime, messagesPath, 'POST', payload, mintedCookie, roomServerUrl);
   }
@@ -405,50 +405,10 @@ async function runReply(flags, runtime, CliInputError) {
  * name=value pair, no other attributes) suitable for a Cookie request
  * header, or null on failure.
  */
-async function mintBrowserSessionCookie(runtime, roomId, explicitHandle, baseUrl) {
-  const handle = resolveCallerHandleForRoom(runtime, roomId, explicitHandle);
-  if (!handle) return null;
-  const base = baseUrl ?? runtime.serverUrl;
-  const url = `${base}/api/chat-rooms/${encodeURIComponent(roomId)}/browser-session`;
-  const response = await runtime.fetchImpl(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      origin: base
-    },
-    body: JSON.stringify({ authorHandle: handle, pidChain: processIdentityChain() })
-  });
-  if (!response.ok) return null;
-  // Parse Set-Cookie. fetch undici returns a comma-joined string on .get
-  // but cookies legitimately contain commas in Expires=... attrs, so we
-  // use .getSetCookie() when available (Node >=20).
-  const cookies =
-    typeof response.headers.getSetCookie === 'function'
-      ? response.headers.getSetCookie()
-      : [response.headers.get('set-cookie')].filter(Boolean);
-  for (const raw of cookies) {
-    const match = /^(ant_browser_session=[^;]+)/.exec(raw);
-    if (match) return match[1];
-  }
-  return null;
-}
-
-/**
- * Best-effort handle resolution for the auto-mint fallback. Order:
- *   --handle flag → per-room token in ~/.ant/config.json → global handle.
- * Returns null if none can be derived (rare; user can supply --handle).
- */
-function resolveCallerHandleForRoom(runtime, roomId, explicitHandle) {
-  if (typeof explicitHandle === 'string' && explicitHandle.length > 0) {
-    return explicitHandle.startsWith('@') ? explicitHandle : `@${explicitHandle}`;
-  }
-  try {
-    const config = runtime.config ?? {};
-    const roomToken = config.tokens?.[roomId];
-    if (roomToken && typeof roomToken.handle === 'string') return roomToken.handle;
-    if (typeof config.handle === 'string') return config.handle;
-  } catch { /* config absent — fall through */ }
-  return null;
+function isPostIdentityWedge(error) {
+  if (!(error instanceof Error)) return false;
+  return /returned 403/.test(error.message) &&
+    /Server-resolved identity required|daemon-witnessed|identity_unresolved|No daemon-witnessed binding/i.test(error.message);
 }
 
 function normaliseDurableSessionId(raw) {

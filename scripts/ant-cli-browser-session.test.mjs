@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-session.mjs';
+import {
+  fetchRoomJsonWithBrowserSessionFallback,
+  mintAntCliBrowserSessionCookie
+} from './ant-cli-browser-session.mjs';
 
 // 0.1.9 (router 502 root-cause fix 2026-05-23): bearer-on-GET tests.
 // When per-room token is in config, send Authorization: Bearer and
@@ -94,6 +97,30 @@ describe('fetchRoomJsonWithBrowserSessionFallback — bearer-on-GET', () => {
     await expect(
       fetchRoomJsonWithBrowserSessionFallback(runtime, ROOM_ID, `/api/chat-rooms/${ROOM_ID}/messages`, null)
     ).rejects.toThrow(/500/);
+  });
+});
+
+describe('mintAntCliBrowserSessionCookie — bearer-backed write recovery', () => {
+  it('carries the persisted room bearer when minting a browser session', async () => {
+    const { runtime, captured } = makeRuntime({
+      token: TOKEN,
+      responses: [
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'set-cookie': 'ant_browser_session=session-123; Path=/api/chat-rooms/r_test_room' }
+        })
+      ]
+    });
+
+    const cookie = await mintAntCliBrowserSessionCookie(runtime, ROOM_ID, null);
+
+    expect(cookie).toBe('ant_browser_session=session-123');
+    expect(captured.calls[0].url).toBe(`${BASE_URL}/api/chat-rooms/${ROOM_ID}/browser-session`);
+    expect(captured.calls[0].init.headers.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(JSON.parse(captured.calls[0].init.body)).toMatchObject({
+      authorHandle: '@x',
+      pidChain: expect.any(Array)
+    });
   });
 });
 

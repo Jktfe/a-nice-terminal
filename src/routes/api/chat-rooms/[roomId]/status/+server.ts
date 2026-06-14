@@ -16,7 +16,7 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { doesChatRoomExist } from '$lib/server/chatRoomStore';
+import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { listMembers } from '$lib/server/membershipStore';
 import { getSession } from '$lib/server/antSessionStore';
 import { getTerminalById } from '$lib/server/terminalsStore';
@@ -24,11 +24,15 @@ import { getAgentStatus } from '$lib/server/agentStatusStore';
 import { projectEffectiveAgentStatus } from '$lib/server/effectiveAgentStatus';
 
 export const GET: RequestHandler = async ({ params, url }) => {
-  if (!doesChatRoomExist(params.roomId)) {
+  const room = findChatRoomById(params.roomId);
+  if (!room) {
     throw error(404, 'Room not found.');
   }
   const rich = url.searchParams.get('rich') === '1';
-  const memberships = listMembers(params.roomId).filter((member) => member.session_id !== null);
+  const roomMemberKinds = new Map(room.members.map((member) => [member.handle, member.kind]));
+  const memberships = listMembers(params.roomId).filter(
+    (member) => member.session_id !== null || roomMemberKinds.get(member.handle) === 'agent'
+  );
   const members = memberships.map((m) => {
     const terminalId = m.session_id ? (getSession(m.session_id)?.terminal_id ?? null) : null;
     const terminal = terminalId ? getTerminalById(terminalId) : null;

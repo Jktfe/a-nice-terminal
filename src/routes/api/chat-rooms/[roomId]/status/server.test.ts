@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { GET } from './+server';
 import {
   createChatRoom,
+  inviteAgentToRoom,
   resetChatRoomStoreForTests
 } from '$lib/server/chatRoomStore';
 import { resetIdentityDbForTests } from '$lib/server/db';
@@ -113,6 +114,25 @@ describe('GET /api/chat-rooms/:roomId/status', () => {
     const payload = await response.json();
     expect(payload.members[0].pane_status).toBe('unknown');
     expect(payload.members[0].pane_stale_since).toBeNull();
+  });
+
+  it('keeps durable remote members visible even before a terminal session is bound', async () => {
+    const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@serverlaptop' });
+
+    const response = await callGet(room.id);
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+
+    expect(payload.members).toEqual([
+      {
+        handle: '@serverlaptop',
+        terminal_id: null,
+        pane_status: 'unknown',
+        pane_stale_since: null,
+        updated_at: null
+      }
+    ]);
   });
 
   it('lists multiple members each with their own pane_status in membership-add order', async () => {

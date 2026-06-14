@@ -345,23 +345,10 @@ async function inviteAgent(roomId, agentHandle, runtime) {
 async function postMessage(roomId, body, runtime) {
   if (!roomId) throw new CliInputError('rooms post needs a roomId');
   if (!body || body.trim().length === 0) throw new CliInputError('rooms post needs a non-empty message');
-  // Present the durable session credential (x-ant-session-id header + body
-  // sessionId) FIRST, with pidChain only as fallback — mirroring `ant chat
-  // send`. Posting used to send pidChain ONLY, so it relied on the server
-  // guessing identity from the process tree, which is non-deterministic
-  // (the SAME command 403'd intermittently — "it failed but the message
-  // appeared"). The session token resolves deterministically via the
-  // mutation gate's clean-session path, so `rooms post` now matches the
-  // reliability of `chat send`. (@speedy 2026-06-10, one-shot delivery.)
-  const response = await fetchFromServer(runtime, `/api/chat-rooms/${roomId}/messages`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...durableSessionHeaders(runtime, roomId) },
-    body: JSON.stringify(withDurableSessionIdentity(runtime, roomId, { body, pidChain: processIdentityChain() }))
-  });
-  await throwIfNotOk(response, runtime);
-  const stored = (await response.json()).message;
-  runtime.writeOut(`Posted ${stored.id}${stored.authorHandle ? ' as ' + stored.authorHandle : ''}`);
-  return 0;
+  // `rooms post` is retained for old operators, but the witnessed write
+  // path lives in `chat send`: durable session first, then bearer-backed
+  // browser-session mint on daemon-witnessed 403s.
+  return handleChatVerb('send', [roomId, '--msg', body], runtime, { CliInputError });
 }
 
 async function postBreak(roomId, reason, runtime) {
