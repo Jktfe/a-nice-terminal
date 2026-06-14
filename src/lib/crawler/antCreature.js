@@ -110,6 +110,7 @@ export const AntCreature = (function () {
     updateStatus(dt) {
       this.statusT -= dt;
       if (this.statusT > 0) return;
+      if (this.world._liveRoster) { this.statusT = 4; return; } // live status: server truth, no demo cycle
       if (this.status === 'needs') { this.setStatus('working'); return; }
       const r = Math.random();
       let next;

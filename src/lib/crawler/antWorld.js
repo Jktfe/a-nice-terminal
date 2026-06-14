@@ -161,9 +161,25 @@ export const Crawler = (function () {
     }
 
     _assignAgent(a, i) {
+      if (this._liveRoster && this._liveRoster.length) {
+        const ag = this._liveRoster[i % this._liveRoster.length];
+        a.agent = { name: ag.name, kind: ag.kind || '', color: ag.color || this.antInk() };
+        a.setStatus(ag.status || 'idle');
+        a.task = ag.task || '';
+        return;
+      }
       a.agent = ROSTER[i % ROSTER.length];
       a.setStatus(['working', 'idle', 'working', 'thinking'][i % 4]);
       a.statusT *= 0.4 + Math.random();
+    }
+
+    // Live-agent mode: each ant maps to a REAL room agent + its real, frozen
+    // status. Read-only — the status is the server's truth, not the demo cycle.
+    setRoster(agents) {
+      this._liveRoster = Array.isArray(agents) && agents.length ? agents : null;
+      if (!this._liveRoster) return;
+      this.setParams({ count: Math.max(1, Math.min(agents.length, 8)) });
+      for (let i = 0; i < this.ants.length; i++) this._assignAgent(this.ants[i], i);
     }
 
     pickTask(st) {

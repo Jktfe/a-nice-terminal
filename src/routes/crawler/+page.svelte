@@ -25,10 +25,50 @@
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- engine is vanilla JS
   let world: any = null;
   let teardown: (() => void) | null = null;
+  // Live-agent mode: when opened as /crawler?room=<id>, the swarm becomes
+  // that room's REAL agents (read-only) with their real, frozen statuses.
+  let roomId = $state<string | null>(null);
+  let liveCount = $state<number>(0);
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
 
   function setDark(value: boolean) {
     dark = value;
     if (world) world.setParams({ dark: value });
+  }
+
+  // Deterministic per-agent colour (the feed carries no colour).
+  function colorForHandle(handle: string): string {
+    let n = 0;
+    for (const ch of handle) n = (n * 31 + ch.charCodeAt(0)) >>> 0;
+    return `hsl(${n % 360} 62% 56%)`;
+  }
+  // Map the server's agent status onto the engine's status vocabulary.
+  function mapStatus(status: string, openAsk: boolean): string {
+    if (openAsk || status === 'response-required') return 'needs';
+    if (status === 'working' || status === 'thinking') return status;
+    return 'idle';
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- server JSON
+  async function loadRoomAgents() {
+    if (!roomId || !world) return;
+    try {
+      const res = await fetch(`/api/chat-rooms/${encodeURIComponent(roomId)}/agent-statuses`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const roster = (data.statuses ?? [])
+        .filter((e: any) => e.lifecycleStatus == null || e.lifecycleStatus === 'live')
+        .map((e: any) => ({
+          name: e.handle,
+          kind: '',
+          color: colorForHandle(e.handle),
+          status: mapStatus(e.status, e.openAsk),
+          task: ''
+        }));
+      liveCount = roster.length;
+      if (roster.length) world.setRoster(roster);
+    } catch {
+      /* best-effort live refresh — keep the last roster on a transient miss */
+    }
   }
 
   onMount(() => {
@@ -37,10 +77,16 @@
       world = res.world;
       teardown = res.destroy;
       world.setParams({ ...DEFAULTS });
+      roomId = new URLSearchParams(window.location.search).get('room');
+      if (roomId) {
+        loadRoomAgents();
+        pollTimer = setInterval(loadRoomAgents, 15000);
+      }
     }
   });
 
   onDestroy(() => {
+    if (pollTimer) clearInterval(pollTimer);
     teardown?.();
   });
 </script>
@@ -58,10 +104,16 @@
     <header>
       <div class="brand">
         <span class="wordmark">ANT</span>
-        <span class="sub">// crawler study — terrarium-01</span>
+        <span class="sub"
+          >{roomId ? `// live room swarm · ${liveCount} agent${liveCount === 1 ? '' : 's'}` : '// crawler study — terrarium-01'}</span
+        >
       </div>
       <div class="hdr-right">
-        <span class="hint">HOVER AN ANT FOR STATUS · CLICK A PACING ANT TO RESPOND · CLICK GLASS FOR A CRUMB</span>
+        <span class="hint"
+          >{roomId
+            ? 'EACH ANT = A LIVE ROOM AGENT · HOVER FOR ITS REAL STATUS · READ-ONLY'
+            : 'HOVER AN ANT FOR STATUS · CLICK A PACING ANT TO RESPOND · CLICK GLASS FOR A CRUMB'}</span
+        >
         <div class="seg" role="group" aria-label="Theme">
           <button class:on={!dark} onclick={() => setDark(false)}>Light</button>
           <button class:on={dark} onclick={() => setDark(true)}>Dark</button>
@@ -71,7 +123,7 @@
     <div id="panel">
       <div id="walk-area"></div>
       <canvas id="ant-canvas" width="1148" height="532"></canvas>
-      <div class="panel-caption">TERRARIUM-01 · COLONY ACTIVE</div>
+      <div class="panel-caption">{roomId ? 'LIVE ROOM SWARM · READ-ONLY' : 'TERRARIUM-01 · COLONY ACTIVE'}</div>
     </div>
   </div>
 </div>
