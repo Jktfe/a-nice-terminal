@@ -232,7 +232,59 @@ describe('ant chat state wrappers', () => {
     expect(bodyAt(captured, 1)).toMatchObject({ authorHandle: '@serverlaptop' });
     expect(captured.requests[2].url).toBe('http://remote.test/api/chat-rooms/room-a/messages');
     expect(captured.requests[2].init.headers.cookie).toBe('ant_browser_session=session-123');
+    expect(bodyAt(captured, 2).pidChain).toBeUndefined();
+    expect(bodyAt(captured, 2).pane).toBeUndefined();
+    expect(bodyAt(captured, 2).sessionId).toBeUndefined();
     expect(captured.stdout.join('\n')).toContain('Posted msg-retry as @serverlaptop into room-a.');
+  });
+
+  it('S1b3: send recovers the live structured identity_unresolved PermissionDenied response', async () => {
+    const livePermissionDenied = {
+      message: 'No daemon-witnessed binding for this caller (clean identity mode).',
+      permission_denied: {
+        action: 'chat.post',
+        target_kind: 'room',
+        target_id: 'room-a',
+        target_display_name: 'antchat - a remoteANT server native to Mac via Homebrew',
+        reason: 'identity_unresolved',
+        approvers: [{ handle: '@JWPK', role: 'room_owner', preferred: true }],
+        approve_command: 'ant grant @JWPK chat.post --room room-a'
+      }
+    };
+    const { runtime, captured } = makeRuntime((callIndex) => {
+      if (callIndex === 1) {
+        return new Response(JSON.stringify(livePermissionDenied), {
+          status: 403,
+          headers: { 'content-type': 'application/json' }
+        });
+      }
+      if (callIndex === 2) {
+        return new Response(JSON.stringify({ browserSession: { handle: '@serverlaptop' } }), {
+          status: 201,
+          headers: { 'set-cookie': 'ant_browser_session=session-live; Path=/; HttpOnly' }
+        });
+      }
+      return okJson({ message: { id: 'msg-live-retry', authorHandle: '@serverlaptop' } }, 201);
+    });
+    runtime.config = {
+      tokens: {
+        'room-a': {
+          token: 'room-token-live',
+          default_handle: '@serverlaptop',
+          server_url: 'http://remote.test'
+        }
+      },
+      handle: '@serverlaptop'
+    };
+
+    await handleChatVerb('send', ['room-a', '--msg', 'hello from live intel'], runtime, { CliInputError });
+
+    expect(captured.requests).toHaveLength(3);
+    expect(captured.requests[1].url).toBe('http://remote.test/api/chat-rooms/room-a/browser-session');
+    expect(captured.requests[1].init.headers.authorization).toBe('Bearer room-token-live');
+    expect(captured.requests[2].init.headers.cookie).toBe('ant_browser_session=session-live');
+    expect(bodyAt(captured, 2)).toEqual({ body: 'hello from live intel' });
+    expect(captured.stdout.join('\n')).toContain('Posted msg-live-retry as @serverlaptop into room-a.');
   });
 
   it('S1c: send ignores shared global/per-room session ids and uses the terminal-scoped pane binding', async () => {

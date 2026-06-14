@@ -330,7 +330,14 @@ async function runSend(flags, runtime, CliInputError) {
     if (!isIdentityWedge) throw firstAttemptError;
     const mintedCookie = await mintAntCliBrowserSessionCookie(runtime, room, flags.handle);
     if (!mintedCookie) throw firstAttemptError;
-    result = await sendJsonWithCookie(runtime, messagesPath, 'POST', payload, mintedCookie, roomServerUrl);
+    result = await sendJsonWithCookie(
+      runtime,
+      messagesPath,
+      'POST',
+      browserSessionRetryPayload(payload),
+      mintedCookie,
+      roomServerUrl
+    );
   }
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
@@ -409,6 +416,17 @@ function isPostIdentityWedge(error) {
   if (!(error instanceof Error)) return false;
   return /returned 403/.test(error.message) &&
     /Server-resolved identity required|daemon-witnessed|identity_unresolved|No daemon-witnessed binding/i.test(error.message);
+}
+
+function browserSessionRetryPayload(payload) {
+  const {
+    pidChain: _pidChain,
+    pane: _pane,
+    sessionId: _sessionId,
+    antSessionId: _antSessionId,
+    ...browserPayload
+  } = payload;
+  return browserPayload;
 }
 
 function normaliseDurableSessionId(raw) {
