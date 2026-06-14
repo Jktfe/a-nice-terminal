@@ -24,16 +24,20 @@
   // the enforcer; this is the honest preview.
   const ROLE_SCOPE: Record<Role, { label: string; can: string[]; cannot: string[] }> = {
     reader: {
-      label: 'Read-only helper — listens and rings bells, never speaks',
-      can: ['Subscribe to the delivery feed (metadata only)', 'Fire routes (file / bell / app nudge)'],
-      cannot: ['Post status', 'Author messages', 'Claim or change handles', 'Approve asks']
+      label: 'Helper — listens, rings bells, relays status; never authors a message',
+      can: [
+        'Subscribe to the delivery feed (metadata only)',
+        'Fire routes (file / bell / app nudge)',
+        'Relay status (thinking / asking / idle)'
+      ],
+      cannot: ['Author messages', 'Claim or change handles', 'Approve asks']
     },
     agent: {
-      // A lease-holder is never a member — it can post its own STATUS but
-      // NEVER authors room messages (JWPK 2026-06-13).
-      label: 'Agent — a paneless handle that posts its own status (never authors messages)',
-      can: ['Subscribe to the delivery feed', 'Fire routes', 'Post status'],
-      cannot: ['Author messages as its handle', 'Claim or change handles', 'Approve asks']
+      // Authoring-by-attachment is retired (JWPK 2026-06-14) — an attachment
+      // relays status only, never authors. Equivalent to reader now.
+      label: 'Agent — a paneless handle that relays its status; never authors messages',
+      can: ['Subscribe to the delivery feed', 'Fire routes', 'Relay status'],
+      cannot: ['Author messages', 'Claim or change handles', 'Approve asks']
     }
   };
 

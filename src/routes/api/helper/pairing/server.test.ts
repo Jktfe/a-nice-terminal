@@ -155,14 +155,14 @@ describe('POST /api/helper/pairing/redeem — open, single-use', () => {
     expect((await call(redeem, req('/api/helper/pairing/redeem', { code: '' }))).status).toBe(400);
   });
 
-  it('a paired (reader) redemption is read-only — never authors, never posts status', async () => {
+  it('a paired (reader) redemption relays STATUS only — posts status, never authors', async () => {
     const code = await mintCode();
     const res = await call(redeem, req('/api/helper/pairing/redeem', { code, host: 'mac-mini' }));
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.role).toBe('reader');
-    expect(body.scope.authorMessages).toBe(false);
-    expect(body.scope.postStatus).toBe(false);
+    expect(body.scope.authorMessages).toBe(false); // never authors a room message
+    expect(body.scope.postStatus).toBe(true); // helpers relay status (JWPK 2026-06-14)
     expect(body.scope.subscribeFeed).toBe(true);
   });
 });

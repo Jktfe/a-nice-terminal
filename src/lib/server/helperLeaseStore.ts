@@ -45,29 +45,29 @@ export interface AttachmentScope {
 }
 
 export const ATTACHMENT_SCOPES: Record<AttachmentRole, Readonly<AttachmentScope>> = {
-  // The HELPER: reads the pipe, fires routes to inert/human sinks, rings bells.
-  // NEVER posts (2026-06-11 ruling) — it subscribes ON BEHALF OF a handle and
-  // never IS one. A thing that can't post can't be spoofed into posting.
+  // The HELPER: reads the pipe, fires routes to inert/human sinks, rings bells,
+  // and RELAYS STATUS (thinking/asking/idle) for its handle (JWPK 2026-06-14:
+  // "helpers can post status and status ONLY"). It NEVER authors a room message
+  // — a lease-holder is never a member. Status is a relay, not authorship.
   reader: Object.freeze({
     subscribeFeed: true,
     fireRoutes: true,
-    postStatus: false,
+    postStatus: true,
     authorMessages: false,
     claimHandle: false,
     approveAsks: false
   }),
-  // A paneless ANThandle's authoring credential — the issuance-class witness
-  // for a desktop / mcp / api agent that has no observable pane (2026-06-11
-  // keystone). Authors and posts status like any member. NOTE (JWPK 2026-06-13):
-  // this role is NO LONGER mintable from the operator "pair an app" panel — that
-  // panel mints read-only helpers only. The role/capability remains here for the
-  // separate issuance path; whether to retire authoring-by-attachment entirely
-  // is an open ruling. Claiming handles and approving asks stay gated acts.
+  // A paneless ANThandle's attachment — desktop / mcp / api agent with no pane.
+  // Posts its own STATUS but NEVER authors (JWPK 2026-06-14: "remove it" —
+  // authoring-by-attachment is retired; the two-identity-class rule is absolute,
+  // a lease-holder is never a member). Now equivalent to `reader`; kept as a
+  // distinct role only for existing lease rows. Claiming handles / approving
+  // asks stay separate gated acts, never granted by an attachment.
   agent: Object.freeze({
     subscribeFeed: true,
     fireRoutes: true,
     postStatus: true,
-    authorMessages: true,
+    authorMessages: false,
     claimHandle: false,
     approveAsks: false
   })

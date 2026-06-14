@@ -572,23 +572,21 @@ async function resolveAccountsBearerHandle(token: string): Promise<string | null
  *    Unresolved → the same fail-closed 403 as every other identity failure.
  */
 /**
- * Issuance-class witness (2026-06-11 ruling): resolve a daemon-verified `agent`
- * ATTACHMENT from the `x-ant-attachment` header to its handle. A paneless
- * desktop / mcp / api agent authors with this credential the daemon minted and
- * checks — same trust direction as observation (a pane), just not pane-shaped.
- *
- * Returns null for anything but a LIVE agent-role attachment (absent / wrong
- * role / revoked / expired → falls through to the other resolution paths). The
- * reader role (the helper) is refused here — the helper never posts. Ledgers
- * every authoring use (guardrail d) and touches last-seen.
+ * Authoring-by-attachment is RETIRED (JWPK 2026-06-14: "remove it"). No
+ * attachment — reader OR agent — may author a room message: the two-identity-
+ * class rule is absolute, a lease-holder is never a member. This resolver now
+ * always returns null (no attachment author), kept as the single gate so the
+ * rule is enforced in one place; the `authorMessages` scope is false for every
+ * role, which is what makes it return null. An attachment relays STATUS only,
+ * through the status path — never here. (Was the 2026-06-11 issuance-author
+ * keystone; superseded.)
  */
 function resolveAgentAttachmentAuthor(request: Request, roomId: string): string | null {
   const secret = request.headers.get('x-ant-attachment');
   if (!secret || secret.trim().length === 0) return null;
   const lease = resolveLeaseBySecret(secret.trim());
   if (!lease) return null; // absent / revoked / expired — instant deafness on revoke
-  if (lease.role !== 'agent') return null; // reader (helper) never authors
-  if (!ATTACHMENT_SCOPES[lease.role].authorMessages) return null; // belt-and-braces vs scope drift
+  if (!ATTACHMENT_SCOPES[lease.role].authorMessages) return null; // RETIRED: false for all roles → no attachment authors
   try {
     appendLedger({
       kind: 'attachment.authored',

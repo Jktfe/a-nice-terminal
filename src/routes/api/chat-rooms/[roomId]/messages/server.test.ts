@@ -1798,7 +1798,7 @@ describe('post gate — agent attachment (issuance-class witness)', () => {
     return room;
   }
 
-  it('CLEAN: a verified agent attachment authors with NO pane or pidChain, and ledgers the use', async () => {
+  it('CLEAN: an agent attachment is REFUSED authoring — authoring-by-attachment is RETIRED (JWPK 2026-06-14)', async () => {
     const room = memberRoom('@fClaude');
     const { secret } = mintLease({ handle: '@fClaude', owners: ['@JWPK'], role: 'agent' });
     const response = await callPost({
@@ -1806,13 +1806,11 @@ describe('post gate — agent attachment (issuance-class witness)', () => {
       body: JSON.stringify({ body: 'first message from a paneless desk', authorHandle: '@fClaude' }),
       headers: { 'x-ant-attachment': secret }
     });
-    expect(response.status).toBe(201);
-    expect((await response.json()).message.authorHandle).toBe('@fClaude');
-    // guardrail (d): every authoring use is ledgered
-    expect(listLedger({}).filter((e) => e.kind === 'attachment.authored')).toHaveLength(1);
+    expect(response.status).toBeGreaterThanOrEqual(400); // no attachment authors
+    expect(listLedger({}).filter((e) => e.kind === 'attachment.authored')).toHaveLength(0);
   });
 
-  it('CLEAN: a reader (helper) attachment is REFUSED authoring — the helper never posts', async () => {
+  it('CLEAN: a reader (helper) attachment is REFUSED authoring — no attachment authors', async () => {
     const room = memberRoom('@helper');
     const { secret } = mintLease({ handle: '@helper', owners: ['@JWPK'], role: 'reader' });
     const response = await callPost({
@@ -1836,7 +1834,7 @@ describe('post gate — agent attachment (issuance-class witness)', () => {
     expect(response.status).toBeGreaterThanOrEqual(400);
   });
 
-  it('CLEAN: an agent attachment cannot author AS a different handle', async () => {
+  it('CLEAN: an agent attachment cannot author AS a different handle (refused either way)', async () => {
     const room = memberRoom('@fClaude');
     const { secret } = mintLease({ handle: '@fClaude', owners: ['@JWPK'], role: 'agent' });
     const response = await callPost({
@@ -1844,6 +1842,6 @@ describe('post gate — agent attachment (issuance-class witness)', () => {
       body: JSON.stringify({ body: 'impersonation attempt', authorHandle: '@victim' }),
       headers: { 'x-ant-attachment': secret }
     });
-    expect(response.status).toBe(403);
+    expect(response.status).toBeGreaterThanOrEqual(400); // authoring retired — refused regardless of handle
   });
 });

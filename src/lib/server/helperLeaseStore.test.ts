@@ -33,19 +33,19 @@ afterEach(() => {
 });
 
 describe('ATTACHMENT_SCOPES — the two fixed role profiles', () => {
-  it('reader (helper) subscribes + fires routes but NEVER posts (2026-06-11 ruling)', () => {
+  it('reader (helper) subscribes + fires routes + RELAYS STATUS, but never authors (JWPK 2026-06-14)', () => {
     const r = ATTACHMENT_SCOPES.reader;
     expect(r.subscribeFeed).toBe(true);
     expect(r.fireRoutes).toBe(true);
-    expect(r.postStatus).toBe(false); // the ruling: the helper never posts
-    expect(r.authorMessages).toBe(false);
+    expect(r.postStatus).toBe(true); // helpers relay status, status ONLY
+    expect(r.authorMessages).toBe(false); // never authors a room message
     expect(r.claimHandle).toBe(false);
     expect(r.approveAsks).toBe(false);
   });
 
-  it('agent (paneless ANThandle) authors + posts status, but never claims handles or approves', () => {
+  it('agent attachment posts status but NEVER authors — authoring-by-attachment retired (JWPK 2026-06-14)', () => {
     const a = ATTACHMENT_SCOPES.agent;
-    expect(a.authorMessages).toBe(true);
+    expect(a.authorMessages).toBe(false); // "remove it" — a lease-holder is never a member
     expect(a.postStatus).toBe(true);
     expect(a.subscribeFeed).toBe(true);
     expect(a.claimHandle).toBe(false);
