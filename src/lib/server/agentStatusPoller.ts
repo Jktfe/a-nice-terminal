@@ -284,7 +284,7 @@ async function pollOneTerminal(terminal: TerminalRow, captureFn: CaptureFn): Pro
   // anchored to the poll cadence and a later fall-through tick cannot
   // misread a multi-minute-old hash timestamp as "stale pane".
   const { prevHash, prevAtMs } = readFingerprintState(terminal.id);
-  const fingerprint = deriveStateFromFingerprint({
+  let fingerprint = deriveStateFromFingerprint({
     captureText, prevHash, prevAtMs, nowMs
   });
   writeFingerprintState(terminal.id, fingerprint.hash, nowMs);
@@ -340,6 +340,23 @@ async function pollOneTerminal(terminal: TerminalRow, captureFn: CaptureFn): Pro
         refreshAgentStatusAtMs(terminal.id, nowMs);
         return;
       }
+    }
+    // Symmetric to the promotion above: the CLI's status strip is an
+    // authoritative self-report in BOTH directions. When it explicitly reads
+    // idle/Ready (codex "· Ready", Claude "waiting"), trust that over the
+    // fingerprint heuristic. Without this, a switched-off / idle pane whose
+    // leftover tool markers (⏺/🔧/→) sit frozen on screen while an animated
+    // "Worked for Xs" timer keeps ticking the tail hash false-positives as
+    // 'working' (JWPK 2026-06-15: dumb terminals "crawling" with nothing that
+    // actually evidences work). Neutralise the fingerprint guess to idle; the
+    // cascade below still lets a FRESH hook win, so a genuinely-busy agent
+    // mid-tool-call is unaffected.
+    const labelSaysIdle = parse.source === 'label' && parse.state === 'idle';
+    if (labelSaysIdle && fingerprint.status && fingerprint.status !== 'idle') {
+      // The strip's explicit idle/Ready beats the fingerprint guess. Override
+      // only the status (evidence keeps its typed shape); the demote is then
+      // resolved by the cascade below, which still protects a fresh hook.
+      fingerprint = { ...fingerprint, status: 'idle' };
     }
   }
   const current = getAgentStatus(terminal.id);

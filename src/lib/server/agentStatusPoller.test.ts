@@ -553,6 +553,24 @@ describe('agentStatusPoller — pane-label re-promotion (background work present
     expect(listEventsForTerminal(tid)).toHaveLength(0);
   });
 
+  it('idle/Ready strip SUPPRESSES a fingerprint false-working (JWPK 2026-06-15: switched-off pane crawling)', async () => {
+    // A switched-off / idle pane keeps a frozen ⏺ tool marker on screen while
+    // an animated "timer" ticks the tail hash. The legacy fingerprint tier
+    // reads "tool marker + fresh change" and calls it 'working' — but the
+    // CLI's own strip reads Waiting/idle. The explicit idle label must win.
+    const tid = makeAgentTerminal('t-idle-suppress');
+    let n = 0;
+    const c = startPoller({
+      captureFn: () => CLAUDE_STRIP_WAITING(`⏺ frozen tool marker; timer tick ${++n}`),
+      cwdFn: () => null,
+      intervalMs: 5000
+    });
+    await c.runOnce(); // first sample: establishes the hash (status stays idle)
+    await c.runOnce(); // <5s changed pane + ⏺ → fingerprint='working', suppressed by the Waiting label
+    c.stop();
+    expect(getAgentStatus(tid)?.agent_status).toBe('idle');
+  });
+
   it('label-less CLI churn (stream source) NEVER promotes — that is exactly the tail -f false positive', async () => {
     const tid = makeAgentTerminal('t-copilot-churn', 'copilot');
     let n = 0;
