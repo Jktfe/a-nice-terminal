@@ -29,7 +29,11 @@
     }
   }
 
-  const title = $derived(
+  // NB: named titleText, NOT title — a `{#snippet title()}` below shares the
+  // `title` name, and inside that snippet `{title}` would resolve to the snippet
+  // itself (rendered as text → snippet_without_render_tag, a hard error in newer
+  // Svelte 5). Keep the string distinct from the snippet name.
+  const titleText = $derived(
     action === 'delete' ? `Delete "${roomName}"?` : `Archive "${roomName}"?`
   );
 
@@ -44,7 +48,7 @@
 </script>
 
 <ModalShell {open} {onCancel} size="default" data-testid="confirm-room-action-modal">
-  {#snippet title()}{title}{/snippet}
+  {#snippet title()}{titleText}{/snippet}
 
   {#if typeof messageCount === 'number'}
     <p>It has {messageCount} messages.</p>
