@@ -132,25 +132,6 @@
   // own pidChain resolves to a live terminal (re-pointing the membership
   // if the caller is on a freshly-rebuilt terminal). Best-effort UX: any
   // error refreshes the panel so the user sees the post-state truth.
-  let reclaiming = $state<Set<string>>(new Set());
-  async function reclaimHandle(handle: string) {
-    if (!roomId || reclaiming.has(handle)) return;
-    reclaiming = new Set([...reclaiming, handle]);
-    try {
-      await fetch(
-        `/api/chat-rooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(handle)}/reclaim`,
-        { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }
-      );
-    } catch {
-      /* network errors are swallowed; the refresh below will surface the
-         current ground truth either way. */
-    } finally {
-      const next = new Set(reclaiming);
-      next.delete(handle);
-      reclaiming = next;
-      void refreshStatuses();
-    }
-  }
 </script>
 
 <section class="participants-panel" aria-labelledby="participantsHeading">
@@ -212,27 +193,15 @@
                 {/if}
               </span>
             </button>
-            {#if isArchived && canManageMembers}
-              <!--
-                Reclaim button is gated on canManageMembers per the 2026-05-30
-                security review HIGH finding — rebinding a membership to the
-                caller's terminal is account-takeover-shaped. Non-admin viewers
-                can still self-reclaim their OWN previously-held handles via
-                `ant reclaim` CLI which goes through the same server gate
-                (admin-bearer / room-owner / self-reclaim-alias). The UI keeps
-                the permission surface narrow; the CLI keeps the power-user
-                path. The server validates regardless of UI state.
-              -->
-              <button
-                type="button"
-                class="reclaim-btn"
-                onclick={() => reclaimHandle(member.handle)}
-                disabled={reclaiming.has(member.handle)}
-                aria-label={`Reclaim ${aliasForRow ?? member.handle} (flip terminal back to live)`}
-              >
-                {reclaiming.has(member.handle) ? 'Reclaiming…' : 'Reclaim'}
-              </button>
-            {/if}
+            <!--
+              No "Reclaim" button here (removed JWPK 2026-06-15). Reclaim
+              rebinds an archived membership to the CALLER's terminal, which
+              needs a pidChain to resolve that terminal — the browser has none,
+              so from the UI it could at most flip a dead terminal's status to
+              'live' (a misleading no-op, not a real reclaim). The real path is
+              `ant reclaim` from the CLI (sends a pidChain, hits the same gated
+              server endpoint). So this surface had no usable user action.
+            -->
           </div>
         </li>
       {/each}
@@ -334,24 +303,6 @@
     padding: 0.05rem 0.4rem;
     border-radius: 999px;
     letter-spacing: 0.02em;
-  }
-  .reclaim-btn {
-    flex: 0 0 auto;
-    padding: 0.3rem 0.65rem;
-    font-size: 0.78rem;
-    font-weight: 700;
-    color: white;
-    background: var(--accent);
-    border: none;
-    border-radius: 999px;
-    cursor: pointer;
-  }
-  .reclaim-btn:hover:not(:disabled) {
-    filter: brightness(1.05);
-  }
-  .reclaim-btn:disabled {
-    opacity: 0.6;
-    cursor: progress;
   }
   .member-row[data-background-style='transparent'] {
     background: transparent;
