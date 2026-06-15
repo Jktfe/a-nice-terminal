@@ -61,21 +61,26 @@ export function listSessionWindows(opts?: { gapMs?: number }): SessionWindow[] {
   const gapMs = opts?.gapMs ?? DEFAULT_GAP_MS;
   const db: TelemetryDb = getTelemetryDb();
 
-  const rows = db
+  // STREAM the rows (iterate, not all): the firehose is tens of millions of
+  // rows, so materialising them into a JS array OOMs the v8 heap. The fold below
+  // only needs rows in (terminal_id, ts_ms) order and keeps O(#windows) state,
+  // so .iterate() makes this O(1) in row memory. (cleanANT 2026-06-15: the
+  // .all() form crashed the mining dry-run at ~63.7M events.)
+  const rowIter = db
     .prepare(
       `SELECT terminal_id, ts_ms
          FROM terminal_run_events
         WHERE deleted_at_ms IS NULL
         ORDER BY terminal_id ASC, ts_ms ASC`
     )
-    .all() as Array<{ terminal_id: string; ts_ms: number }>;
+    .iterate() as IterableIterator<{ terminal_id: string; ts_ms: number }>;
 
   const windows: SessionWindow[] = [];
   let current: SessionWindow | null = null;
   let prevTerminal: string | null = null;
   let prevTs = 0;
 
-  for (const row of rows) {
+  for (const row of rowIter) {
     const sameTerminal = row.terminal_id === prevTerminal;
     const withinGap = sameTerminal && row.ts_ms - prevTs <= gapMs;
 
@@ -136,6 +141,14 @@ export function reconstructSession(
   const maxBytes = opts?.maxBytes ?? DEFAULT_MAX_BYTES;
   const db: TelemetryDb = getTelemetryDb();
 
+  // Bound the read to what the byte cap can ever consume. The transcript is
+  // truncated at maxBytes below, and each kept line is >= 1 byte, so reading
+  // more than maxBytes rows (per source) can never change the output — but a
+  // pathological window holds millions of rows and an unbounded .all() OOMs the
+  // heap. We take the EARLIEST rows (ORDER BY ts ASC), matching the existing
+  // tail-truncation semantics. (cleanANT 2026-06-15.)
+  const maxRows = maxBytes;
+
   const runRows = db
     .prepare(
       `SELECT terminal_id, ts_ms, kind, text
@@ -145,9 +158,10 @@ export function reconstructSession(
           AND ts_ms <= ?
           AND deleted_at_ms IS NULL
           AND kind != 'raw'
-        ORDER BY ts_ms ASC`
+        ORDER BY ts_ms ASC
+        LIMIT ?`
     )
-    .all(window.terminalId, window.windowStartMs, window.windowEndMs) as RunEventRow[];
+    .all(window.terminalId, window.windowStartMs, window.windowEndMs, maxRows) as RunEventRow[];
 
   const hookRows = db
     .prepare(
@@ -155,9 +169,10 @@ export function reconstructSession(
          FROM cli_hook_events
         WHERE received_at_ms >= ?
           AND received_at_ms <= ?
-        ORDER BY received_at_ms ASC`
+        ORDER BY received_at_ms ASC
+        LIMIT ?`
     )
-    .all(window.windowStartMs, window.windowEndMs) as HookEventRow[];
+    .all(window.windowStartMs, window.windowEndMs, maxRows) as HookEventRow[];
 
   // Merge run-event lines and hook lines into one timeline ordered by time.
   // run events sort key = ts_ms; hook events sort key = received_at_ms.

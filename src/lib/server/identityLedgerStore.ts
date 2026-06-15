@@ -17,6 +17,7 @@ export type IdentityLedgerKind =
   | 'handle.registered'
   | 'handle.claim-refused'
   | 'handle.retired'
+  | 'handle.deleted'
   | 'owner.added'
   | 'owner.removed'
   | 'owner.notified'
