@@ -51,7 +51,10 @@ type HookRow = { tool_name: string | null; payload: string | null };
  * containing "error" can't false-flag a session.
  */
 function hasErrorSignal(db: TelemetryDb, window: SessionWindow): boolean {
-  const rows = db
+  // STREAM + early-exit: a busy terminal's window can hold millions of
+  // classified rows, so .all() OOMs the heap. iterate() returns one row at a
+  // time and the for-of closes the cursor on break. (cleanANT 2026-06-15.)
+  const iter = db
     .prepare(
       `SELECT text
          FROM terminal_run_events
@@ -61,8 +64,11 @@ function hasErrorSignal(db: TelemetryDb, window: SessionWindow): boolean {
           AND deleted_at_ms IS NULL
           AND kind != 'raw'`
     )
-    .all(window.terminalId, window.windowStartMs, window.windowEndMs) as ClassifiedTextRow[];
-  return rows.some((r) => typeof r.text === 'string' && ERROR_PATTERN.test(r.text));
+    .iterate(window.terminalId, window.windowStartMs, window.windowEndMs) as IterableIterator<ClassifiedTextRow>;
+  for (const r of iter) {
+    if (typeof r.text === 'string' && ERROR_PATTERN.test(r.text)) return true;
+  }
+  return false;
 }
 
 /**
@@ -70,7 +76,8 @@ function hasErrorSignal(db: TelemetryDb, window: SessionWindow): boolean {
  * matches COMMIT_PATTERN, OR a cli_hook Bash tool-call whose command matches it.
  */
 function hasCommitSignal(db: TelemetryDb, window: SessionWindow): boolean {
-  const runRows = db
+  // STREAM + early-exit (see hasErrorSignal): never materialise a huge window.
+  const runIter = db
     .prepare(
       `SELECT text
          FROM terminal_run_events
@@ -80,23 +87,22 @@ function hasCommitSignal(db: TelemetryDb, window: SessionWindow): boolean {
           AND deleted_at_ms IS NULL
           AND kind != 'raw'`
     )
-    .all(window.terminalId, window.windowStartMs, window.windowEndMs) as ClassifiedTextRow[];
-  if (runRows.some((r) => typeof r.text === 'string' && COMMIT_PATTERN.test(r.text))) {
-    return true;
+    .iterate(window.terminalId, window.windowStartMs, window.windowEndMs) as IterableIterator<ClassifiedTextRow>;
+  for (const r of runIter) {
+    if (typeof r.text === 'string' && COMMIT_PATTERN.test(r.text)) return true;
   }
 
   // cli_hook_events are not terminal-scoped (session-keyed), so interleave by
   // time the same way reconstruction does: any hook in the window's range.
-  const hookRows = db
+  const hookIter = db
     .prepare(
       `SELECT tool_name, payload
          FROM cli_hook_events
         WHERE received_at_ms >= ?
           AND received_at_ms <= ?`
     )
-    .all(window.windowStartMs, window.windowEndMs) as HookRow[];
-
-  for (const hook of hookRows) {
+    .iterate(window.windowStartMs, window.windowEndMs) as IterableIterator<HookRow>;
+  for (const hook of hookIter) {
     if (hook.tool_name !== 'Bash') continue;
     const command = extractHookCommand(hook.payload);
     if (command && COMMIT_PATTERN.test(command)) return true;
