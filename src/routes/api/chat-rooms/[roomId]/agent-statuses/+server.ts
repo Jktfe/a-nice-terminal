@@ -48,6 +48,7 @@ type StatusEntry = {
   handle: string;
   status: AgentStatus;
   statusSource: AgentStatusSource;
+  crawlerMotion: 'moving' | 'resting';
   statusAtMs: number | null;
   openAsk: boolean;
   uptimeMs: number | null;
@@ -59,6 +60,13 @@ type StatusEntry = {
  *  this often; anything older is treated as unknown so the chip doesn't
  *  show stuck percentages when an agent has exited or stalled. */
 const CONTEXT_FILL_FRESH_WINDOW_MS = 5 * 60 * 1000;
+const CRAWLER_MOVING_SOURCES = new Set<AgentStatusSource>([
+  'fingerprint',
+  'hook',
+  'pane',
+  'pid-cpu',
+  'helper'
+]);
 
 function cliKindToStateCli(cli: CliAgentHandle['cli']): AgentCli {
   return cli === 'codex' ? 'codex-cli' : 'pi';
@@ -94,6 +102,9 @@ function statusEntryForCliAgent(
     handle: displayHandleForCliAgent(agent, duplicateIndex, reservedHandles),
     status: projected ?? 'unknown',
     statusSource: projected ? 'hook' : 'default',
+    crawlerMotion: projected === 'working' || projected === 'thinking' || projected === 'response-required'
+      ? 'moving'
+      : 'resting',
     statusAtMs: cwdSnapshot ? Math.round(cwdSnapshot.mtimeMs) : null,
     openAsk: projected === 'response-required',
     uptimeMs:
@@ -103,6 +114,15 @@ function statusEntryForCliAgent(
     contextFill: null,
     lifecycleStatus: null
   };
+}
+
+function crawlerMotionFor(
+  effective: ReturnType<typeof projectEffectiveAgentStatus>,
+  openAsk: boolean
+): 'moving' | 'resting' {
+  if (openAsk || effective.agent_status === 'response-required') return 'moving';
+  if (effective.agent_status !== 'working' && effective.agent_status !== 'thinking') return 'resting';
+  return CRAWLER_MOVING_SOURCES.has(effective.agent_status_source) ? 'moving' : 'resting';
 }
 
 export const GET: RequestHandler = ({ params }) => {
@@ -186,6 +206,7 @@ export const GET: RequestHandler = ({ params }) => {
       handle,
       status: row ? effective.agent_status : 'unknown',
       statusSource: row ? effective.agent_status_source : 'default',
+      crawlerMotion: row ? crawlerMotionFor(effective, openAsk) : 'resting',
       statusAtMs: row ? effective.agent_status_at_ms : null,
       openAsk,
       uptimeMs,

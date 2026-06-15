@@ -55,8 +55,9 @@
     for (const ch of handle) n = (n * 31 + ch.charCodeAt(0)) >>> 0;
     return `hsl(${n % 360} 62% 56%)`;
   }
-  function mapStatus(status: string, openAsk: boolean): string {
+  function mapStatus(status: string, openAsk: boolean, crawlerMotion?: string): string {
     if (openAsk || status === 'response-required') return 'needs';
+    if (crawlerMotion === 'resting') return 'idle';
     if (status === 'working' || status === 'thinking') return status;
     return 'idle';
   }
@@ -74,7 +75,7 @@
           name: e.handle,
           kind: '',
           color: colorForHandle(e.handle),
-          status: mapStatus(e.status, e.openAsk),
+          status: mapStatus(e.status, e.openAsk, e.crawlerMotion),
           task: ''
         }));
       if (roster.length) world.setRoster(roster);

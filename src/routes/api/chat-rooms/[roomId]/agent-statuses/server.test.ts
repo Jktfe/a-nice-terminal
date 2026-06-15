@@ -193,7 +193,8 @@ describe('GET /api/chat-rooms/:roomId/agent-statuses', () => {
     expect(payload.statuses[0]).toMatchObject({
       handle: '@agent',
       status: 'working',
-      statusSource: 'ant-activity'
+      statusSource: 'ant-activity',
+      crawlerMotion: 'resting'
     });
   });
 
@@ -209,7 +210,8 @@ describe('GET /api/chat-rooms/:roomId/agent-statuses', () => {
     expect(payload.statuses[0]).toMatchObject({
       handle: '@agent',
       status: 'thinking',
-      statusSource: 'hook'
+      statusSource: 'hook',
+      crawlerMotion: 'moving'
     });
   });
 
