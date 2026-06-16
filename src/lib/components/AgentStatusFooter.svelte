@@ -6,7 +6,7 @@
   user can tell at a glance who is working vs idle without opening the
   digest. Polls /api/chat-rooms/:roomId/agent-statuses every few seconds.
 
-  Source audit: /Users/jamesking/ant-research-site/footer/agent-footer.html:
+  Source audit: /Users/ant/ant-research-site/footer/agent-footer.html:
   43-160,231-520,560-674. Verdict CHANGE: keep the approved ant anatomy,
   gradients, and state model, but render them as a theme-aware Svelte component
   bounded to the chat composer and fed by /agent-statuses.

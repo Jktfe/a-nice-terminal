@@ -16,7 +16,7 @@
  * exposed half (Funnel + per-fire mcpGrant + routines.fire) is injected
  * separately and stays gated behind @speedy's trust-tier proofs.
  *
- * Design: /Users/jamesking/ANT-claude-mention-bridge-design.md (v3, §6.1).
+ * Design: /Users/ant/ANT-claude-mention-bridge-design.md (v3, §6.1).
  */
 
 import { randomUUID } from 'node:crypto';

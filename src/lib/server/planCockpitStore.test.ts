@@ -170,8 +170,8 @@ describe('buildPlanCockpit', () => {
       planId: 'workspace-plan',
       assignedAgent: '@oiresearch',
       workspaceIdentity: {
-        repoRoot: '/Users/jamesking/CascadeProjects/a-nice-terminal',
-        launchRoot: '/Users/jamesking/CascadeProjects/a-nice-terminal/.worktrees/workspace-identity-cards',
+        repoRoot: '/Users/ant/CascadeProjects/a-nice-terminal',
+        launchRoot: '/Users/ant/CascadeProjects/a-nice-terminal/.worktrees/workspace-identity-cards',
         branchName: 'feat/workspace-identity-cards',
         headSha: '5aa802a',
         workspaceKind: 'isolated-worktree',
@@ -192,8 +192,8 @@ describe('buildPlanCockpit', () => {
 
     const workspaceTask = cockpit?.unphasedTasks.find((task) => task.id === 'workspace-task');
     expect(workspaceTask?.workspaceIdentity).toEqual({
-      repoRoot: '/Users/jamesking/CascadeProjects/a-nice-terminal',
-      launchRoot: '/Users/jamesking/CascadeProjects/a-nice-terminal/.worktrees/workspace-identity-cards',
+      repoRoot: '/Users/ant/CascadeProjects/a-nice-terminal',
+      launchRoot: '/Users/ant/CascadeProjects/a-nice-terminal/.worktrees/workspace-identity-cards',
       branchName: 'feat/workspace-identity-cards',
       headSha: '5aa802a',
       workspaceKind: 'isolated-worktree',
