@@ -29,7 +29,9 @@ describe('eventBroadcast', () => {
   });
 
   it('subscriberCountForRoom tracks subscriptions', () => {
-    const controller = { enqueue: () => {} } as ReadableStreamDefaultController<Uint8Array>;
+    // Partial mock — only `enqueue` is exercised here. TS 6 tightened `as`
+    // overlap checks, so cast through `unknown` for the intentional stub.
+    const controller = { enqueue: () => {} } as unknown as ReadableStreamDefaultController<Uint8Array>;
     expect(subscriberCountForRoom('room-2')).toBe(0);
     subscribeToRoom('room-2', controller);
     expect(subscriberCountForRoom('room-2')).toBe(1);
