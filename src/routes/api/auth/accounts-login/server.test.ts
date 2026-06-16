@@ -112,6 +112,7 @@ describe('POST /api/auth/accounts-login', () => {
     );
 
     expect(response.status).toBe(503);
+    expect(getPersistedOperatorEmail()).toBeNull();
   });
 
   it('accepts a persisted operator email when env is unset', async () => {
@@ -126,6 +127,21 @@ describe('POST /api/auth/accounts-login', () => {
     );
 
     expect(response.status).toBe(200);
+  });
+
+  it('rejects a different account after operator email is established', async () => {
+    delete process.env.ANT_OPERATOR_EMAIL;
+    delete process.env.ANT_DEMO_EMAIL;
+    setOperatorEmail({ email: 'operator@example.com', updatedBy: 'owners-register' });
+    const fetchMock = stubAccountsIdentity('other@example.com');
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await capture(() =>
+      POST(eventForPost({ email: 'other@example.com', password: 'correct-password' }))
+    );
+
+    expect(response.status).toBe(403);
+    expect(getPersistedOperatorEmail()).toBe('operator@example.com');
   });
 
   it('stores an env-confirmed operator email during successful account confirmation', async () => {
