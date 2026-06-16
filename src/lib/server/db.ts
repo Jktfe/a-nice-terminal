@@ -95,6 +95,15 @@ const SCHEMA_DDL_STATEMENTS = [
     UNIQUE(room_id, order_index)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_responders_room_order ON chat_room_responders (room_id, order_index ASC)`,
+  // Server-owned configuration values that must survive restart and should not
+  // require normal users to hand-edit launchd/env. Environment variables remain
+  // the ops override; this table is the trusted bootstrap/account-confirm layer.
+  `CREATE TABLE IF NOT EXISTS server_config (
+    key           TEXT PRIMARY KEY,
+    value         TEXT NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    updated_by    TEXT
+  )`,
   `CREATE TABLE IF NOT EXISTS chat_remote_admissions (
     id                 TEXT PRIMARY KEY,
     room_id            TEXT NOT NULL,

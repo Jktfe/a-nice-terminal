@@ -32,6 +32,7 @@ describe('getIdentityDb', () => {
       .map((row) => (row as { name: string }).name);
     expect(tableNames).toContain('terminals');
     expect(tableNames).toContain('room_memberships');
+    expect(tableNames).toContain('server_config');
   });
 
   it('returns the SAME instance on subsequent calls (globalThis singleton)', () => {

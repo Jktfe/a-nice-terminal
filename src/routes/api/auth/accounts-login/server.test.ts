@@ -2,13 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST } from './+server';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { getIdentityDb } from '$lib/server/db';
+import { getPersistedOperatorEmail, setOperatorEmail } from '$lib/server/operatorEmail';
 
 const PREV_OPERATOR_EMAIL = process.env.ANT_OPERATOR_EMAIL;
+const PREV_DEMO_EMAIL = process.env.ANT_DEMO_EMAIL;
 const PREV_OPERATOR_HANDLE = process.env.ANT_OPERATOR_HANDLE;
 const PREV_BROWSER_LOGIN_ROOM_ID = process.env.ANT_BROWSER_LOGIN_ROOM_ID;
 
 function resetIdentityRows(): void {
   const db = getIdentityDb();
+  db.prepare(`DELETE FROM server_config WHERE key = 'operator_email'`).run();
   db.prepare('DELETE FROM browser_sessions').run();
   db.prepare('DELETE FROM room_memberships').run();
   db.prepare('DELETE FROM terminals').run();
@@ -45,6 +48,7 @@ beforeEach(() => {
   const room = createChatRoom({ name: 'operator landing', whoCreatedIt: '@JWPK' });
   process.env.ANT_BROWSER_LOGIN_ROOM_ID = room.id;
   process.env.ANT_OPERATOR_EMAIL = 'operator@example.com';
+  delete process.env.ANT_DEMO_EMAIL;
   process.env.ANT_OPERATOR_HANDLE = '@JWPK';
 });
 
@@ -53,6 +57,8 @@ afterEach(() => {
   resetIdentityRows();
   if (PREV_OPERATOR_EMAIL === undefined) delete process.env.ANT_OPERATOR_EMAIL;
   else process.env.ANT_OPERATOR_EMAIL = PREV_OPERATOR_EMAIL;
+  if (PREV_DEMO_EMAIL === undefined) delete process.env.ANT_DEMO_EMAIL;
+  else process.env.ANT_DEMO_EMAIL = PREV_DEMO_EMAIL;
   if (PREV_OPERATOR_HANDLE === undefined) delete process.env.ANT_OPERATOR_HANDLE;
   else process.env.ANT_OPERATOR_HANDLE = PREV_OPERATOR_HANDLE;
   if (PREV_BROWSER_LOGIN_ROOM_ID === undefined) delete process.env.ANT_BROWSER_LOGIN_ROOM_ID;
@@ -60,23 +66,27 @@ afterEach(() => {
 });
 
 describe('POST /api/auth/accounts-login', () => {
-  it('sends an Origin header to Better Auth sign-in', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+  function stubAccountsIdentity(email: string) {
+    return vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/api/auth/sign-in/email')) {
         return Response.json({
           token: 'better-auth-token',
-          user: { email: 'operator@example.com' }
+          user: { email }
         });
       }
       if (url.endsWith('/api/auth/me')) {
         return Response.json({
-          user: { email: 'operator@example.com', handle: '@JWPK' },
+          user: { email, handle: '@JWPK' },
           expiresAt: Date.now() + 60_000
         });
       }
       return Response.json({ message: 'unexpected upstream' }, { status: 500 });
     });
+  }
+
+  it('sends an Origin header to Better Auth sign-in', async () => {
+    const fetchMock = stubAccountsIdentity('operator@example.com');
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await capture(() =>
@@ -89,5 +99,44 @@ describe('POST /api/auth/accounts-login', () => {
       'content-type': 'application/json',
       origin: 'https://accounts.antonline.dev'
     });
+  });
+
+  it('fails closed instead of minting an operator browser session when no operator email is configured', async () => {
+    delete process.env.ANT_OPERATOR_EMAIL;
+    delete process.env.ANT_DEMO_EMAIL;
+    const fetchMock = stubAccountsIdentity('operator@example.com');
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await capture(() =>
+      POST(eventForPost({ email: 'operator@example.com', password: 'correct-password' }))
+    );
+
+    expect(response.status).toBe(503);
+  });
+
+  it('accepts a persisted operator email when env is unset', async () => {
+    delete process.env.ANT_OPERATOR_EMAIL;
+    delete process.env.ANT_DEMO_EMAIL;
+    setOperatorEmail({ email: 'operator@example.com', updatedBy: 'owners-register' });
+    const fetchMock = stubAccountsIdentity('operator@example.com');
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await capture(() =>
+      POST(eventForPost({ email: 'operator@example.com', password: 'correct-password' }))
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it('stores an env-confirmed operator email during successful account confirmation', async () => {
+    const fetchMock = stubAccountsIdentity('operator@example.com');
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await capture(() =>
+      POST(eventForPost({ email: 'operator@example.com', password: 'correct-password' }))
+    );
+
+    expect(response.status).toBe(200);
+    expect(getPersistedOperatorEmail()).toBe('operator@example.com');
   });
 });
