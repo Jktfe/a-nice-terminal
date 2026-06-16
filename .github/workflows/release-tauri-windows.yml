@@ -50,7 +50,7 @@ jobs:
           "$hash  $(Split-Path $env:MSI_PATH -Leaf)" | Out-File SHA256SUMS -Encoding utf8
 
       - name: Upload SHA256SUMS
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sha256sums
           path: SHA256SUMS
