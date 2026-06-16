@@ -16,7 +16,7 @@ name: Test
 # better-sqlite3 ABI hazard: the runtime SQLite store binds against
 # the launchd com.ant.fresh Node runtime — Node v22.22.1 (see
 # src/lib/server/db.ts header; verified on the live process). We pin
-# actions/setup-node@v4 with node-version: 22.22.1 + run
+# actions/setup-node@v6 with node-version: 22.22.1 + run
 # `npm rebuild better-sqlite3` after the bun install so the native
 # binding matches both the Node version that vitest loads under AND
 # the production runtime (fidelity: CI tests under the deployed Node).
@@ -36,7 +36,7 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Fail fast if redacted PII/secrets (operator/company email addresses,
       # the compromised demo-password literal) reappear in tracked files.
@@ -46,9 +46,14 @@ jobs:
       - name: redaction gate
         run: bash scripts/ci-redaction-gate.sh
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22.22.1
+          # We install deps with bun (oven-sh/setup-bun below); setup-node's
+          # auto package-manager cache (default-on since v5) only supports
+          # npm/yarn/pnpm and would error on a missing package-lock.json if a
+          # `packageManager` field were ever added to package.json. Disable it.
+          package-manager-cache: false
 
       - uses: oven-sh/setup-bun@v2
         with:
