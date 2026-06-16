@@ -67,6 +67,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Grid / multi-window view | v5 system lane | CHANGE | Codex | Must be recoverable if layout breaks. |
 | Message popups | audit blockers | CHANGE | Codex | Toasts and notification settings. |
 | Replies | v5 chat/room lane | CHANGE | Claude | Reply polish: sender, quote, auto-mention. |
+| Inline reply drafting | ANT delivery msg_mp3cpmcesr, 2026-06-16 | CHANGE | Codex | Added a room-message "Reply in line" drafting panel: source messages become block-level clickable HTML, comments are editable before send, full replies include stable inline markers, and bare-mentioned agents receive separate local-context notes while the full reply keeps those handles bracketed/informational. |
 | Interviews | v5 interview lane | CHANGE | Claude | Ask for context, options, chat escalation. |
 | Play / pause / speaker mode | v5 interview lane | CHANGE | Claude | Voice state visible and controllable. |
 | Read receipts | audit blockers | CHANGE | Claude | Zero-token receipt model. |

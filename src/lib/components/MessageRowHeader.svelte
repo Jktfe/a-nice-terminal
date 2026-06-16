@@ -28,6 +28,7 @@
     members?: RoomMember[];
     roomMode: 'brainstorm' | 'heads-down' | 'closed';
     onReplyRequested?: (messageId: string) => void;
+    onInlineReplyRequested?: (message: ChatMessage) => void;
     asHandle?: string;
     /** Bound back to the parent so the error <p> renders in its
      *  original location below the message body. */
@@ -46,6 +47,7 @@
     members = [],
     roomMode,
     onReplyRequested,
+    onInlineReplyRequested,
     asHandle,
     deleteError = $bindable('')
   }: Props = $props();
@@ -157,6 +159,13 @@
       onclick={() => onReplyRequested(message.id)}
     >Reply</button>
   {/if}
+  {#if onInlineReplyRequested && (message.kind === 'human' || message.kind === 'agent') && !isDeleted}
+    <button
+      type="button"
+      class="inline-reply-button"
+      onclick={() => onInlineReplyRequested(message)}
+    >Reply in line</button>
+  {/if}
   {#if canDelete}
     <!-- JWPK msg_ou1qurnobt: option 3, word label — show "Delete"
          text on own messages so the affordance is unambiguous. The
@@ -246,6 +255,21 @@
     cursor: pointer;
   }
   .reply-button:hover { background: var(--surface); }
+  .inline-reply-button {
+    padding: 0.1rem 0.55rem;
+    margin-left: 0.2rem;
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--surface-edge));
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  .inline-reply-button:hover {
+    background: color-mix(in srgb, var(--accent) 13%, transparent);
+    border-color: var(--accent);
+  }
   /* #74 delete affordance — only visible on rows the caller authored.
      Sits next to the reply button with a dim default state so it
      doesn't visually compete with content, brightens on hover. */

@@ -19,6 +19,7 @@
     members?: RoomMember[];
     asHandle?: string;
     onReplyRequested?: (messageId: string) => void;
+    onInlineReplyRequested?: (message: ChatMessage) => void;
     hasOlderMessages?: boolean;
     isLoadingOlder?: boolean;
     onLoadOlder?: () => Promise<void> | void;
@@ -37,6 +38,7 @@
     members = [],
     asHandle,
     onReplyRequested,
+    onInlineReplyRequested,
     hasOlderMessages = false,
     isLoadingOlder = false,
     onLoadOlder,
@@ -343,6 +345,7 @@
           {asHandle}
           {readReceiptEvent}
           {onReplyRequested}
+          {onInlineReplyRequested}
           childCount={replyCounts.get(message.id) ?? 0}
         />
       {/each}
