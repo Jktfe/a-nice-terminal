@@ -1,0 +1,18 @@
+# Dependabot config. The repo uses BUN (bun.lock is the only JS lockfile; CI runs
+# `bun install --frozen-lockfile`). GitHub's "npm" ecosystem updates bun.lock, so
+# version PRs keep the lockfile CI actually uses in sync. (package-lock.json was
+# removed — it was vestigial and made dependabot PRs fail the frozen-lockfile gate
+# while also skewing the security scanner onto an unused lockfile.)
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["github-actions"]
