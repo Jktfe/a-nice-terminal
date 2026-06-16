@@ -81,6 +81,17 @@ export function ensureRunEventsPersistenceBooted(): void {
   });
   subscribeOutput((sessionId, data) => {
     try {
+      // Durable source-of-truth row: persist the exact decoded PTY chunk before
+      // any ANSI/control normalization used by the cleaner ANT-view layers.
+      appendTerminalRunEvent({
+        terminalId: sessionId,
+        kind: 'raw',
+        text: data,
+        trust: 'raw',
+        source: 'pty_raw',
+        tsMs: Date.now(),
+        payload: { stream: 'pty', exact: true }
+      });
       // Resolve agent_kind ONCE per chunk; both Layer B classifier dispatch
       // and Layer A interactive-event dispatch need it. Null falls through
       // to generic classifier + skips Layer A entirely.
