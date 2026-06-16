@@ -16,7 +16,7 @@
  * no-op stub — so importing/wiring this module has no external effect.
  *
  * Params (TTL/breaker/rate-limit) per @speedy's security spec, 2026-06-08.
- * Design: /Users/jamesking/ANT-claude-mention-bridge-design.md (v3, §6.2/§6.5).
+ * Design: /Users/ant/ANT-claude-mention-bridge-design.md (v3, §6.2/§6.5).
  */
 
 import { listBareMentionHandles } from '$lib/chat/mentionRouting';
