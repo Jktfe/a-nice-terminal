@@ -14,8 +14,6 @@ export type VisibleContentScope = {
    * applies.
    */
   currentBlockIds?: Set<string>;
-  /** Reserved for the per-block tombstone slice. */
-  deletedBlockIds?: Set<string>;
 };
 
 export function visibleContentSkipReason(
