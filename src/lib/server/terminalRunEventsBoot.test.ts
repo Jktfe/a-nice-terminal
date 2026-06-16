@@ -114,4 +114,36 @@ describe('terminalRunEventsBoot', () => {
       source: 'pty'
     });
   });
+
+  it('does not let raw retention failures starve classified render events', async () => {
+    bootMocks.appendTerminalRunEvent.mockImplementationOnce(() => {
+      throw new Error('SQLITE_BUSY');
+    });
+    const { ensureRunEventsPersistenceBooted } = await import('./terminalRunEventsBoot');
+    ensureRunEventsPersistenceBooted();
+
+    bootMocks.outputCb?.('t-stream-2', 'hello\n');
+
+    expect(bootMocks.normalizeForClassifier).toHaveBeenCalledWith('hello\n');
+    expect(bootMocks.dispatchClassify).toHaveBeenCalledWith({
+      sessionId: 't-stream-2',
+      chunk: 'clean:hello\n',
+      agentKindHint: null
+    });
+    expect(bootMocks.appendTerminalRunEvent).toHaveBeenCalledTimes(2);
+    expect(bootMocks.appendTerminalRunEvent).toHaveBeenNthCalledWith(2, {
+      terminalId: 't-stream-2',
+      kind: 'message',
+      text: 'classified line',
+      trust: 'medium',
+      tsMs: 1_780_000_000_000
+    });
+    expect(bootMocks.broadcastTerminalEvent).toHaveBeenCalledWith('t-stream-2', {
+      kind: 'message',
+      text: 'classified line',
+      trust: 'medium',
+      ts_ms: 1_780_000_000_000,
+      source: 'pty'
+    });
+  });
 });
