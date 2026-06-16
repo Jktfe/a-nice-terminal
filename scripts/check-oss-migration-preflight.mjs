@@ -44,7 +44,7 @@ const REQUIRED_ROOT_FILES = [
   'NOTICE.md',
   '.env.example',
   'package.json',
-  'package-lock.json'
+  'bun.lock'
 ];
 
 const IGNORE_RULES = [
@@ -184,10 +184,9 @@ export function scanOssMigrationPreflight({ root = process.cwd(), publicTarget =
     }
   }
 
-  const lock = readJson(join(root, 'package-lock.json'));
-  if (lock && lock.packages?.['']?.license !== 'AGPL-3.0-or-later') {
-    failures.push('package-lock root license must be AGPL-3.0-or-later');
-  }
+  // The lockfile (bun.lock) is required as a root file above; it is bun's text
+  // format, not JSON, so there is no embedded license field to assert here —
+  // the package.json license check above is the authoritative AGPL gate.
 
   const license = readText(join(root, 'LICENSE'));
   if (license && !license.includes('GNU AFFERO GENERAL PUBLIC LICENSE')) {

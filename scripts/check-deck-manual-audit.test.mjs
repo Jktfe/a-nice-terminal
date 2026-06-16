@@ -1,8 +1,11 @@
 // Smoke tests for check-deck-manual-audit.mjs (m5.6).
 import { describe, expect, it } from 'vitest';
-import { runDeckManualAudit } from './check-deck-manual-audit.mjs';
+import { deliveryPlanAvailable, runDeckManualAudit } from './check-deck-manual-audit.mjs';
 
-describe('check-deck-manual-audit', () => {
+// The audit reads a DELIVERY-PLAN.md from the sibling ANT-Open-Slide repo. That
+// repo is absent in CI, /tmp worktrees, and fresh clones — skip rather than
+// fail when it isn't on disk, so the suite is location-independent.
+describe.skipIf(!deliveryPlanAvailable())('check-deck-manual-audit', () => {
   it('runDeckManualAudit completes without throwing on current disk', () => {
     const out = [];
     const result = runDeckManualAudit({ writeOut: (s) => out.push(s) });

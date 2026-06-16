@@ -7,13 +7,18 @@
 // and overlap is non-trivial. Drift counts are INFORMATIONAL because
 // either side can legitimately lead the other (DP can promise ahead,
 // manifest can ship operational verbs that don't deserve DP slides yet).
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(new URL('..', import.meta.url).pathname);
 const MANIFEST_PATH = join(REPO_ROOT, 'src/lib/cli-manifest/manifest.ts');
-const DELIVERY_PLAN_PATH = join(REPO_ROOT, '..', 'ANT-Open-Slide',
+// The delivery plan lives in the sibling ANT-Open-Slide repo, which is not
+// present in every checkout (CI, /tmp worktrees, fresh clones). Exported so
+// the test can skip itself when the external file is absent rather than
+// crashing the whole suite on ENOENT.
+export const DELIVERY_PLAN_PATH = join(REPO_ROOT, '..', 'ANT-Open-Slide',
   'fresh-ant-rules-manual-2026-05-13', 'DELIVERY-PLAN.md');
+export const deliveryPlanAvailable = () => existsSync(DELIVERY_PLAN_PATH);
 
 function manifestPrimaryVerbs() {
   const src = readFileSync(MANIFEST_PATH, 'utf8');

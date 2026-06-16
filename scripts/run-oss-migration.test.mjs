@@ -19,9 +19,7 @@ function writeValidMigrationRoot(root) {
     repository: { url: 'https://github.com/Jktfe/a-nice-terminal.git' },
     bugs: { url: 'https://github.com/Jktfe/a-nice-terminal/issues' }
   }));
-  writeFileSync(join(root, 'package-lock.json'), JSON.stringify({
-    packages: { '': { license: 'AGPL-3.0-or-later' } }
-  }));
+  writeFileSync(join(root, 'bun.lock'), '# bun lockfile (test stub)\n');
   writeFileSync(join(root, '.gitignore'), [
     '.env',
     '.env.*',
