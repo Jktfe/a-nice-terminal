@@ -115,7 +115,19 @@
   title={view === 'dashboard' ? 'Dashboard.' : view === 'gantt' ? 'Gantt.' : 'Retrospective.'}
   summary={`${friendlyPlanName} — ${headlineProgress.completed}/${headlineProgress.total} ${headlineProgress.label} complete (${Math.round(headlineProgress.pct * 100)}%).`}
 >
-  <a class="back" href="/plans">← All plans</a>
+  <div class="topline">
+    <a class="back" href="/plans">← All plans</a>
+    <!-- ANT Visual Planner (Phase 4): opens the interactive editor seeded
+         from this plan's tasks. Edit visually, then "Good to go" exports a
+         clean plan.md the agent can act on. New tab — non-destructive. -->
+    <a
+      class="visual-plan-btn"
+      href={`/ant-visual-plan.html?plan=${encodeURIComponent(data.planId)}`}
+      target="_blank"
+      rel="noopener"
+      title="Open this plan in the ANT Visual Planner — edit visually, export plan.md"
+    >📐 Visual Plan</a>
+  </div>
 
   <!-- Lifecycle banner (plansStore). Renders ONLY when the plan record
        has archived_at_ms or deleted_at_ms set — implicit plans (no row)
@@ -273,7 +285,16 @@
 </SimplePageShell>
 
 <style>
-  .back { display: inline-block; margin-bottom: 0.8rem; color: var(--accent-strong); text-decoration: none; }
+  .topline { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin-bottom: 0.8rem; }
+  .back { display: inline-block; color: var(--accent-strong); text-decoration: none; }
+  .visual-plan-btn {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.3rem 0.8rem; border-radius: 999px;
+    border: 1px solid var(--accent); background: transparent;
+    color: var(--accent); font-size: 0.82rem; font-weight: 800;
+    text-decoration: none; white-space: nowrap;
+  }
+  .visual-plan-btn:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .lifecycle-banner {
     margin: 0 0 0.9rem; padding: 0.65rem 0.9rem; line-height: 1.45;
     border: 1px solid var(--line-soft); border-radius: 0.6rem;

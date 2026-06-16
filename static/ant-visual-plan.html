@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ANT Visual Plan</title>
+<style>
+  :root{
+    --bg:#0e1116;--bg2:#161b22;--bg3:#1c232d;--panel:#141a21;--ink:#e8edf3;--ink2:#aab4c0;
+    --ink3:#6b7886;--line:#263039;--accent:#f5a623;--accent2:#38bdf8;--shadow:0 8px 30px rgba(0,0,0,.45);
+    --hi:#34d399;--med:#f5a623;--lo:#64748b;--danger:#fb5e6d;
+  }
+  html[data-theme="light"]{
+    --bg:#f6f8fb;--bg2:#fff;--bg3:#eef2f7;--panel:#fff;--ink:#131922;--ink2:#44525f;--ink3:#76838f;
+    --line:#dde4ec;--accent:#c9810a;--accent2:#0a7ea4;--shadow:0 8px 30px rgba(20,40,70,.10);
+    --hi:#0f9d6b;--med:#c9810a;--lo:#64748b;--danger:#e23a4e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;transition:background .3s,color .3s}
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,monospace}
+  .wrap{max-width:880px;margin:0 auto;padding:0 20px 120px}
+  header.top{position:sticky;top:0;z-index:20;backdrop-filter:blur(10px);background:color-mix(in srgb,var(--bg) 82%,transparent);border-bottom:1px solid var(--line)}
+  .top-in{max-width:880px;margin:0 auto;padding:11px 20px;display:flex;align-items:center;gap:12px}
+  .brand{font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:9px}
+  .brand .dot{width:11px;height:11px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 25%,transparent)}
+  .brand small{color:var(--ink3);font-weight:600}
+  .sp{flex:1}
+  button{font:inherit;cursor:pointer}
+  .btn{border:1px solid var(--line);background:var(--bg2);color:var(--ink2);border-radius:9px;padding:7px 12px;font-size:13px;font-weight:600;transition:.15s}
+  .btn:hover{color:var(--ink);border-color:var(--accent)}
+  .btn.primary{background:var(--accent);color:#1a1205;border-color:var(--accent)}
+  .btn.primary:hover{filter:brightness(1.07);color:#1a1205}
+  .btn.ghost{background:transparent}
+  .btn.sm{padding:3px 8px;font-size:12px;border-radius:7px}
+  .hero{padding:30px 0 6px}
+  .eyebrow{color:var(--accent);font-weight:700;font-size:12px;letter-spacing:.14em;text-transform:uppercase}
+  .title-in{width:100%;background:transparent;border:none;color:var(--ink);font-size:clamp(24px,4vw,34px);font-weight:800;letter-spacing:-.02em;padding:8px 0;outline:none}
+  .title-in:focus{border-bottom:2px solid var(--accent)}
+  .desc-in{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:11px;color:var(--ink2);font:inherit;padding:11px 13px;resize:vertical;min-height:54px;outline:none}
+  .desc-in:focus{border-color:var(--accent)}
+  .meta-row{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap;color:var(--ink3);font-size:12.5px}
+  .pill{display:inline-flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--line);border-radius:999px;padding:4px 10px}
+  .pill input{background:transparent;border:none;color:var(--ink);font:inherit;outline:none;width:auto;min-width:80px}
+
+  .phase{margin-top:26px}
+  .phase-head{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+  .phase-head .ph-name{background:transparent;border:none;color:var(--ink);font-size:15px;font-weight:800;letter-spacing:-.01em;outline:none;border-bottom:1px dashed transparent}
+  .phase-head .ph-name:focus{border-bottom-color:var(--accent)}
+  .phase-head .tag{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:12px 13px;margin-bottom:10px;box-shadow:var(--shadow);position:relative;border-left:3px solid var(--prio,var(--line))}
+  .card.done{opacity:.6}
+  .card-top{display:flex;align-items:flex-start;gap:10px}
+  .chk{appearance:none;width:19px;height:19px;border:2px solid var(--ink3);border-radius:6px;margin-top:2px;flex:none;cursor:pointer;position:relative}
+  .chk:checked{background:var(--hi);border-color:var(--hi)}
+  .chk:checked::after{content:"✓";position:absolute;inset:0;color:#06120c;font-size:13px;font-weight:900;display:flex;align-items:center;justify-content:center}
+  .subj{flex:1;background:transparent;border:none;color:var(--ink);font-size:15.5px;font-weight:700;outline:none;padding:1px 0}
+  .subj:focus{border-bottom:1px solid var(--accent)}
+  .card.done .subj{text-decoration:line-through}
+  .row-actions{display:flex;gap:4px;flex:none;opacity:.6}
+  .card:hover .row-actions{opacity:1}
+  .icon{border:1px solid var(--line);background:var(--bg2);color:var(--ink2);border-radius:7px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:13px}
+  .icon:hover{color:var(--ink);border-color:var(--accent)}
+  .icon.del:hover{color:var(--danger);border-color:var(--danger)}
+  .desc2{width:100%;background:transparent;border:none;color:var(--ink2);font:inherit;font-size:13.5px;resize:vertical;outline:none;margin:6px 0 2px;padding:0;min-height:20px}
+  .desc2:focus{color:var(--ink)}
+  .ctrls{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;align-items:center}
+  select,.mini{background:var(--bg3);border:1px solid var(--line);color:var(--ink2);border-radius:7px;padding:4px 8px;font:inherit;font-size:12px;outline:none}
+  select:focus,.mini:focus{border-color:var(--accent);color:var(--ink)}
+  .mini{min-width:90px}
+  .ctrls label{font-size:11px;color:var(--ink3);font-weight:600}
+  .deps{position:relative}
+  .deps-btn{font-size:12px}
+  .deps-pop{position:absolute;z-index:5;top:30px;left:0;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:8px;min-width:220px;box-shadow:var(--shadow);max-height:220px;overflow:auto}
+  .deps-pop label{display:flex;gap:8px;align-items:center;padding:4px 6px;border-radius:6px;color:var(--ink2);font-size:12.5px;cursor:pointer}
+  .deps-pop label:hover{background:var(--bg3)}
+  .dep-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+  .dep-chip{font-size:11px;background:color-mix(in srgb,var(--accent2) 16%,transparent);color:var(--accent2);border-radius:999px;padding:2px 9px}
+  .dw{font-size:12px;color:var(--ink3)}
+  .dw input{background:var(--bg3);border:1px solid var(--line);color:var(--ink2);border-radius:7px;padding:4px 8px;font:inherit;font-size:12px;outline:none;width:min(320px,60%)}
+
+  .add-row{margin-top:10px;display:flex;gap:8px}
+  .footer-bar{position:fixed;bottom:0;left:0;right:0;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding:12px 20px}
+  .footer-in{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px}
+  .footer-in .hint{color:var(--ink3);font-size:12.5px}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+  .modal-bg.open{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;max-width:720px;width:100%;max-height:84vh;overflow:auto;box-shadow:var(--shadow)}
+  .modal-h{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .modal-h h3{margin:0;font-size:16px}
+  .modal-b{padding:16px 18px}
+  .md-out{width:100%;min-height:300px;background:var(--bg3);border:1px solid var(--line);border-radius:10px;color:var(--ink);font-family:ui-monospace,Menlo,monospace;font-size:12.5px;padding:12px;resize:vertical;outline:none;white-space:pre}
+  .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--hi);color:#06120c;font-weight:700;padding:9px 16px;border-radius:999px;font-size:13px;opacity:0;transition:.25s;pointer-events:none;z-index:60}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <div class="brand"><span class="dot"></span>ANT Visual Plan <small id="statusLabel">· draft</small></div>
+  <div class="sp"></div>
+  <button class="btn ghost sm" id="importBtn">⇪ Import .md</button>
+  <button class="btn ghost sm" id="themeBtn">◐ Light</button>
+</div></header>
+
+<div class="wrap">
+  <div class="hero">
+    <div class="eyebrow">Shape the plan, then ship it as Markdown</div>
+    <input class="title-in" id="title" placeholder="Plan title…" />
+    <textarea class="desc-in" id="desc" placeholder="One line on the intent / outcome…"></textarea>
+    <div class="meta-row">
+      <span class="pill">🏠 rooms <input id="rooms" placeholder="roomId, roomId" /></span>
+      <span class="hint" style="color:var(--ink3)">Drag-free: use ↑ ↓ to reorder · click <b>Add task</b> to grow it</span>
+    </div>
+  </div>
+  <div id="phases"></div>
+  <div class="add-row">
+    <button class="btn" id="addTask">+ Add task</button>
+    <button class="btn ghost" id="addPhase">+ Add phase</button>
+  </div>
+</div>
+
+<div class="footer-bar"><div class="footer-in">
+  <span class="hint" id="count"></span>
+  <div class="sp"></div>
+  <button class="btn" id="previewBtn">Preview .md</button>
+  <button class="btn primary" id="goodBtn">Good to go ✓</button>
+</div></div>
+
+<div class="modal-bg" id="modalBg"><div class="modal">
+  <div class="modal-h"><h3 id="modalTitle">plan.md</h3><div class="sp"></div><button class="icon" id="modalClose">✕</button></div>
+  <div class="modal-b">
+    <div style="display:flex;gap:8px;margin-bottom:10px"><button class="btn primary" id="dlBtn">⬇ Download plan.md</button><button class="btn" id="copyBtn">⧉ Copy</button></div>
+    <textarea class="md-out mono" id="mdOut" spellcheck="false"></textarea>
+  </div>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<!-- ant-visual-plan:model-inject -->
+<script>
+// ── contract (kept in sync with format/parse.mjs) ─────────────────────────
+function slug(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')||'task';}
+function parsePlanMd(md){
+  const lines=String(md).split(/\r?\n/);const model={version:'v1',title:'Untitled plan',description:'',status:'draft',approvedBy:null,approvedAtMs:null,rooms:[],tasks:[]};let i=0;
+  for(;i<lines.length;i++){const m=lines[i].match(/^#\s+Plan:\s*(.*)/);if(m){model.title=m[1].trim()||'Untitled plan';i++;break;}}
+  for(;i<lines.length;i++){if(/^##\s/.test(lines[i])||/^-\s+\[/.test(lines[i]))break;const c=lines[i].match(/<!--\s*(.*?)\s*-->/);if(c){for(const p of c[1].split('·').map(s=>s.trim())){if(/^status:/i.test(p))model.status=p.split(':')[1].trim();else if(/^approved-by:/i.test(p))model.approvedBy=p.split(':')[1].trim();else if(/^rooms:/i.test(p))model.rooms=p.replace(/^rooms:/i,'').split(',').map(s=>s.trim()).filter(Boolean);else if(/^\d{4}-\d{2}-\d{2}$/.test(p))model.approvedAtMs=Date.parse(p);}i++;break;}}
+  const desc=[];for(;i<lines.length;i++){if(/^##\s/.test(lines[i])||/^-\s+\[/.test(lines[i]))break;if(lines[i].trim())desc.push(lines[i].trim());}model.description=desc.join('\n').trim();
+  let phase='',cur=null;const push=()=>{if(cur){model.tasks.push(cur);cur=null;}};
+  for(;i<lines.length;i++){const line=lines[i];const ph=line.match(/^##\s+Phase:\s*(.*)/i);if(ph){push();phase=ph[1].trim();continue;}if(/^##\s+Tasks\s*$/i.test(line)){push();phase='';continue;}
+    const tk=line.match(/^-\s+\[([ xX])\]\s+\*\*(.+?)\*\*(.*)$/);if(tk){push();cur={id:'',subject:tk[2].trim(),description:'',phase,priority:'',owner:'',after:[],doneWhen:'',done:/[xX]/.test(tk[1])};const pr=tk[3].match(/`priority:\s*([a-z]+)`/i);if(pr)cur.priority=pr[1].toLowerCase();const ow=tk[3].match(/`owner:\s*(@?[^`]+)`/i);if(ow)cur.owner=ow[1].trim();cur.id=slug(cur.subject);continue;}
+    if(cur){const af=line.match(/^\s+-\s+after:\s*(.*)/i);if(af){cur.after=af[1].split(',').map(s=>s.trim()).filter(Boolean);continue;}const dw=line.match(/^\s+-\s+done-when:\s*(.*)/i);if(dw){cur.doneWhen=dw[1].trim();continue;}if(/^\s+\S/.test(line)&&!/^\s*-\s/.test(line)){cur.description=(cur.description?cur.description+' ':'')+line.trim();continue;}}}
+  push();const seen=new Set();for(const t of model.tasks){let id=t.id||slug(t.subject),n=1;while(seen.has(id))id=`${t.id}-${++n}`;t.id=id;seen.add(id);}return model;
+}
+function serializePlanMd(m){
+  const meta=[`ant-visual-plan: ${m.version||'v1'}`,`status: ${m.status||'draft'}`];
+  if(m.status==='approved'&&m.approvedBy)meta.push(`approved-by: ${m.approvedBy}`);
+  if(m.status==='approved'&&m.approvedAtMs)meta.push(new Date(m.approvedAtMs).toISOString().slice(0,10));
+  if(m.rooms&&m.rooms.length)meta.push(`rooms: ${m.rooms.join(',')}`);
+  const out=[`# Plan: ${m.title||'Untitled plan'}`,`<!-- ${meta.join(' · ')} -->`,''];
+  if(m.description&&m.description.trim())out.push(m.description.trim(),'');
+  const groups=[];for(const t of m.tasks){const key=t.phase||'';let g=groups.find(g=>g.key===key);if(!g){g={key,tasks:[]};groups.push(g);}g.tasks.push(t);}
+  for(const g of groups){out.push(g.key?`## Phase: ${g.key}`:'## Tasks');for(const t of g.tasks){const tags=[];if(t.priority)tags.push(`\`priority: ${t.priority}\``);if(t.owner)tags.push(`\`owner: ${t.owner}\``);out.push(`- [${t.done?'x':' '}] **${t.subject}**${tags.length?'  '+tags.join('  '):''}`);if(t.description&&t.description.trim())out.push(`  ${t.description.trim()}`);if(t.after&&t.after.length)out.push(`  - after: ${t.after.join(', ')}`);if(t.doneWhen&&t.doneWhen.trim())out.push(`  - done-when: ${t.doneWhen.trim()}`);out.push('');}}
+  return out.join('\n').replace(/\n{3,}/g,'\n\n').trim()+'\n';
+}
+
+// ── model (the agent replaces __MODEL__ when generating per-plan; default = demo) ──
+const DEFAULT_MD = `# Plan: Launch readiness sweep
+<!-- ant-visual-plan: v1 · status: draft · rooms: orsz2321qb -->
+
+Get ANT to a clean pre-launch baseline before the design push.
+
+## Phase: Audit
+- [ ] **Inventory broken paths**  \`priority: high\`  \`owner: @researchant\`
+  Grep skills + code for any vault paths that moved in the restructure.
+  - done-when: grep output + a list of files to fix
+
+## Phase: Fix
+- [ ] **Repoint stale references**  \`priority: high\`  \`owner: @researchant\`
+  Update any skill/code references the audit found.
+  - after: Inventory broken paths
+  - done-when: references resolve + tests green
+`;
+let model = (typeof window.__MODEL__==='object'&&window.__MODEL__) ? window.__MODEL__ : parsePlanMd(DEFAULT_MD);
+
+// ── render ────────────────────────────────────────────────────────────────
+const $=(s,r=document)=>r.querySelector(s);
+const prioColor={high:'var(--hi)',medium:'var(--med)',low:'var(--lo)','':'var(--line)'};
+function phaseList(){const ps=[];for(const t of model.tasks){const k=t.phase||'';if(!ps.includes(k))ps.push(k);}return ps;}
+function tasksIn(phase){return model.tasks.filter(t=>(t.phase||'')===phase);}
+
+function render(){
+  $('#title').value=model.title;$('#desc').value=model.description;$('#rooms').value=(model.rooms||[]).join(', ');
+  $('#statusLabel').textContent='· '+(model.status||'draft');
+  const host=$('#phases');host.innerHTML='';
+  for(const phase of phaseList()){
+    const sec=document.createElement('div');sec.className='phase';
+    const head=document.createElement('div');head.className='phase-head';
+    if(phase){const nm=document.createElement('input');nm.className='ph-name';nm.value=phase;nm.title='rename phase';
+      nm.onchange=()=>{const v=nm.value.trim();for(const t of model.tasks)if((t.phase||'')===phase)t.phase=v;render();};
+      head.appendChild(nm);}
+    else{const sp=document.createElement('span');sp.className='tag';sp.textContent='Ungrouped';head.appendChild(sp);}
+    sec.appendChild(head);
+    for(const t of tasksIn(phase))sec.appendChild(taskCard(t));
+    host.appendChild(sec);
+  }
+  $('#count').textContent=`${model.tasks.length} task${model.tasks.length===1?'':'s'}`;
+}
+
+function taskCard(t){
+  const idx=model.tasks.indexOf(t);
+  const c=document.createElement('div');c.className='card'+(t.done?' done':'');c.style.setProperty('--prio',prioColor[t.priority||'']);
+  const top=document.createElement('div');top.className='card-top';
+  const chk=document.createElement('input');chk.type='checkbox';chk.className='chk';chk.checked=t.done;chk.onchange=()=>{t.done=chk.checked;c.classList.toggle('done',t.done);};
+  const subj=document.createElement('input');subj.className='subj';subj.value=t.subject;subj.placeholder='Task…';subj.oninput=()=>{t.subject=subj.value;};
+  const acts=document.createElement('div');acts.className='row-actions';
+  acts.append(iconBtn('↑','move up',()=>move(idx,-1)),iconBtn('↓','move down',()=>move(idx,1)),iconBtn('✕','delete',()=>{model.tasks.splice(idx,1);render();},'del'));
+  top.append(chk,subj,acts);c.appendChild(top);
+
+  const d=document.createElement('textarea');d.className='desc2';d.value=t.description;d.placeholder='description…';d.rows=1;d.oninput=()=>{t.description=d.value;autosize(d);};setTimeout(()=>autosize(d),0);
+  c.appendChild(d);
+
+  const ctr=document.createElement('div');ctr.className='ctrls';
+  // priority
+  const pr=document.createElement('select');pr.innerHTML=`<option value="">priority…</option><option value="high">high</option><option value="medium">medium</option><option value="low">low</option>`;pr.value=t.priority||'';pr.onchange=()=>{t.priority=pr.value;c.style.setProperty('--prio',prioColor[t.priority||'']);};
+  // owner
+  const ow=document.createElement('input');ow.className='mini';ow.placeholder='@owner';ow.value=t.owner;ow.oninput=()=>{t.owner=ow.value.trim();};
+  // phase
+  const ph=document.createElement('select');const phs=Array.from(new Set(['',...phaseList(),...model.tasks.map(x=>x.phase||'')]));ph.innerHTML=phs.map(p=>`<option value="${esc(p)}">${p?esc(p):'(no phase)'}</option>`).join('')+`<option value="__new">+ new phase…</option>`;ph.value=t.phase||'';ph.onchange=()=>{if(ph.value==='__new'){const v=prompt('New phase name:');if(v){t.phase=v.trim();}}else t.phase=ph.value;render();};
+  // deps
+  const deps=depsControl(t);
+  ctr.append(labelled('',pr),labelled('',ow),labelled('phase',ph),deps);
+  c.appendChild(ctr);
+
+  // done-when
+  const dw=document.createElement('div');dw.className='dw';const dwi=document.createElement('input');dwi.placeholder='done-when… (what proves it\'s finished)';dwi.value=t.doneWhen;dwi.oninput=()=>{t.doneWhen=dwi.value;};dw.append('done when ',dwi);c.appendChild(dw);
+  return c;
+}
+function depsControl(t){
+  const wrap=document.createElement('div');wrap.className='deps';
+  const btn=document.createElement('button');btn.className='btn ghost sm deps-btn';btn.textContent=`after ▾ (${t.after.length})`;
+  const pop=document.createElement('div');pop.className='deps-pop';pop.style.display='none';
+  const others=model.tasks.filter(x=>x!==t);
+  pop.innerHTML=others.length?'':'<span class="dw">no other tasks yet</span>';
+  for(const o of others){const l=document.createElement('label');const cb=document.createElement('input');cb.type='checkbox';cb.checked=t.after.includes(o.subject);cb.onchange=()=>{if(cb.checked){if(!t.after.includes(o.subject))t.after.push(o.subject);}else t.after=t.after.filter(s=>s!==o.subject);btn.textContent=`after ▾ (${t.after.length})`;renderChips();};l.append(cb,document.createTextNode(o.subject));pop.appendChild(l);}
+  btn.onclick=()=>{pop.style.display=pop.style.display==='none'?'block':'none';};
+  document.addEventListener('click',(e)=>{if(!wrap.contains(e.target))pop.style.display='none';});
+  const chips=document.createElement('div');chips.className='dep-chips';
+  function renderChips(){chips.innerHTML='';for(const a of t.after){const s=document.createElement('span');s.className='dep-chip';s.textContent='⟵ '+a;chips.appendChild(s);}}
+  renderChips();
+  wrap.append(btn,pop,chips);return wrap;
+}
+function labelled(label,el){const w=document.createElement('span');w.style.display='inline-flex';w.style.alignItems='center';w.style.gap='5px';if(label){const l=document.createElement('label');l.textContent=label;w.appendChild(l);}w.appendChild(el);return w;}
+function iconBtn(txt,title,fn,extra=''){const b=document.createElement('button');b.className='icon '+extra;b.textContent=txt;b.title=title;b.onclick=fn;return b;}
+function move(idx,dir){const j=idx+dir;if(j<0||j>=model.tasks.length)return;const a=model.tasks;[a[idx],a[j]]=[a[j],a[idx]];render();}
+function autosize(el){el.style.height='auto';el.style.height=el.scrollHeight+'px';}
+function esc(s){return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;');}
+
+// ── top-level bindings ──────────────────────────────────────────────────────
+$('#title').oninput=e=>model.title=e.target.value;
+$('#desc').oninput=e=>model.description=e.target.value;
+$('#rooms').oninput=e=>model.rooms=e.target.value.split(',').map(s=>s.trim()).filter(Boolean);
+$('#addTask').onclick=()=>{const lastPhase=model.tasks.length?model.tasks[model.tasks.length-1].phase:'';model.tasks.push({id:'t'+Date.now(),subject:'',description:'',phase:lastPhase||'',priority:'',owner:'',after:[],doneWhen:'',done:false});render();window.scrollTo(0,document.body.scrollHeight);};
+$('#addPhase').onclick=()=>{const v=prompt('New phase name:');if(v){model.tasks.push({id:'t'+Date.now(),subject:'',description:'',phase:v.trim(),priority:'',owner:'',after:[],doneWhen:'',done:false});render();}};
+$('#themeBtn').onclick=()=>{const cur=document.documentElement.getAttribute('data-theme');const n=cur==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',n);$('#themeBtn').textContent=n==='dark'?'◐ Light':'◐ Dark';};
+$('#importBtn').onclick=()=>{const text=prompt('Paste a plan.md to load it:');if(text&&text.trim()){try{model=parsePlanMd(text);render();toast('Imported');}catch(e){toast('Could not parse');}}};
+
+function openModal(title){$('#mdOut').value=serializePlanMd(model);$('#modalTitle').textContent=title;$('#modalBg').classList.add('open');}
+$('#previewBtn').onclick=()=>openModal('plan.md — preview');
+$('#goodBtn').onclick=()=>{const who=prompt('Approve as (your @handle, optional):','');model.status='approved';model.approvedBy=(who&&who.trim())||model.approvedBy||null;model.approvedAtMs=Date.now();$('#statusLabel').textContent='· approved';openModal('plan.md — approved ✓ (download it for the agent)');};
+$('#modalClose').onclick=()=>$('#modalBg').classList.remove('open');
+$('#modalBg').onclick=e=>{if(e.target.id==='modalBg')$('#modalBg').classList.remove('open');};
+$('#dlBtn').onclick=()=>{const blob=new Blob([$('#mdOut').value],{type:'text/markdown'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(slug(model.title)||'plan')+'.md';a.click();toast('Downloaded '+a.download);};
+$('#copyBtn').onclick=async()=>{try{await navigator.clipboard.writeText($('#mdOut').value);toast('Copied');}catch(e){$('#mdOut').select();document.execCommand('copy');toast('Copied');}};
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1600);}
+
+render();
+
+// In-app seed: opened as /ant-visual-plan.html?plan=<id> → hydrate from the
+// live ANT plan (GET /api/plans/<id>/visual). The page is same-origin so the
+// browser session cookie carries membership auth. Falls back to the baked
+// model on any error so the editor always renders.
+(async () => {
+  const planId = new URLSearchParams(location.search).get('plan');
+  if (!planId) return;
+  $('#statusLabel').textContent = '· loading…';
+  try {
+    const res = await fetch(`/api/plans/${encodeURIComponent(planId)}/visual`, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data && data.model && typeof data.model === 'object') { model = data.model; render(); toast('Loaded "' + (model.title || planId) + '"'); }
+  } catch (e) {
+    $('#statusLabel').textContent = '· ' + (model.status || 'draft');
+    toast('Could not load plan ' + planId);
+  }
+})();
+</script>
+</body>
+</html>
