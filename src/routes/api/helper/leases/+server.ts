@@ -6,11 +6,11 @@
  */
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate';
+import { tryAdminBearer, tryOperatorSession, tryAntchatOperatorBearer } from '$lib/server/chatRoomAuthGate';
 import { listActiveLeases, listActiveLeasesForHandle } from '$lib/server/helperLeaseStore';
 
 export const GET: RequestHandler = async ({ request, url }) => {
-  if (!tryAdminBearer(request) && !tryOperatorSession(request)) {
+  if (!tryAdminBearer(request) && !tryOperatorSession(request) && !tryAntchatOperatorBearer(request)) {
     throw error(401, 'operator login required');
   }
   const handle = url.searchParams.get('handle');

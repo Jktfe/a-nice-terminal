@@ -50,6 +50,7 @@ import { isHandleMemberOfRoom, findChatRoomById } from './chatRoomStore';
 import { buildPermissionDeniedPayload } from './permissionDeniedPayload';
 import { resolveApproversFor } from './permissionApproverResolver';
 import { resolveOrNull } from './sessionResolver';
+import { resolveAntchatBearer } from './authGate';
 import { isMember as isCleanMember, displayHandleForSession } from './roomHandleLeaseClean';
 import { lookupTerminalByPidChain } from './terminalsStore';
 import {
@@ -133,6 +134,22 @@ export function tryOperatorSession(request: Request): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Accept the operator when they're signed in via the native antOS/antchat app,
+ * which presents `Authorization: Bearer <token>` (issued by /api/auth/login) —
+ * the SAME credential the rooms/tasks write paths already accept. The browser
+ * `tryOperatorSession` only sees the `ant_browser_session` cookie, which a
+ * native app never has; without this, operator-gated endpoints (the helper
+ * pairing/leases surface) 401 a signed-in operator on the desktop app.
+ * Operator-only: a non-operator's app token resolves to a non-operator handle
+ * and is rejected, so this grants nothing beyond the operator's own session.
+ */
+export function tryAntchatOperatorBearer(request: Request): boolean {
+  const handle = resolveAntchatBearer(request);
+  if (!handle) return false;
+  return canonicaliseOperatorHandle(handle) === canonicaliseOperatorHandle(getOperatorHandle());
 }
 
 /**

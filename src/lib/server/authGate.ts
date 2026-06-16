@@ -47,7 +47,7 @@ import {
  * Added per JWPK msg_gqie1ekg4e demo-pressure ("let's get this app
  * working!!!") — the auth-bridge slice flagged in msg_gh5hpp7xm0.
  */
-function resolveAntchatBearer(request: Request): string | null {
+export function resolveAntchatBearer(request: Request): string | null {
   const token = bearerTokenFromHeader(request.headers.get('authorization'));
   if (!token) return null;
   const record = resolveAntchatToken(token);

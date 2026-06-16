@@ -5,11 +5,11 @@
  */
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate';
+import { tryAdminBearer, tryOperatorSession, tryAntchatOperatorBearer } from '$lib/server/chatRoomAuthGate';
 import { revokeLease } from '$lib/server/helperLeaseStore';
 
 export const POST: RequestHandler = async ({ request, params }) => {
-  if (!tryAdminBearer(request) && !tryOperatorSession(request)) {
+  if (!tryAdminBearer(request) && !tryOperatorSession(request) && !tryAntchatOperatorBearer(request)) {
     throw error(401, 'operator login required');
   }
   const leaseId = params.leaseId ?? '';
