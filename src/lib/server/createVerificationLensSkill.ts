@@ -74,7 +74,6 @@ export interface SkillInput {
   author_handle: string;
   author_kind: AuthorKind;
   bound_source_set_ids?: string[];
-  dry_run?: boolean;
 }
 
 export interface SkillSuccessOutput {
@@ -117,13 +116,6 @@ export interface SkillRefusalOutput {
 }
 
 export type SkillOutput = SkillSuccessOutput | SkillRefusalOutput;
-
-/** Model invocation interface. Caller wires the actual API. */
-export interface CallModelInput {
-  systemMessage: string;
-  userMessage: string;
-}
-export type CallModel = (input: CallModelInput) => Promise<string>;
 
 // ───────────────────────── input validation ─────────────────────────
 

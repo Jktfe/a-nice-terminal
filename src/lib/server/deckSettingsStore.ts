@@ -36,8 +36,6 @@ export type DeckSettings = {
   roomOverrides?: Record<string, string>;
 };
 
-const EMPTY: DeckSettings = { decksRoots: [], roomOverrides: {} };
-
 function defaultSettingsPath(): string {
   return join(homedir(), '.ant', 'deck-settings.json');
 }
