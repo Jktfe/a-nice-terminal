@@ -52,7 +52,7 @@
     "@univerjs/core": "^0.22.1",
     "@univerjs/design": "^0.22.1",
     "@univerjs/docs": "^0.22.1",
-    "@univerjs/docs-ui": "^0.22.1",
+    "@univerjs/docs-ui": "^0.25.0",
     "@univerjs/sheets": "^0.22.1",
     "@univerjs/sheets-ui": "^0.22.1",
     "@univerjs/slides": "^0.22.1",
