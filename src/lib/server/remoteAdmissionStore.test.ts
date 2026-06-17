@@ -9,7 +9,8 @@ import {
   revokeAdmission,
   listActiveForRoom,
   findById,
-  mintInviteCode
+  mintInviteCode,
+  filterPendingAdmissions
 } from './remoteAdmissionStore';
 
 beforeEach(() => {
@@ -19,6 +20,28 @@ beforeEach(() => {
 afterEach(() => {
   resetIdentityDbForTests();
   delete process.env.ANT_FRESH_DB_PATH;
+});
+
+describe('filterPendingAdmissions (aggregated invites)', () => {
+  const base = {
+    room_id: 'r',
+    lifetime_preset: 'today' as const,
+    expires_at_ms: null,
+    created_by_handle: '@jwpk',
+    created_at_ms: 0,
+    mapping_id_after_accept: null,
+    revoked_at_ms: null
+  };
+  it('keeps only un-accepted, un-revoked, still-in-acceptance-window admissions', () => {
+    const now = 1000;
+    const pending = { ...base, id: 'p', accepted_at_ms: null, expires_acceptance_at_ms: 2000 };
+    const accepted = { ...base, id: 'acc', accepted_at_ms: 500, expires_acceptance_at_ms: 2000 };
+    const expired = { ...base, id: 'exp', accepted_at_ms: null, expires_acceptance_at_ms: 500 };
+    const revoked = { ...base, id: 'rev', accepted_at_ms: null, expires_acceptance_at_ms: 2000, revoked_at_ms: 100 };
+    expect(
+      filterPendingAdmissions([pending, accepted, expired, revoked], now).map((a) => a.id)
+    ).toEqual(['p']);
+  });
 });
 
 describe('mintInviteCode', () => {
