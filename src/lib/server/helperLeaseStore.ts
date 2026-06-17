@@ -56,15 +56,14 @@ export const ATTACHMENT_SCOPES: Record<AttachmentRole, Readonly<AttachmentScope>
     claimHandle: false,
     approveAsks: false
   }),
-  // A paneless ANThandle's authoring credential — the issuance-class witness
-  // for a desktop / mcp / api agent that has no observable pane. Authors and
-  // posts status like any member. Claiming handles and approving asks remain
-  // separate witnessed/gated acts, never granted by the attachment itself.
+  // A paneless ANThandle's status attachment — it can listen, fire routes, and
+  // post its own heartbeat, but it does NOT author room messages. Message
+  // authoring requires a witnessed pane/session path, not a helper lease.
   agent: Object.freeze({
     subscribeFeed: true,
     fireRoutes: true,
     postStatus: true,
-    authorMessages: true,
+    authorMessages: false,
     claimHandle: false,
     approveAsks: false
   })

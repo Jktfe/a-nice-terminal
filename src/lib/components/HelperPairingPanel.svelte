@@ -24,14 +24,14 @@
   // the enforcer; this is the honest preview.
   const ROLE_SCOPE: Record<Role, { label: string; can: string[]; cannot: string[] }> = {
     reader: {
-      label: 'Read-only helper — listens and rings bells, never speaks',
+      label: 'ANThelper — read-only feed and routes only',
       can: ['Subscribe to the delivery feed (metadata only)', 'Fire routes (file / bell / app nudge)'],
-      cannot: ['Post or author messages', 'Post status', 'Claim or change handles', 'Approve asks']
+      cannot: ['Write into room timelines', 'Post status', 'Claim or change handles', 'Approve asks']
     },
     agent: {
-      label: 'Agent — a paneless handle that can post as itself',
-      can: ['Subscribe to the delivery feed', 'Fire routes', 'Post status', 'Author messages as its handle'],
-      cannot: ['Claim or change handles', 'Approve asks']
+      label: 'Status attachment — no room posting',
+      can: ['Subscribe to the delivery feed', 'Fire routes', 'Post status'],
+      cannot: ['Write into room timelines', 'Claim or change handles', 'Approve asks']
     }
   };
 
@@ -164,7 +164,7 @@
         {#each (['reader', 'agent'] as Role[]) as r (r)}
           <label class="role-opt" class:active={role === r}>
             <input type="radio" name="role" value={r} bind:group={role} />
-            <strong>{r === 'reader' ? 'Read-only helper' : 'Agent (can post)'}</strong>
+            <strong>{r === 'reader' ? 'ANThelper (read-only)' : 'Status attachment'}</strong>
           </label>
         {/each}
       </fieldset>

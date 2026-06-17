@@ -43,9 +43,9 @@ describe('ATTACHMENT_SCOPES — the two fixed role profiles', () => {
     expect(r.approveAsks).toBe(false);
   });
 
-  it('agent (paneless ANThandle) authors + posts status, but never claims handles or approves', () => {
+  it('agent (paneless ANThandle) posts status but never authors messages, claims handles, or approves', () => {
     const a = ATTACHMENT_SCOPES.agent;
-    expect(a.authorMessages).toBe(true);
+    expect(a.authorMessages).toBe(false);
     expect(a.postStatus).toBe(true);
     expect(a.subscribeFeed).toBe(true);
     expect(a.claimHandle).toBe(false);

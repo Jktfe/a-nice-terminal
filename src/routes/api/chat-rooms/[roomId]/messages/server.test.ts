@@ -1764,10 +1764,10 @@ describe('chat-typeable approve (JWPK taste ruling msg_n4gdutadlh)', () => {
   });
 });
 
-// The post-gate keystone (2026-06-11 ruling): in clean (witness-only) mode, a
-// daemon-verified `agent` ATTACHMENT authors without a pane — the issuance-class
-// witness. A paneless desktop AI (the fClaude case) becomes a full member.
-describe('post gate — agent attachment (issuance-class witness)', () => {
+// Helper/attachment leases are not room-message authoring credentials. Even an
+// `agent` role may post status, but message authoring must come through a
+// witnessed pane/session path.
+describe('post gate — helper attachments do not author messages', () => {
   const prevMode = process.env.ANT_IDENTITY_READ;
   const prevDbPath = process.env.ANT_FRESH_DB_PATH;
   let attTmpDir: string;
@@ -1798,7 +1798,7 @@ describe('post gate — agent attachment (issuance-class witness)', () => {
     return room;
   }
 
-  it('CLEAN: a verified agent attachment authors with NO pane or pidChain, and ledgers the use', async () => {
+  it('CLEAN: an agent-role attachment cannot author with NO pane or pidChain', async () => {
     const room = memberRoom('@fClaude');
     const { secret } = mintLease({ handle: '@fClaude', owners: ['@JWPK'], role: 'agent' });
     const response = await callPost({
@@ -1806,10 +1806,8 @@ describe('post gate — agent attachment (issuance-class witness)', () => {
       body: JSON.stringify({ body: 'first message from a paneless desk', authorHandle: '@fClaude' }),
       headers: { 'x-ant-attachment': secret }
     });
-    expect(response.status).toBe(201);
-    expect((await response.json()).message.authorHandle).toBe('@fClaude');
-    // guardrail (d): every authoring use is ledgered
-    expect(listLedger({}).filter((e) => e.kind === 'attachment.authored')).toHaveLength(1);
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(listLedger({}).filter((e) => e.kind === 'attachment.authored')).toHaveLength(0);
   });
 
   it('CLEAN: a reader (helper) attachment is REFUSED authoring — the helper never posts', async () => {

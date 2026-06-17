@@ -148,14 +148,15 @@ describe('POST /api/helper/pairing/redeem — open, single-use', () => {
     expect((await call(redeem, req('/api/helper/pairing/redeem', { code: '' }))).status).toBe(400);
   });
 
-  it('an agent pairing redeems to an AUTHORING attachment (scope + role)', async () => {
+  it('an agent pairing redeems to a status attachment, not a room-authoring credential', async () => {
     const minted = await call(mint, req('/api/helper/pairing', { handle: '@fClaude', role: 'agent' }, { admin: true }));
     const code = (await minted.json()).code as string;
     const res = await call(redeem, req('/api/helper/pairing/redeem', { code, host: 'mac-mini' }));
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.role).toBe('agent');
-    expect(body.scope.authorMessages).toBe(true); // an agent attachment authors
+    expect(body.scope.postStatus).toBe(true);
+    expect(body.scope.authorMessages).toBe(false);
     expect(body.leaseSecret).toMatch(/^lease_sk_/);
   });
 });
