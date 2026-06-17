@@ -182,13 +182,14 @@ export function adoptExternalProcessForTerminal(input: {
   record: TerminalRecord;
   pid: number;
   pidStart: string | null;
-  ttlSeconds: number;
+  ttlSeconds: number | null;
   reason?: string | null;
   adoptedBy?: string | null;
+  meta?: Record<string, unknown>;
 }): TerminalRow {
   const db = getIdentityDb();
   const now = currentUnixSeconds();
-  const expiresAt = now + clampTtlSeconds(input.ttlSeconds);
+  const expiresAt = input.ttlSeconds === null ? null : now + clampTtlSeconds(input.ttlSeconds);
   // ISO 8601 normalisation — see pidStartNormaliser.ts. Caller may
   // hand us either a locale lstart string or already-ISO Windows
   // CreationDate; we store ISO either way so READ-side comparison
@@ -198,7 +199,8 @@ export function adoptExternalProcessForTerminal(input: {
     origin: 'adopt',
     reason: input.reason ?? null,
     adoptedBy: input.adoptedBy ?? null,
-    adoptedAt: now
+    adoptedAt: now,
+    ...(input.meta ?? {})
   });
 
   db.prepare(`INSERT INTO terminals
@@ -281,6 +283,18 @@ export function getTerminalByName(name: string): TerminalRow | null {
   const db = getIdentityDb();
   const row = db.prepare(`SELECT * FROM terminals WHERE name = ?`).get(name) as TerminalRow | undefined;
   return row ?? null;
+}
+
+export function listTerminalRowsByIds(ids: readonly string[]): Map<string, TerminalRow> {
+  const rowsById = new Map<string, TerminalRow>();
+  if (ids.length === 0) return rowsById;
+  const db = getIdentityDb();
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db
+    .prepare(`SELECT * FROM terminals WHERE id IN (${placeholders})`)
+    .all(...ids) as TerminalRow[];
+  for (const row of rows) rowsById.set(row.id, row);
+  return rowsById;
 }
 
 export function lookupTerminalByPidChain(pidChain: PidChainEntry[]): TerminalRow | null {

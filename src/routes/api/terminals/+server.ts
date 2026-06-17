@@ -27,8 +27,13 @@ import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle'
 import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 import {
   autoRegisterTerminalForSpawnedSession,
-  listTerminalClassByIds
+  listTerminalClassByIds,
+  listTerminalRowsByIds
 } from '$lib/server/terminalsStore';
+import {
+  socketBackedTerminalAlive,
+  terminalSocketBindingFromMeta
+} from '$lib/server/terminalSocketMetadata';
 
 function makeSessionId(): string {
   return 't_' + Math.random().toString(36).slice(2, 12);
@@ -46,6 +51,7 @@ export const GET: RequestHandler = async () => {
   const aliveSessionIds = await listTerminals();
   const aliveSet = new Set(aliveSessionIds);
   const rawRecords = listTerminalRecords();
+  const terminalRowsById = listTerminalRowsByIds(rawRecords.map((r) => r.session_id));
   // Batched lookup of the per-terminal model flag (JWPK msg_fespxsi2lu
   // antV4 2026-05-28). Fold null/missing into null so the UI can render
   // an "unspecified" subgroup cleanly.
@@ -70,27 +76,36 @@ export const GET: RequestHandler = async () => {
       roomCountById.set(row.terminal_id, row.n);
     }
   } catch { /* status/room enrichment is best-effort; chips degrade gracefully */ }
-  const records = rawRecords.map((r) => ({
-    sessionId: r.session_id,
-    name: r.name,
-    autoForwardRoomId: r.auto_forward_room_id,
-    autoForwardChat: r.auto_forward_chat,
-    agentKind: r.agent_kind,
-    tmuxTargetPane: r.tmux_target_pane,
-    linkedChatRoomId: r.linked_chat_room_id,
-    createdBy: r.created_by,
-    allowlist: parseAllowlist(r.allowlist),
-    handle: r.handle,
-    derivedHandle: deriveHandle(r),
-    bootCommand: r.boot_command,
-    agentStatus: statusById.get(r.session_id) ?? null,
-    roomCount: roomCountById.get(r.session_id) ?? 0,
-    accountType: classById.get(r.session_id)?.accountType ?? null,
-    modelFamily: classById.get(r.session_id)?.modelFamily ?? null,
-    createdAtMs: r.created_at_ms,
-    updatedAtMs: r.updated_at_ms,
-    alive: aliveSet.has(r.session_id)
-  }));
+  const records = rawRecords.map((r) => {
+    const terminalRow = terminalRowsById.get(r.session_id);
+    const socketBinding = terminalSocketBindingFromMeta(terminalRow?.meta);
+    const socketAlive = socketBinding
+      ? socketBackedTerminalAlive(terminalRow?.meta, r.tmux_target_pane)
+      : false;
+    return {
+      sessionId: r.session_id,
+      name: r.name,
+      autoForwardRoomId: r.auto_forward_room_id,
+      autoForwardChat: r.auto_forward_chat,
+      agentKind: r.agent_kind,
+      tmuxTargetPane: r.tmux_target_pane,
+      tmuxSocketPath: socketBinding?.tmuxSocketPath ?? null,
+      tmuxSessionName: socketBinding?.tmuxSessionName ?? null,
+      linkedChatRoomId: r.linked_chat_room_id,
+      createdBy: r.created_by,
+      allowlist: parseAllowlist(r.allowlist),
+      handle: r.handle,
+      derivedHandle: deriveHandle(r),
+      bootCommand: r.boot_command,
+      agentStatus: statusById.get(r.session_id) ?? null,
+      roomCount: roomCountById.get(r.session_id) ?? 0,
+      accountType: classById.get(r.session_id)?.accountType ?? null,
+      modelFamily: classById.get(r.session_id)?.modelFamily ?? null,
+      createdAtMs: r.created_at_ms,
+      updatedAtMs: r.updated_at_ms,
+      alive: aliveSet.has(r.session_id) || socketAlive
+    };
+  });
   // JWPK two-tier dogfood spec (2026-05-14): split daemon-active sessions
   // into bare-tmux-panes (no terminal_records row) vs ANT-attached
   // terminals (with row). Frontend renders top tier "Attach existing tmux"
