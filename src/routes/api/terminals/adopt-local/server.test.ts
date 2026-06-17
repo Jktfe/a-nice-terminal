@@ -22,12 +22,14 @@ type MockState = {
   records: Map<string, MockTerminalRecord>;
   terminals: Map<string, { id: string; pid: number; pid_start: string | null; expires_at: number | null; meta: string }>;
   rooms: Set<string>;
+  handles: Map<string, { owners: string[]; binding: { pane: string | null; pid: number | null; terminalId: string | null } | null }>;
 };
 
 const mockState: MockState = {
   records: new Map(),
   terminals: new Map(),
-  rooms: new Set()
+  rooms: new Set(),
+  handles: new Map()
 };
 
 (globalThis as unknown as { __adoptLocalState: MockState }).__adoptLocalState = mockState;
@@ -119,6 +121,30 @@ vi.mock('$lib/server/terminalsStore', () => ({
   }
 }));
 
+vi.mock('$lib/server/handleBindingsStore', () => ({
+  bindHandle: (input: {
+    handle: string;
+    pane: string | null;
+    pid: number | null;
+    terminalId?: string | null;
+  }) => {
+    const current = state().handles.get(input.handle) ?? { owners: [], binding: null };
+    current.binding = {
+      pane: input.pane,
+      pid: input.pid,
+      terminalId: input.terminalId ?? null
+    };
+    state().handles.set(input.handle, current);
+    return current.binding;
+  },
+  ensureHandleOwnedBy: (handle: string, owner: string) => {
+    const current = state().handles.get(handle) ?? { owners: [], binding: null };
+    if (!current.owners.includes(owner)) current.owners.push(owner);
+    state().handles.set(handle, current);
+    return { handle, owners: current.owners };
+  }
+}));
+
 import { POST as adoptLocalPost } from './+server';
 import { getTerminalRecord } from '$lib/server/terminalRecordsStore';
 import { getTerminalById } from '$lib/server/terminalsStore';
@@ -158,6 +184,7 @@ describe('POST /api/terminals/adopt-local', () => {
     mockState.records.clear();
     mockState.terminals.clear();
     mockState.rooms.clear();
+    mockState.handles.clear();
     probeTmuxSocketBindingMock.mockReset();
   });
 
@@ -206,6 +233,15 @@ describe('POST /api/terminals/adopt-local', () => {
       tmuxSessionName: 'antos-term 2',
       tmuxTargetPane: '%10',
       paneTitle: 'anTERM'
+    });
+
+    expect(mockState.handles.get('@anterm')).toMatchObject({
+      owners: ['@JWPK'],
+      binding: {
+        pane: '%10',
+        pid: 57134,
+        terminalId: 'antos-term-2'
+      }
     });
   });
 

@@ -28,6 +28,7 @@ import { createChatRoom, findChatRoomById } from '$lib/server/chatRoomStore';
 import { getOperatorHandle } from '$lib/server/operatorHandle';
 import { adoptExternalProcessForTerminal } from '$lib/server/terminalsStore';
 import { probeTmuxSocketBinding } from '$lib/server/terminalSocketMetadata';
+import { bindHandle, ensureHandleOwnedBy } from '$lib/server/handleBindingsStore';
 
 function requireOperatorLikeAuth(request: Request): void {
   if (tryAdminBearer(request) || tryOperatorSession(request) || tryAntchatOperatorBearer(request)) return;
@@ -98,7 +99,8 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error(400, 'sessionId may contain only letters, numbers, dot, colon, underscore, and dash.');
   }
   const name = cleanString(body.name) ?? handle;
-  const creator = cleanString(body.user) ?? getOperatorHandle();
+  const operator = getOperatorHandle();
+  const creator = cleanString(body.user) ?? operator;
 
   let record = getTerminalRecord(sessionId);
   if (record && record.handle && record.handle !== handle) {
@@ -122,6 +124,18 @@ export const POST: RequestHandler = async ({ request }) => {
     }
   }
   record = ensureLinkedRoom(sessionId) ?? record;
+  bindHandle({
+    handle,
+    pane: probe.tmuxTargetPane,
+    pid: probe.pid,
+    pidStart: probe.pidStart,
+    spawnedBy: creator,
+    terminalId: sessionId
+  });
+  ensureHandleOwnedBy(handle, operator, {
+    actor: operator,
+    reason: 'local-antOS-adopt'
+  });
 
   const terminal = adoptExternalProcessForTerminal({
     record,

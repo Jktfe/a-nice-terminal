@@ -133,6 +133,58 @@ export function listLiveBindings(): HandleBindingRow[] {
   ).all() as HandleBindingRow[];
 }
 
+function parseOwners(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((owner): owner is string => typeof owner === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Operator-owned adoption stamp: local antOS adoption is an operator action, so
+ * the adopted @handle must land in the operator-owned handle list as well as
+ * terminal_records. Pairing, quick-kill, and owned inventory all read owners[].
+ */
+export function ensureHandleOwnedBy(
+  rawHandle: string,
+  rawOwner: string,
+  opts: { actor?: string; reason?: string; atMs?: number } = {}
+): HandleRow {
+  const db = getIdentityDb();
+  const handle = canonicalHandle(rawHandle);
+  const owner = canonicalHandle(rawOwner);
+  const nowMs = opts.atMs ?? Date.now();
+  const actor = opts.actor ?? owner;
+  const reason = opts.reason ?? 'operator-adopt';
+  const run = db.transaction((): HandleRow => {
+    const existing = db.prepare(`SELECT * FROM handles WHERE handle = ?`).get(handle) as RawHandleRow | undefined;
+    const owners = parseOwners(existing?.owners ?? null);
+    const alreadyOwned = owners.some((candidate) => canonicalHandle(candidate) === owner);
+    const nextOwners = alreadyOwned ? owners : [...owners, owner];
+    const ownersJson = JSON.stringify(nextOwners);
+    db.prepare(
+      `INSERT INTO handles (handle, owners, created_at_ms, created_by, lifecycle)
+       VALUES (?, ?, ?, ?, 'active')
+       ON CONFLICT(handle) DO UPDATE SET owners = ?, lifecycle = 'active', vacated_at_ms = NULL`
+    ).run(handle, ownersJson, nowMs, actor, ownersJson);
+    if (!alreadyOwned) {
+      appendLedger({
+        kind: 'owner.added',
+        handle,
+        actor,
+        atMs: nowMs,
+        detail: { owner, reason }
+      });
+    }
+    const row = db.prepare(`SELECT * FROM handles WHERE handle = ?`).get(handle) as RawHandleRow;
+    return { ...row, owners: parseOwners(row.owners) };
+  });
+  return run();
+}
+
 /**
  * Witness write: bind a handle to a pane/process. Supersedes any prior live
  * binding for the same handle (powercut reclaim / occupant swap), upserts the
