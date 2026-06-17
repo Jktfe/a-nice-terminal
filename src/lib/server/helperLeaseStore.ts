@@ -89,7 +89,7 @@ export type StoredLease = {
 
 export type MintLeaseInput = {
   handle: string;
-  /** 'reader' (helper, default) or 'agent' (paneless authoring ANThandle). */
+  /** 'reader' (helper, default) or 'agent' (status attachment; no room posting). */
   role?: AttachmentRole;
   /** ≥1 owner handle (the signing human + chain). Empty is refused. */
   owners: string[];

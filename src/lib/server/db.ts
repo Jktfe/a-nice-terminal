@@ -125,7 +125,8 @@ const SCHEMA_DDL_STATEMENTS = [
   // unwitnessed side-effect token). `role` selects one of two FIXED scope
   // profiles (no per-row knobs — the anti-spaghetti rule): 'reader' is the
   // helper — subscribe to the feed, never post, never IS the handle; 'agent'
-  // is a paneless ANThandle authoring credential (the desktop/mcp/api case).
+  // is a status attachment — subscribe, route, and report status without
+  // writing room timeline messages.
   // Scope profiles live as code constants in helperLeaseStore.
   `CREATE TABLE IF NOT EXISTS helper_leases (
     id              TEXT PRIMARY KEY,

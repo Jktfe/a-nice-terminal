@@ -51,8 +51,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const ttlMs = typeof body.ttlMs === 'number' && Number.isFinite(body.ttlMs) && body.ttlMs > 0 ? body.ttlMs : undefined;
 
-  // 'reader' pairs the read-only helper; 'agent' pairs a paneless authoring
-  // ANThandle. Default reader — authoring is the deliberate choice.
+  // 'reader' pairs the read-only helper; 'agent' pairs a status attachment.
+  // Neither role can write room timeline messages.
   if (body.role !== undefined && body.role !== 'reader' && body.role !== 'agent') {
     throw error(400, "role must be 'reader' or 'agent'.");
   }

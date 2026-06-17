@@ -148,7 +148,7 @@ describe('POST /api/helper/pairing/redeem — open, single-use', () => {
     expect((await call(redeem, req('/api/helper/pairing/redeem', { code: '' }))).status).toBe(400);
   });
 
-  it('an agent pairing redeems to a status attachment, not a room-authoring credential', async () => {
+  it('an agent pairing redeems to a status attachment, not a room-message credential', async () => {
     const minted = await call(mint, req('/api/helper/pairing', { handle: '@fClaude', role: 'agent' }, { admin: true }));
     const code = (await minted.json()).code as string;
     const res = await call(redeem, req('/api/helper/pairing/redeem', { code, host: 'mac-mini' }));
