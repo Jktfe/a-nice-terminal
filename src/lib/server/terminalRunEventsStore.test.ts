@@ -4,9 +4,37 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { appendTerminalRunEvent, listLatestTerminalRunEvents, listTerminalRunEventsSince } from './terminalRunEventsStore';
+import {
+  appendTerminalRunEvent,
+  listLatestTerminalRunEvents,
+  listTerminalRunEventsSince,
+  softDeleteTerminalRunEvents,
+  readAllTerminalRunEventsForArchive
+} from './terminalRunEventsStore';
 import { getIdentityDb } from './db';
 import { getTelemetryDb, resetTelemetryDbForTests } from './telemetryDb';
+
+describe('softDeleteTerminalRunEvents (archived-terminal delete)', () => {
+  beforeEach(() => {
+    try { getIdentityDb().prepare(`DELETE FROM terminal_run_events`).run(); } catch {}
+    try { getTelemetryDb().prepare(`DELETE FROM terminal_run_events`).run(); } catch {}
+  });
+
+  it('hides the terminal events from readers + counts them, leaving others', () => {
+    appendTerminalRunEvent({ terminalId: 't_del', kind: 'message', text: 'a', source: 'transcript' });
+    appendTerminalRunEvent({ terminalId: 't_del', kind: 'message', text: 'b', source: 'transcript' });
+    appendTerminalRunEvent({ terminalId: 't_keep', kind: 'message', text: 'c', source: 'transcript' });
+
+    // Archive read sees both before delete; other terminal untouched.
+    expect(readAllTerminalRunEventsForArchive('t_del').map((e) => e.text)).toEqual(['a', 'b']);
+
+    const hidden = softDeleteTerminalRunEvents('t_del', 1000);
+    expect(hidden).toBe(2);
+    expect(listLatestTerminalRunEvents('t_del', 10)).toHaveLength(0);
+    expect(readAllTerminalRunEventsForArchive('t_del')).toHaveLength(0);
+    expect(listLatestTerminalRunEvents('t_keep', 10)).toHaveLength(1);
+  });
+});
 
 describe('appendTerminalRunEvent — control-byte sanitize (V4-BLOCKER-A)', () => {
   beforeEach(() => {
