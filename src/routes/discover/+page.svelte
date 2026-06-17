@@ -131,7 +131,7 @@
   <a class="subnav-link active" href="/discover" aria-current="page">CLI verbs</a>
   </Explainable>
     <a class="subnav-link" href="/discover/visuals">Visuals</a>
-    <a class="subnav-link" href="/discover/vocab">Vocab</a>
+    <a class="subnav-link" href="/discover/vocab">Vocabulary</a>
     <a class="subnav-link" href="/manual">Screens canvas</a>
   </nav>
 

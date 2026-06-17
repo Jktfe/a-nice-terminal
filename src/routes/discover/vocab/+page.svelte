@@ -1,131 +1,95 @@
 <!--
-  /discover/vocab — ANT vocabulary glossary.
-
-  rover-evolveantux task e41ec066 (v4-fresh-ant): VOCAB sub-page of the
-  4-pillar OSS documentation surface. Terms drawn from the six production
-  visuals + the audit-doc set (audits/2026-05-19-*.md). Hand-authored
-  here for OSS launch; future iterations should source from the visual
-  wrapper docs' `vocab cross-references` sections so updates propagate.
-
-  Filter by section + search by term. Each entry: term + short definition
-  + a "see also" link.
+  /discover/vocab - ANT vocabulary help page.
+  Source artefact: /Users/jamesking/CascadeProjects/ANT Vocabulary.html
+  Verdict: CHANGE. The source terms are kept as product language, then refined
+  against current ANT delivery decisions before rendering here.
 -->
 <script lang="ts">
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
-
-  type Entry = {
-    term: string;
-    plain: string;
-    seeAlso?: string;
-    seeAlsoHref?: string;
-    group: 'identity' | 'routing' | 'claims' | 'rooms' | 'asks' | 'terminal';
-  };
-
-  const ENTRIES: Entry[] = [
-    // Identity & handles
-    { group: 'identity', term: '@handle', plain: 'A namespaced identifier — agents are @evolveantclaude / @evolveantcodex / etc.; the human operator is @you.' },
-    { group: 'identity', term: 'agent handle', plain: 'Any handle matching the @evolveant* pattern. Gated server-side: agents cannot file user-facing asks (asks-principle), and the claim action bar is agent-only.' },
-    { group: 'identity', term: 'pidChain', plain: 'Server-side identity proof for CLI calls — a chain of (pid, pid_start) entries traced back to a registered terminal. Posts without a browser-session cookie use this.' },
-    { group: 'identity', term: 'browser-session cookie', plain: 'HttpOnly cookie minted on /login (Path=/) and on every room visit (Path=/api/chat-rooms/{id}). 24h TTL. Multi-cookie tolerant: every value is tried before falling through.' },
-
-    // Routing
-    { group: 'routing', term: 'bare @handle', plain: 'A delivery instruction. Server pty-injects the message into that handle\'s terminal. Example: "@evolveantcodex can you check this?".', seeAlso: 'Routing modes visual', seeAlsoHref: '/discover/visuals' },
-    { group: 'routing', term: 'bracketed [@handle]', plain: 'Informational only. The text mentions the handle but no inject fires. Example: "the @evolveantsvelte issue [@evolveantcodex for context]".', seeAlso: 'Routing modes visual', seeAlsoHref: '/discover/visuals' },
-    { group: 'routing', term: '@everyone', plain: 'Broadcast: pty-injects to every member terminal except the sender. Use sparingly — every agent sees it.' },
-    { group: 'routing', term: 'pty-inject', plain: 'Server-side mechanism that types message text directly into a target agent\'s terminal via tmux load-buffer + paste-buffer + send-keys Enter.' },
-    { group: 'routing', term: 'fanout', plain: 'Decision process that runs after a message is posted: which terminals get pty-injected. Gated by room mode + claim primitive + member targeting.', seeAlso: 'Routing modes visual', seeAlsoHref: '/discover/visuals' },
-    { group: 'routing', term: 'reply-parent context', plain: 'When a message has a parentMessageId, the envelope tags reply-to=<parent_id> and inlines a truncated quote: ↳ replying to @author: "<preview>". Agents see what they\'re responding to without scrolling.' },
-    { group: 'routing', term: '[@everyone hold]', plain: 'Future HALT primitive. Pauses ALL fanout AND per-agent queueing until ratified. Higher leverage than focus mode (which only suppresses one agent).' },
-
-    // Claims
-    { group: 'claims', term: 'claim primitive', plain: 'Three-state coordination ledger on each message: 🖐️ looking (90s soft hold) / 🤝 working (TTL working claim) / 👐 pass (explicit decline). Lets agents coordinate without stepping on each other.', seeAlso: 'Claim primitive visual', seeAlsoHref: '/discover/visuals' },
-    { group: 'claims', term: '🖐️ looking', plain: 'Soft pre-claim — "I might pick this up". 90s TTL. Doesn\'t exclude other agents from the fanout; just signals intent.' },
-    { group: 'claims', term: '🤝 working', plain: 'Hard claim — "I am responding to this". Has a TTL picker (15m / 30m / 1h / 2h / custom / indefinite). Active 🤝 excludes other agents from the message\'s fanout.' },
-    { group: 'claims', term: '👐 pass', plain: 'Explicit decline — "not my lane". Releases any prior 🖐️/🤝 from this agent. Advances heads-down responder walk to the next eligible.' },
-
-    // Rooms
-    { group: 'rooms', term: 'room mode', plain: 'Per-room routing posture: brainstorm (default, parallel fanout) / heads-down (ordered responder walk, plain messages don\'t fanout) / closed (read-only).' },
-    { group: 'rooms', term: 'brainstorm', plain: 'Default mode. Plain messages fanout to every eligible member terminal. Best for active multi-agent coordination.', seeAlso: 'Mode matrices visual', seeAlsoHref: '/discover/visuals' },
-    { group: 'rooms', term: 'heads-down', plain: 'Plain messages skip fanout (no responder walk). Explicit bare @ and @everyone still route. Best for letting one agent execute without crosstalk.' },
-    { group: 'rooms', term: 'focus mode', plain: 'Per-agent: incoming messages queue to a digest instead of pty-injecting. Auto-expires (15/30/45m, 1/2h, custom, indefinite). HALT primitive can pause the digest too.' },
-    { group: 'rooms', term: 'context break', plain: 'A system-kind message marking "everything before this is stale context — start fresh here". Powers post-context-reset recovery.' },
-
-    // Asks
-    { group: 'asks', term: 'ask', plain: 'A user-facing decision point. ONLY sources: [@you] mentions, 🙋/🙌 reactions, explicit user-facing open-ask flag. Agent-filed asks via POST /api/asks are rejected (asks principle).' },
-    { group: 'asks', term: 'candidate ask', plain: 'Auto-aggregated from [@you] mentions + 🙋/🙌 reactions. Lives in the candidate store. Promoted to a real ask via /asks UI or explicit verb.' },
-    { group: 'asks', term: 'pickup', plain: 'When an agent commits to acting on an ask. First reply OR explicit POST /api/asks/[id]/pickup. 30min auto-revert TTL prevents lost claims.' },
-    { group: 'asks', term: 'ratify', plain: 'When the user (or designated agent) provides the answer/decision. Sealed + archived to recently-answered.' },
-    { group: 'asks', term: 'premium ask overlay', plain: 'Premium-tier model-driven layer over the OSS ask data: combine related, dedup near-matches, summarise multi-question asks, surface dedup chips on each card.' },
-
-    // Terminal
-    { group: 'terminal', term: 'terminal', plain: 'A registered process (tmux pane or browser tab) bound to an agent handle. The thing that receives pty-injects.', seeAlso: 'Terminal lifecycle visual', seeAlsoHref: '/discover/visuals' },
-    { group: 'terminal', term: 'kill modal', plain: 'When ending a terminal: pick archive (keep history, room stays joinable) vs delete (drop session entirely). Per-terminal default disposition picker remembers the choice.' },
-    { group: 'terminal', term: 'context fill', plain: 'Percentage of the agent\'s context window currently used. Surfaced in the AgentContextChip (format: 14d · 47%). Gated on the agent-fingerprint probe.' },
-    { group: 'terminal', term: 'agent_kind', plain: 'Inferred via the 5-source cascade (process name, env, parent pid, tmux pane name, manifest). Drives kind-specific behaviour like claude_code\'s double-Enter pty-submit.' }
-  ];
-
-  const GROUP_LABELS: Record<Entry['group'], string> = {
-    identity: 'Identity',
-    routing: 'Routing',
-    claims: 'Claims',
-    rooms: 'Rooms',
-    asks: 'Asks',
-    terminal: 'Terminal'
-  };
-  const GROUPS = (Object.keys(GROUP_LABELS) as Entry['group'][]);
-
+  import {
+    ANT_VOCABULARY_ENTRIES,
+    ANT_VOCABULARY_GROUPS,
+    ANT_VOCABULARY_SOURCE,
+    type AntVocabularyEntry,
+    type AntVocabularyGroup
+  } from '$lib/content/antVocabulary';
+  const GROUP_LABELS = Object.fromEntries(
+    ANT_VOCABULARY_GROUPS.map((group) => [group.id, group.label])
+  ) as Record<AntVocabularyGroup, string>;
+  const GROUP_COUNTS = Object.fromEntries(
+    ANT_VOCABULARY_GROUPS.map((group) => [
+      group.id,
+      ANT_VOCABULARY_ENTRIES.filter((entry) => entry.group === group.id).length
+    ])
+  ) as Record<AntVocabularyGroup, number>;
+  const totalCount = ANT_VOCABULARY_ENTRIES.length;
   let query = $state('');
-  let activeGroups = $state(new Set<Entry['group']>());
-
+  let activeGroups = $state(new Set<AntVocabularyGroup>());
   const normalisedQuery = $derived(query.trim().toLowerCase());
-  const filtered = $derived(
-    ENTRIES.filter((e) => {
-      if (activeGroups.size > 0 && !activeGroups.has(e.group)) return false;
-      if (normalisedQuery.length === 0) return true;
-      return (
-        e.term.toLowerCase().includes(normalisedQuery) ||
-        e.plain.toLowerCase().includes(normalisedQuery)
-      );
-    })
-  );
-  const groupedFiltered = $derived(
-    GROUPS.map((g) => ({
-      group: g,
-      label: GROUP_LABELS[g],
-      entries: filtered.filter((e) => e.group === g)
-    })).filter((g) => g.entries.length > 0)
-  );
-
-  function toggleGroup(g: Entry['group']): void {
+  function toggleGroup(group: AntVocabularyGroup): void {
     const next = new Set(activeGroups);
-    if (next.has(g)) next.delete(g);
-    else next.add(g);
+    if (next.has(group)) next.delete(group);
+    else next.add(group);
     activeGroups = next;
   }
   function clearFilters(): void {
     query = '';
     activeGroups = new Set();
   }
+  function entryMatchesQuery(entry: AntVocabularyEntry, q: string): boolean {
+    if (!q) return true;
+    const haystack = [
+      entry.term,
+      entry.plain,
+      entry.aliases?.join(' ') ?? '',
+      entry.examples?.join(' ') ?? '',
+      entry.seeAlso?.join(' ') ?? '',
+      GROUP_LABELS[entry.group]
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(q);
+  }
+  const filteredEntries = $derived.by(() =>
+    ANT_VOCABULARY_ENTRIES.filter((entry) => {
+      if (activeGroups.size > 0 && !activeGroups.has(entry.group)) return false;
+      return entryMatchesQuery(entry, normalisedQuery);
+    })
+  );
+  const groupedEntries = $derived.by(() =>
+    ANT_VOCABULARY_GROUPS.map((group) => ({
+      ...group,
+      entries: filteredEntries.filter((entry) => entry.group === group.id)
+    })).filter((group) => group.entries.length > 0)
+  );
+  const hasFilters = $derived(query.trim().length > 0 || activeGroups.size > 0);
 </script>
-
 <svelte:head>
-  <title>ANT vocab · discover</title>
+  <title>ANT vocabulary help - ANT</title>
 </svelte:head>
-
 <SimplePageShell
-  eyebrow="discover"
+  eyebrow="help"
   title="ANT vocabulary"
-  summary="The terms that come up across rooms, plans, and the CLI. Filter by section or search to find one fast."
+  summary="Plain-English definitions for the words ANT uses around rooms, desks, terminals, helpers, identities, workflows, and reviews."
 >
   <nav class="discover-subnav" aria-label="Discover sections">
-    <span class="subnav-label">Discover:</span>
+    <span class="subnav-label">Help:</span>
     <a class="subnav-link" href="/discover">CLI verbs</a>
     <a class="subnav-link" href="/discover/visuals">Visuals</a>
-    <a class="subnav-link active" href="/discover/vocab" aria-current="page">Vocab</a>
+    <a class="subnav-link active" href="/discover/vocab" aria-current="page">Vocabulary</a>
     <a class="subnav-link" href="/manual">Screens canvas</a>
   </nav>
-
-  <section class="toolbar" aria-label="Filter vocabulary">
+  <section class="source-panel" aria-label="Vocabulary source and current rules">
+    <div>
+      <p class="source-eyebrow">Updated source</p>
+      <p>{ANT_VOCABULARY_SOURCE}</p>
+    </div>
+    <div class="rule-card">
+      <strong>Current helper rule</strong>
+      <span>ANThelper pairings can read feeds, receive routes, and post status when scoped. They do not author room messages as a handle.</span>
+    </div>
+  </section>
+  <section class="toolbar" aria-label="Search and filter vocabulary">
     <div class="search-row">
       <label for="vocab-search" class="visually-hidden">Search vocabulary</label>
       <div class="search-wrap">
@@ -136,67 +100,109 @@
         <input
           id="vocab-search"
           type="search"
-          placeholder="Search terms…"
+          placeholder="Search a term, alias, or phrase"
           bind:value={query}
           autocomplete="off"
           spellcheck="false"
         />
-      </div>
-      <div class="chips" role="group" aria-label="Section filter">
-        {#each GROUPS as g (g)}
-          <button
-            type="button"
-            class="chip"
-            class:active={activeGroups.has(g)}
-            aria-pressed={activeGroups.has(g)}
-            onclick={() => toggleGroup(g)}
-          >
-            {GROUP_LABELS[g]} <span class="chip-count">{ENTRIES.filter(e => e.group === g).length}</span>
+        {#if query}
+          <button type="button" class="clear-search" aria-label="Clear search" onclick={() => (query = '')}>
+            Clear
           </button>
-        {/each}
+        {/if}
       </div>
     </div>
-    <p class="result-count">
-      Showing <strong>{filtered.length}</strong> of {ENTRIES.length}
-    </p>
+    <div class="chips" role="group" aria-label="Category filters">
+      {#each ANT_VOCABULARY_GROUPS as group (group.id)}
+        <button
+          type="button"
+          class="chip"
+          class:active={activeGroups.has(group.id)}
+          aria-pressed={activeGroups.has(group.id)}
+          aria-label={`Toggle ${group.label} terms`}
+          onclick={() => toggleGroup(group.id)}
+        >
+          <span>{group.label}</span>
+          <span class="chip-count">{GROUP_COUNTS[group.id]}</span>
+        </button>
+      {/each}
+    </div>
+    <div class="result-row">
+      <p>
+        Showing <strong>{filteredEntries.length}</strong> of {totalCount} terms
+        {#if activeGroups.size > 0}
+          across <strong>{activeGroups.size}</strong> selected categories
+        {/if}
+      </p>
+      {#if hasFilters}
+        <button type="button" class="reset-btn" onclick={clearFilters}>Reset filters</button>
+      {/if}
+    </div>
   </section>
-
-  {#if groupedFiltered.length > 0}
-    {#each groupedFiltered as g (g.group)}
-      <section class="vocab-section" aria-labelledby={`section-${g.group}`}>
-        <h2 id={`section-${g.group}`}>{g.label}</h2>
-        <dl class="vocab-list">
-          {#each g.entries as e (e.term)}
-            <div class="vocab-entry">
-              <dt>{e.term}</dt>
-              <dd>
-                <p class="plain">{e.plain}</p>
-                {#if e.seeAlso && e.seeAlsoHref}
-                  <p class="see-also">See also: <a href={e.seeAlsoHref}>{e.seeAlso}</a></p>
-                {/if}
-              </dd>
+  {#if groupedEntries.length > 0}
+    <div class="section-stack">
+      {#each groupedEntries as group (group.id)}
+        <section class="vocab-section" aria-labelledby={`section-${group.id}`}>
+          <header class="section-header">
+            <div>
+              <p>{group.summary}</p>
+              <h2 id={`section-${group.id}`}>{group.label}</h2>
             </div>
-          {/each}
-        </dl>
-      </section>
-    {/each}
+            <span>{group.entries.length} terms</span>
+          </header>
+          <dl class="vocab-list">
+            {#each group.entries as entry (entry.id)}
+              <div class="vocab-entry" id={`term-${entry.id}`}>
+                <dt>
+                  <a href={`#term-${entry.id}`}>{entry.term}</a>
+                </dt>
+                <dd>
+                  <p class="plain">{entry.plain}</p>
+                  {#if entry.aliases?.length}
+                    <p class="meta-line">
+                      <span>Also called</span>
+                      {entry.aliases.join(', ')}
+                    </p>
+                  {/if}
+                  {#if entry.examples?.length}
+                    <ul class="examples" aria-label={`${entry.term} examples`}>
+                      {#each entry.examples as example}
+                        <li>{example}</li>
+                      {/each}
+                    </ul>
+                  {/if}
+                  {#if entry.seeAlso?.length}
+                    <p class="meta-line">
+                      <span>See also</span>
+                      {entry.seeAlso.join(', ')}
+                    </p>
+                  {/if}
+                </dd>
+              </div>
+            {/each}
+          </dl>
+        </section>
+      {/each}
+    </div>
   {:else}
     <section class="empty-state" aria-live="polite">
-      <h2>No terms match your filters.</h2>
+      <h2>No vocabulary terms match.</h2>
       {#if query}
         <p>No matches for <code>{query}</code>.</p>
+      {:else}
+        <p>The selected categories do not contain terms.</p>
       {/if}
-      <button type="button" class="clear-btn" onclick={clearFilters}>Clear filters</button>
+      <button type="button" class="reset-btn prominent" onclick={clearFilters}>Show all terms</button>
     </section>
   {/if}
-
   <p class="footer-note">
-    Cross-reference: <a href="/discover">CLI verbs</a> · <a href="/manual">screens canvas</a> · <a href="/discover/visuals">visuals</a>.
-    Together these form the four-pillar OSS documentation surface
-    (verbs · screens · visuals · vocab).
+    Cross-reference:
+    <a href="/discover">CLI verbs</a>,
+    <a href="/discover/visuals">visuals</a>, and
+    <a href="/manual">screens canvas</a>.
+    The vocabulary page is the human-readable layer for the same product model.
   </p>
 </SimplePageShell>
-
 <style>
   .visually-hidden {
     position: absolute;
@@ -209,200 +215,346 @@
     white-space: nowrap;
     border: 0;
   }
-  .toolbar {
-    margin: 0 0 1.5rem;
+  .discover-subnav,
+  .source-panel,
+  .toolbar,
+  .footer-note {
+    border: 1px solid var(--surface-edge);
+    background: var(--surface-card);
+    box-shadow: 0 10px 26px rgb(31 41 55 / 6%);
+  }
+  .discover-subnav {
     display: flex;
-    flex-direction: column;
-    gap: 0.55rem;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 1rem;
+    padding: 0.55rem 0.85rem;
+    border-radius: 0.55rem;
+  }
+  .subnav-label {
+    margin-right: 0.35rem;
+    color: var(--ink-soft);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .subnav-link {
+    padding: 0.25rem 0.65rem;
+    border: 1px solid transparent;
+    border-radius: 0.4rem;
+    color: var(--ink-strong);
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .subnav-link:hover {
+    border-color: var(--surface-edge);
+    background: var(--surface);
+  }
+  .subnav-link.active {
+    border-color: var(--accent, #6b21a8);
+    background: var(--accent, #6b21a8);
+    color: white;
+  }
+  .source-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.85fr);
+    gap: 1rem;
+    margin: 0 0 1rem;
+    padding: 1rem;
+    border-radius: 0.65rem;
+  }
+  .source-panel p {
+    margin: 0;
+    color: var(--ink-soft);
+    line-height: 1.5;
+  }
+  .source-eyebrow {
+    margin: 0 0 0.25rem !important;
+    color: var(--ink-strong) !important;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .rule-card {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid color-mix(in srgb, var(--accent, #6b21a8) 32%, var(--surface-edge));
+    border-radius: 0.55rem;
+    background: color-mix(in srgb, var(--accent, #6b21a8) 8%, transparent);
+    color: var(--ink-strong);
+  }
+  .rule-card strong {
+    font-size: 0.86rem;
+  }
+  .rule-card span {
+    color: var(--ink-soft);
+    font-size: 0.86rem;
+    line-height: 1.45;
+  }
+  .toolbar {
+    display: grid;
+    gap: 0.85rem;
+    margin: 0 0 1.25rem;
+    padding: 1rem;
+    border-radius: 0.65rem;
   }
   .search-row {
     display: flex;
-    flex-wrap: wrap;
     gap: 0.85rem;
     align-items: center;
   }
   .search-wrap {
     position: relative;
-    flex: 1 1 18rem;
+    width: 100%;
   }
   .search-icon {
     position: absolute;
-    left: 0.7rem;
     top: 50%;
+    left: 0.75rem;
     transform: translateY(-50%);
     color: var(--ink-soft);
   }
   #vocab-search {
     width: 100%;
-    padding: 0.55rem 0.85rem 0.55rem 2.1rem;
+    min-height: 2.6rem;
+    padding: 0.58rem 4.8rem 0.58rem 2.2rem;
     border: 1px solid var(--surface-edge);
     border-radius: 0.55rem;
-    font-size: 0.95rem;
-    background: var(--surface-card);
+    background: var(--surface);
     color: var(--ink-strong);
+    font-size: 0.95rem;
   }
   #vocab-search:focus {
-    outline: none;
+    outline: 2px solid color-mix(in srgb, var(--accent, #6b21a8) 28%, transparent);
     border-color: var(--accent, #6b21a8);
+  }
+  .clear-search {
+    position: absolute;
+    top: 50%;
+    right: 0.45rem;
+    transform: translateY(-50%);
+    min-height: 1.8rem;
+    padding: 0 0.6rem;
+    border: 1px solid var(--surface-edge);
+    border-radius: 0.42rem;
+    background: var(--surface-card);
+    color: var(--ink-strong);
+    font-size: 0.78rem;
+    font-weight: 800;
+    cursor: pointer;
   }
   .chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem;
+    gap: 0.45rem;
   }
   .chip {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+    min-height: 2rem;
     padding: 0.3rem 0.7rem;
-    background: var(--surface-card);
     border: 1px solid var(--surface-edge);
     border-radius: 999px;
-    font-size: 0.8rem;
-    font-weight: 700;
+    background: var(--surface);
     color: var(--ink-strong);
+    font-size: 0.82rem;
+    font-weight: 800;
     cursor: pointer;
   }
   .chip:hover {
     border-color: var(--accent, #6b21a8);
   }
   .chip.active {
+    border-color: var(--accent, #6b21a8);
     background: var(--accent, #6b21a8);
     color: white;
-    border-color: var(--accent, #6b21a8);
   }
   .chip-count {
-    margin-left: 0.3rem;
     opacity: 0.8;
-    font-weight: 600;
+    font-weight: 700;
   }
-  .result-count {
+  .result-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .result-row p {
     margin: 0;
     color: var(--ink-soft);
-    font-size: 0.85rem;
+    font-size: 0.86rem;
   }
-
-  .vocab-section {
-    margin: 1.5rem 0 0;
-  }
-  .vocab-section h2 {
-    margin: 0 0 0.85rem;
-    font-size: 0.9rem;
-    font-weight: 800;
+  .reset-btn {
+    min-height: 2rem;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid var(--surface-edge);
+    border-radius: 0.45rem;
+    background: var(--surface);
     color: var(--ink-strong);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-size: 0.82rem;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  .reset-btn:hover {
+    border-color: var(--accent, #6b21a8);
+    color: var(--accent, #6b21a8);
+  }
+  .reset-btn.prominent {
+    border-color: var(--accent, #6b21a8);
+    background: var(--accent, #6b21a8);
+    color: white;
+  }
+  .section-stack {
+    display: grid;
+    gap: 1.15rem;
+  }
+  .vocab-section {
+    display: grid;
+    gap: 0.75rem;
+  }
+  .section-header {
+    display: flex;
+    gap: 1rem;
+    align-items: end;
+    justify-content: space-between;
+    padding: 0.15rem 0.1rem;
+  }
+  .section-header h2,
+  .section-header p {
+    margin: 0;
+  }
+  .section-header h2 {
+    color: var(--ink-strong);
+    font-size: 1.05rem;
+  }
+  .section-header p {
+    margin-bottom: 0.18rem;
+    color: var(--ink-soft);
+    font-size: 0.84rem;
+  }
+  .section-header span {
+    flex: 0 0 auto;
+    color: var(--ink-soft);
+    font-size: 0.82rem;
+    font-weight: 800;
   }
   .vocab-list {
-    margin: 0;
     display: grid;
-    gap: 0.6rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+    gap: 0.65rem;
+    margin: 0;
   }
   .vocab-entry {
-    background: var(--surface-card);
+    scroll-margin-top: 5rem;
+    padding: 0.9rem 1rem;
     border: 1px solid var(--surface-edge);
-    border-radius: 0.6rem;
-    padding: 0.85rem 1rem;
+    border-radius: 0.65rem;
+    background: var(--surface-card);
+  }
+  .vocab-entry:target {
+    border-color: var(--accent, #6b21a8);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #6b21a8) 18%, transparent);
   }
   .vocab-entry dt {
-    font-weight: 800;
+    margin: 0 0 0.35rem;
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.92rem;
+    font-weight: 900;
+  }
+  .vocab-entry dt a {
     color: var(--accent, #6b21a8);
-    margin: 0 0 0.3rem;
+    text-decoration: none;
+  }
+  .vocab-entry dt a:hover {
+    text-decoration: underline;
   }
   .vocab-entry dd {
     margin: 0;
   }
   .plain {
     margin: 0;
-    line-height: 1.5;
     color: var(--ink-strong);
     font-size: 0.92rem;
+    line-height: 1.5;
   }
-  .see-also {
-    margin: 0.45rem 0 0;
-    font-size: 0.82rem;
+  .meta-line {
+    display: grid;
+    gap: 0.15rem;
+    margin: 0.55rem 0 0;
     color: var(--ink-soft);
+    font-size: 0.82rem;
+    line-height: 1.45;
   }
-  .see-also a {
-    color: var(--accent, #6b21a8);
-    font-weight: 700;
-    text-decoration: none;
+  .meta-line span {
+    color: var(--ink-strong);
+    font-size: 0.72rem;
+    font-weight: 900;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
   }
-  .see-also a:hover { text-decoration: underline; }
-
+  .examples {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0.6rem 0 0;
+    padding-left: 1.15rem;
+    color: var(--ink-soft);
+    font-size: 0.84rem;
+    line-height: 1.45;
+  }
   .empty-state {
+    display: grid;
+    justify-items: center;
+    gap: 0.65rem;
     padding: 1.5rem;
-    text-align: center;
-    background: var(--surface-card);
     border: 1px dashed var(--surface-edge);
-    border-radius: 0.6rem;
+    border-radius: 0.65rem;
+    background: var(--surface-card);
+    text-align: center;
+  }
+  .empty-state h2,
+  .empty-state p {
+    margin: 0;
   }
   .empty-state h2 {
-    margin: 0 0 0.55rem;
-    font-size: 1rem;
     color: var(--ink-strong);
+    font-size: 1rem;
   }
-  .clear-btn {
-    margin-top: 0.6rem;
-    padding: 0.4rem 0.85rem;
-    background: var(--accent, #6b21a8);
-    color: white;
-    border: none;
-    border-radius: 0.45rem;
-    font-weight: 700;
-    cursor: pointer;
+  .empty-state p {
+    color: var(--ink-soft);
   }
-
   .footer-note {
-    margin: 2rem 0 0;
+    margin: 1.4rem 0 0;
     padding: 0.85rem 1rem;
-    background: var(--surface-card);
-    border: 1px solid var(--surface-edge);
     border-radius: 0.65rem;
     color: var(--ink-soft);
-    font-size: 0.85rem;
+    font-size: 0.86rem;
     line-height: 1.5;
   }
   .footer-note a {
     color: var(--accent, #6b21a8);
-    font-weight: 700;
-    text-decoration: none;
-  }
-  .footer-note a:hover { text-decoration: underline; }
-
-  .discover-subnav {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    margin: 0 0 1.25rem;
-    padding: 0.55rem 0.85rem;
-    background: var(--surface-card);
-    border: 1px solid var(--surface-edge);
-    border-radius: 0.55rem;
-  }
-  .subnav-label {
-    font-size: 0.78rem;
     font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ink-soft);
-    margin-right: 0.35rem;
-  }
-  .subnav-link {
-    padding: 0.25rem 0.65rem;
-    border-radius: 0.4rem;
-    color: var(--ink-strong);
     text-decoration: none;
-    font-weight: 700;
-    font-size: 0.85rem;
-    border: 1px solid transparent;
   }
-  .subnav-link:hover {
-    background: var(--surface);
-    border-color: var(--surface-edge);
+  .footer-note a:hover {
+    text-decoration: underline;
   }
-  .subnav-link.active {
-    background: var(--accent, #6b21a8);
-    color: white;
-    border-color: var(--accent, #6b21a8);
+  @media (max-width: 760px) {
+    .source-panel {
+      grid-template-columns: 1fr;
+    }
+    .section-header {
+      align-items: start;
+      flex-direction: column;
+    }
+    #vocab-search {
+      padding-right: 4.2rem;
+    }
   }
 </style>
