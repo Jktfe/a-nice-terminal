@@ -29,6 +29,16 @@ import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { getOperatorEmail, setOperatorEmail } from '$lib/server/operatorEmail';
 import { resolveBrowserLoginRoom } from '$lib/server/browserLoginRoom';
 
+type AccountLoginFailureCode =
+  | 'operator_email_not_configured'
+  | 'account_not_configured_operator'
+  | 'browser_login_room_unavailable'
+  | 'browser_session_mint_failed';
+
+function localLoginFailure(status: number, code: AccountLoginFailureCode, message: string): Response {
+  return json({ ok: false, code, message, fallbackToStoredLogin: false }, { status });
+}
+
 function buildSessionCookie(secret: string, expiresAtMs: number, nowMs: number, request: Request): string {
   const maxAgeSeconds = Math.max(0, Math.ceil((expiresAtMs - nowMs) / 1000));
   const parts = [`ant_browser_session=${secret}`, 'HttpOnly', 'SameSite=Lax', 'Path=/', `Max-Age=${maxAgeSeconds}`];
@@ -95,16 +105,31 @@ export const POST: RequestHandler = async ({ request }) => {
 
   // 3. authorise: only the configured operator email may assume the operator
   const allowed = getOperatorEmail();
-  if (!allowed) throw error(503, 'operator account email not configured');
-  if (identity.email.trim().toLowerCase() !== allowed) {
-    throw error(403, 'this account is not the configured operator');
+  if (!allowed) {
+    return localLoginFailure(
+      503,
+      'operator_email_not_configured',
+      'Your account signed in, but this ANT server has no operator email configured.'
+    );
   }
-  setOperatorEmail({ email: identity.email, updatedBy: 'accounts-login' });
+  if (identity.email.trim().toLowerCase() !== allowed) {
+    return localLoginFailure(
+      403,
+      'account_not_configured_operator',
+      'Your account signed in, but it is not the configured ANT operator account.'
+    );
+  }
 
   // 4. mint a local browser session bound to the operator handle
   const handle = getOperatorHandle();
   const room = resolveBrowserLoginRoom();
-  if (!room) throw error(503, 'no active room available for browser login');
+  if (!room) {
+    return localLoginFailure(
+      503,
+      'browser_login_room_unavailable',
+      'Your account signed in, but ANT could not find an active room for the browser session.'
+    );
+  }
   const roomId = room.id;
 
   if (!getTerminalIdByHandle(roomId, handle)) {
@@ -120,7 +145,15 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const nowMs = Date.now();
   const result = createBrowserSession({ roomId, authorHandle: handle, nowMs });
-  if (!result) throw error(503, 'session could not be minted');
+  if (!result) {
+    return localLoginFailure(
+      503,
+      'browser_session_mint_failed',
+      'Your account signed in, but ANT could not create the local browser session.'
+    );
+  }
+
+  setOperatorEmail({ email: identity.email, updatedBy: 'accounts-login' });
 
   const cookie = buildSessionCookie(result.browserSessionSecret, result.session.expires_at_ms, nowMs, request);
   return json(

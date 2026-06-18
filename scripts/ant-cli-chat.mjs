@@ -377,12 +377,24 @@ async function runReply(flags, runtime, CliInputError) {
   // post-cutover witnessed agent resolves here instead of 401'ing on a
   // pidChain that no longer maps to a handle. Mirrors the reactions GET;
   // the witness session is pane/env-derived so the room id isn't needed yet.
-  const lookup = await getJson(
-    runtime,
-    pathWithPidChain(`/api/chat-rooms/messages/${encodeURIComponent(parentMessageId)}`),
-    undefined,
-    { ...attachmentHeaders(flags), ...durableSessionHeaders(runtime, '') }
-  );
+  let lookup;
+  try {
+    lookup = await getJson(
+      runtime,
+      pathWithPidChain(`/api/chat-rooms/messages/${encodeURIComponent(parentMessageId)}`),
+      undefined,
+      { ...attachmentHeaders(flags), ...durableSessionHeaders(runtime, '') }
+    );
+  } catch (cause) {
+    if (isAuthLookupFailure(cause)) {
+      throw new CliInputError(
+        `Could not read parent message ${parentMessageId} with this terminal identity. ` +
+        `If you know the room, use \`ant chat send <roomId> --parent-message ${parentMessageId} --stdin\`.\n` +
+        `Original lookup failure: ${cause.message}`
+      );
+    }
+    throw cause;
+  }
   const parent = lookup?.message;
   if (!parent || typeof parent.roomId !== 'string' || parent.roomId.length === 0) {
     throw new CliInputError(`Could not resolve parent message ${parentMessageId} to a room.`);
@@ -411,6 +423,10 @@ async function runReply(flags, runtime, CliInputError) {
     runtime.writeOut(`Replied ${m?.id ?? '?'} as ${m?.authorHandle ?? '?'} into ${parent.roomId}.`);
   }
   return 0;
+}
+
+function isAuthLookupFailure(cause) {
+  return cause instanceof Error && /\breturned (401|403)\b/.test(cause.message);
 }
 
 /**

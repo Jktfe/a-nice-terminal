@@ -403,6 +403,14 @@ describe('ant chat state wrappers', () => {
     });
   });
 
+  it('S2c: reply lookup auth failure tells the agent how to post with an explicit parent', async () => {
+    const { runtime } = makeRuntime(() => failure(401, '{"message":"Authentication required."}'));
+    runtime.fs = { readFileSync: () => 'Reply body.\n' };
+
+    await expect(handleChatVerb('reply', ['msg_parent', '--stdin'], runtime, { CliInputError }))
+      .rejects.toThrow('ant chat send <roomId> --parent-message msg_parent --stdin');
+  });
+
   it('C1: break POSTs a context break with reason and pidChain', async () => {
     const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'break-1', body: 'Context break.' } }, 201));
 

@@ -7,6 +7,12 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
 
+  type LoginFailure = {
+    message?: string;
+    code?: string;
+    fallbackToStoredLogin?: boolean;
+  };
+
   let email = $state('');
   let password = $state('');
   let busy = $state(false);
@@ -48,6 +54,26 @@
     }
   }
 
+  async function parseLoginFailure(response: Response): Promise<LoginFailure> {
+    return (await response.json().catch(() => ({ message: response.statusText }))) as LoginFailure;
+  }
+
+  function canTryStoredLogin(response: Response, failure: LoginFailure): boolean {
+    if (failure.fallbackToStoredLogin === false) return false;
+    return response.status === 401 || response.status === 403 || response.status >= 500;
+  }
+
+  function describeLoginFailure(response: Response, failure: LoginFailure): string {
+    if (failure.fallbackToStoredLogin === false && failure.message) return failure.message;
+    if (response.status === 401 || response.status === 403) {
+      return 'That email or password did not match. Try again.';
+    }
+    if (response.status === 503) {
+      return failure.message ?? 'Login is not configured on this server.';
+    }
+    return failure.message ?? `Sign-in failed (${response.status}).`;
+  }
+
   async function handleSubmit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     if (busy) return;
@@ -62,19 +88,16 @@
       const body = JSON.stringify({ email, password });
       const headers = { 'content-type': 'application/json' };
       let response = await fetch('/api/auth/accounts-login', { method: 'POST', headers, body });
-      if (!response.ok && (response.status === 401 || response.status === 403 || response.status >= 500)) {
+      let failure: LoginFailure | null = null;
+      if (!response.ok) {
+        failure = await parseLoginFailure(response);
+      }
+      if (!response.ok && canTryStoredLogin(response, failure ?? {})) {
         response = await fetch('/api/auth/demo-login', { method: 'POST', headers, body });
+        failure = response.ok ? null : await parseLoginFailure(response);
       }
       if (!response.ok) {
-        const failure = await response.json().catch(() => ({ message: response.statusText }));
-        const status = response.status;
-        if (status === 401 || status === 403) {
-          errorMessage = 'That email or password did not match. Try again.';
-        } else if (status === 503) {
-          errorMessage = 'Login is not configured on this server.';
-        } else {
-          errorMessage = failure.message ?? `Sign-in failed (${status}).`;
-        }
+        errorMessage = describeLoginFailure(response, failure ?? {});
         return;
       }
       // Cookie is set server-side via Set-Cookie. Hop back to wherever

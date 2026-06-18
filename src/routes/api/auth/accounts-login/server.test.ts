@@ -114,6 +114,10 @@ describe('POST /api/auth/accounts-login', () => {
     );
 
     expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      code: 'operator_email_not_configured',
+      fallbackToStoredLogin: false
+    });
     expect(getPersistedOperatorEmail()).toBeNull();
   });
 
@@ -159,7 +163,30 @@ describe('POST /api/auth/accounts-login', () => {
     );
 
     expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      code: 'account_not_configured_operator',
+      fallbackToStoredLogin: false
+    });
     expect(getPersistedOperatorEmail()).toBe('operator@example.com');
+  });
+
+  it('does not ask the browser page to fall back when local browser session room lookup fails', async () => {
+    process.env.ANT_BROWSER_LOGIN_ROOM_ID = 'missing-room';
+    resetChatRoomStoreForTests();
+    const fetchMock = stubAccountsIdentity('operator@example.com');
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await capture(() =>
+      POST(eventForPost({ email: 'operator@example.com', password: 'correct-password' }))
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      code: 'browser_login_room_unavailable',
+      fallbackToStoredLogin: false,
+      message: expect.stringContaining('account signed in')
+    });
+    expect(getPersistedOperatorEmail()).toBeNull();
   });
 
   it('stores an env-confirmed operator email during successful account confirmation', async () => {
