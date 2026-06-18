@@ -1,12 +1,7 @@
 <!--
-  /terminal — TWO-TIER-IMPL per docs/terminal-two-tier-chips-design-2026-05-14.md
-  delta-5 canonical PASS. Option C: extend POST /api/terminals for BOTH
-  spawn-new and attach-existing flows. /api/identity/register untouched.
-
-  Top tier (tmuxSessions): bare panes WITHOUT a terminalsStore row.
-  Bottom tier (terminals): handle-bearing ANT terminals.
-  Both chip clicks open the same claim modal: top-tier sets sessionId,
-  bottom-tier just mounts TerminalCard (already attached).
+  /terminals — Desk directory plus bring-in surface.
+  ANT terminals are handle-bearing Desks. Loose tmux panes are shown only so
+  the operator can bring them into ANT with an explicit ANThandle.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -481,7 +476,7 @@
 
 <svelte:head><title>Terminals | ANT vNext</title></svelte:head>
 
-<SimplePageShell eyebrow="Terminals" title="Terminals." summary="Two-tier: tmux panes without a handle on top; handle-bearing ANT terminals below.">
+<SimplePageShell eyebrow="Terminals" title="Terminals." summary="ANT Desks first. Loose tmux panes are listed separately so you can bring them into ANT with a handle.">
   <UsageStrip />
   <HelperPairingPanel />
   <section class="terminal-controls">
