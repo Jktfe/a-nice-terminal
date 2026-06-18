@@ -22,7 +22,7 @@ describe('eventBroadcast', () => {
         const match = text.match(/data: (.+)/);
         if (match) events.push(JSON.parse(match[1]));
       }
-    } as ReadableStreamDefaultController<Uint8Array>;
+    } as unknown as ReadableStreamDefaultController<Uint8Array>;
 
     subscribeToRoom('room-1', controller);
     broadcastToRoom('room-1', { type: 'test', msg: 'hello' });
