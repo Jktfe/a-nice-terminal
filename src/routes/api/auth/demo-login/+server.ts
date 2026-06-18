@@ -20,6 +20,7 @@ import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { configuredBrowserLoginRoomId, resolveBrowserLoginRoom } from '$lib/server/browserLoginRoom';
 import {
   findStoredUser,
   normalizeAntchatEmail,
@@ -27,17 +28,11 @@ import {
   userShapeForEmail
 } from '$lib/server/antchatAuthStore';
 
-const DEFAULT_DEMO_ROOM_ID = 'zj4jlety9q'; // antv4 — JWPK's existing membership
-
 type BrowserLoginIdentity = {
   email: string;
   handle: string;
   roomId: string;
 };
-
-function browserLoginRoomId(): string {
-  return process.env.ANT_BROWSER_LOGIN_ROOM_ID || process.env.ANT_DEMO_ROOM_ID || DEFAULT_DEMO_ROOM_ID;
-}
 
 function buildDemoSessionCookie(secret: string, expiresAtMs: number, nowMs: number, request: Request): string {
   const maxAgeSeconds = Math.max(0, Math.ceil((expiresAtMs - nowMs) / 1000));
@@ -95,7 +90,7 @@ async function resolveBrowserLoginIdentity(
   return {
     email: normalisedEmail,
     handle: userShapeForEmail(normalisedEmail).handle,
-    roomId: browserLoginRoomId()
+    roomId: configuredBrowserLoginRoomId()
   };
 }
 
@@ -110,31 +105,32 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const identity = await resolveBrowserLoginIdentity(body as Record<string, unknown>);
 
-  const room = findChatRoomById(identity.roomId);
-  if (!room) throw error(503, 'login room missing — set ANT_BROWSER_LOGIN_ROOM_ID to a valid room id');
+  const room = resolveBrowserLoginRoom(identity.roomId);
+  if (!room) throw error(503, 'no active room available for browser login');
+  const roomId = room.id;
 
   // Same lazy-create pattern as /api/chat-rooms/:roomId/browser-session
   // so the browser handle gets a synthetic terminal + membership the
   // identity gate accepts downstream.
-  if (!getTerminalIdByHandle(identity.roomId, identity.handle)) {
+  if (!getTerminalIdByHandle(roomId, identity.handle)) {
     const syntheticTerminal = upsertTerminal({
       pid: 0,
       pid_start: `browser-login-${Date.now()}`,
-      name: `browser-${identity.roomId}-${identity.handle}`,
+      name: `browser-${roomId}-${identity.handle}`,
       source: 'browser-login',
-      meta: { kind: 'browser-login', roomId: identity.roomId, authorHandle: identity.handle }
+      meta: { kind: 'browser-login', roomId, authorHandle: identity.handle }
     });
-    addMembership({ room_id: identity.roomId, handle: identity.handle, terminal_id: syntheticTerminal.id });
+    addMembership({ room_id: roomId, handle: identity.handle, terminal_id: syntheticTerminal.id });
   }
 
   const nowMs = Date.now();
-  const result = createBrowserSession({ roomId: identity.roomId, authorHandle: identity.handle, nowMs });
+  const result = createBrowserSession({ roomId, authorHandle: identity.handle, nowMs });
   if (!result) throw error(503, 'session could not be minted');
 
   const cookie = buildDemoSessionCookie(result.browserSessionSecret, result.session.expires_at_ms, nowMs, request);
 
   return json(
-    { ok: true, handle: identity.handle, roomId: identity.roomId, email: identity.email },
+    { ok: true, handle: identity.handle, roomId, email: identity.email },
     { status: 200, headers: { 'set-cookie': cookie } }
   );
 };

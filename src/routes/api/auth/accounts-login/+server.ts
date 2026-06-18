@@ -23,21 +23,11 @@ import type { RequestHandler } from './$types';
 import { accountsBaseUrl } from '$lib/server/accountsProxy';
 import { resolveAccountsBearerIdentity } from '$lib/server/accountsBearerIdentity';
 import { getOperatorHandle } from '$lib/server/operatorHandle';
-import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { getOperatorEmail, setOperatorEmail } from '$lib/server/operatorEmail';
-
-const DEFAULT_LANDING_ROOM = 'fnokx03pud';
-
-function landingRoomId(): string {
-  return (
-    process.env.ANT_BROWSER_LOGIN_ROOM_ID ||
-    process.env.ANT_DEMO_ROOM_ID ||
-    DEFAULT_LANDING_ROOM
-  );
-}
+import { resolveBrowserLoginRoom } from '$lib/server/browserLoginRoom';
 
 function buildSessionCookie(secret: string, expiresAtMs: number, nowMs: number, request: Request): string {
   const maxAgeSeconds = Math.max(0, Math.ceil((expiresAtMs - nowMs) / 1000));
@@ -113,9 +103,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
   // 4. mint a local browser session bound to the operator handle
   const handle = getOperatorHandle();
-  const roomId = landingRoomId();
-  const room = findChatRoomById(roomId);
-  if (!room) throw error(503, 'landing room missing — set ANT_BROWSER_LOGIN_ROOM_ID to a valid room id');
+  const room = resolveBrowserLoginRoom();
+  if (!room) throw error(503, 'no active room available for browser login');
+  const roomId = room.id;
 
   if (!getTerminalIdByHandle(roomId, handle)) {
     const terminal = upsertTerminal({

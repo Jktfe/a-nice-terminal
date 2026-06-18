@@ -38,13 +38,13 @@
     try {
       const response = await fetch('/api/auth/demo-login');
       if (!response.ok) {
-        loginAvailable = false;
+        loginAvailable = true;
         return;
       }
       const body = (await response.json()) as { available?: boolean };
       loginAvailable = body.available === true;
     } catch {
-      loginAvailable = false;
+      loginAvailable = true;
     }
   }
 

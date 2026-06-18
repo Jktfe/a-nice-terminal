@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST } from './+server';
-import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+import { archiveChatRoom, createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { getIdentityDb } from '$lib/server/db';
 import { getPersistedOperatorEmail, setOperatorEmail } from '$lib/server/operatorEmail';
 
@@ -8,6 +8,7 @@ const PREV_OPERATOR_EMAIL = process.env.ANT_OPERATOR_EMAIL;
 const PREV_DEMO_EMAIL = process.env.ANT_DEMO_EMAIL;
 const PREV_OPERATOR_HANDLE = process.env.ANT_OPERATOR_HANDLE;
 const PREV_BROWSER_LOGIN_ROOM_ID = process.env.ANT_BROWSER_LOGIN_ROOM_ID;
+let activeRoomId: string;
 
 function resetIdentityRows(): void {
   const db = getIdentityDb();
@@ -46,6 +47,7 @@ async function capture(fn: () => Promise<Response> | Response): Promise<Response
 beforeEach(() => {
   resetIdentityRows();
   const room = createChatRoom({ name: 'operator landing', whoCreatedIt: '@JWPK' });
+  activeRoomId = room.id;
   process.env.ANT_BROWSER_LOGIN_ROOM_ID = room.id;
   process.env.ANT_OPERATOR_EMAIL = 'operator@example.com';
   delete process.env.ANT_DEMO_EMAIL;
@@ -127,6 +129,22 @@ describe('POST /api/auth/accounts-login', () => {
     );
 
     expect(response.status).toBe(200);
+  });
+
+  it('falls back to an active room when the configured landing room is archived', async () => {
+    const archived = createChatRoom({ name: 'archived operator landing', whoCreatedIt: '@JWPK' });
+    archiveChatRoom(archived.id);
+    process.env.ANT_BROWSER_LOGIN_ROOM_ID = archived.id;
+    const fetchMock = stubAccountsIdentity('operator@example.com');
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await capture(() =>
+      POST(eventForPost({ email: 'operator@example.com', password: 'correct-password' }))
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.roomId).toBe(activeRoomId);
   });
 
   it('rejects a different account after operator email is established', async () => {
