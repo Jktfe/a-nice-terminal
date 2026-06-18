@@ -62,7 +62,14 @@
   // a javascript:/data: ref (artefact data is agent/user-supplied) would
   // execute on click. Only expose the link for safe schemes (canFrame already
   // allowlists http/https/relative); unsafe refs render no link.
-  const safeRefUrl = $derived(canFrame && artefact.refUrl ? artefact.refUrl : null);
+  // Reject protocol-relative `//host` too (canFrame allows it via the `/`
+  // prefix): for an external link, "relative" should mean a same-origin path,
+  // not a scheme-relative jump to an arbitrary host.
+  const safeRefUrl = $derived(
+    canFrame && artefact.refUrl && !artefact.refUrl.startsWith('//')
+      ? artefact.refUrl
+      : null
+  );
   const isUniverKind = $derived(['spreadsheet', 'doc', 'deck'].includes(artefact.kind));
   // Validation panel renders for all doc/deck artefacts. Markdown runs
   // directly through the markdown extractor; univer-json first extracts
