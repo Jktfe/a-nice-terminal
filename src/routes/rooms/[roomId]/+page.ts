@@ -32,10 +32,10 @@ type MessagesFetchResult = {
   };
 };
 
-export const load: PageLoad = async ({ fetch, params }) => {
+export const load: PageLoad = async ({ fetch, params, url }) => {
   const roomResponse = await fetch(`/api/chat-rooms/${params.roomId}`);
   if (roomResponse.status === 401) {
-    throw redirect(303, `/login?next=${encodeURIComponent(`/rooms/${params.roomId}`)}`);
+    throw redirect(303, `/login?next=${encodeURIComponent(`${url.pathname}${url.search}`)}`);
   }
   if (roomResponse.status === 404) throw error(404, 'Room not found.');
   if (roomResponse.status === 403) throw error(403, 'You do not have access to this room.');

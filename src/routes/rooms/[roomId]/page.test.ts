@@ -14,12 +14,27 @@ describe('/rooms/[roomId] load', () => {
     const fetch = vi.fn(async () => jsonResponse({ message: 'Authentication required' }, 401));
     const event = {
       fetch,
-      params: { roomId: 'fnokx03pud' }
+      params: { roomId: 'fnokx03pud' },
+      url: new URL('http://localhost/rooms/fnokx03pud')
     } as unknown as Parameters<typeof load>[0];
 
     await expect(load(event)).rejects.toMatchObject({
       status: 303,
       location: '/login?next=%2Frooms%2Ffnokx03pud'
+    });
+  });
+
+  it('preserves room query state when redirecting unauthenticated visits to login', async () => {
+    const fetch = vi.fn(async () => jsonResponse({ message: 'Authentication required' }, 401));
+    const event = {
+      fetch,
+      params: { roomId: 'fnokx03pud' },
+      url: new URL('http://localhost/rooms/fnokx03pud?panel=tasks&highlight=msg_1')
+    } as unknown as Parameters<typeof load>[0];
+
+    await expect(load(event)).rejects.toMatchObject({
+      status: 303,
+      location: '/login?next=%2Frooms%2Ffnokx03pud%3Fpanel%3Dtasks%26highlight%3Dmsg_1'
     });
   });
 
@@ -66,7 +81,8 @@ describe('/rooms/[roomId] load', () => {
 
     const event = {
       fetch,
-      params: { roomId: 'r_focus' }
+      params: { roomId: 'r_focus' },
+      url: new URL('http://localhost/rooms/r_focus')
     } as unknown as Parameters<typeof load>[0];
     const data = await load(event);
 
@@ -125,7 +141,8 @@ describe('/rooms/[roomId] load', () => {
 
     const event = {
       fetch,
-      params: { roomId: 'r_heads' }
+      params: { roomId: 'r_heads' },
+      url: new URL('http://localhost/rooms/r_heads')
     } as unknown as Parameters<typeof load>[0];
     const data = await load(event);
 
