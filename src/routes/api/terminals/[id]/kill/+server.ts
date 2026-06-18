@@ -48,6 +48,7 @@ import { killTerminal } from '$lib/server/ptyClient';
 import { broadcastTerminalEvent } from '$lib/server/terminalEventBroadcast';
 import { archiveChatRoom, softDeleteChatRoom } from '$lib/server/chatRoomStore';
 import { deleteTerminalById } from '$lib/server/terminalsStore';
+import { deleteHandle } from '$lib/server/handleLifecycle';
 
 type KillMode = 'archive' | 'delete' | 'just-kill';
 
@@ -108,6 +109,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
     // render a stale entry.
     if (record?.linked_chat_room_id) {
       softDeleteChatRoom(record.linked_chat_room_id);
+    }
+    if (record?.handle) {
+      deleteHandle(record.handle, { reason: 'terminal-delete', actor: callerHandle });
     }
     // (record deletion is handled atomically inside deleteTerminalById below)
     deleteTerminalById(sessionId);

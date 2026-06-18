@@ -13,6 +13,7 @@ import { createChatRoom, findChatRoomById, listChatRooms } from '$lib/server/cha
 import { createTerminalRecord, getTerminalRecord } from '$lib/server/terminalRecordsStore';
 import { getTerminalById } from '$lib/server/terminalsStore';
 import { seedDefaultOrg } from '$lib/server/orgStore';
+import { bindHandle, getHandleRow, getLiveBinding } from '$lib/server/handleBindingsStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
@@ -193,7 +194,15 @@ describe('POST /api/terminals/:id/kill linked-chat lifecycle', () => {
       sessionId: 't_delete_happy',
       name: 'doomed terminal',
       linkedChatRoomId: linkedRoom.id,
-      createdBy: '@you'
+      createdBy: '@you',
+      handle: '@doomed'
+    });
+    bindHandle({
+      handle: '@doomed',
+      pane: 't_delete_happy:0.0',
+      pid: 1,
+      pidStart: 'x',
+      terminalId: 't_delete_happy'
     });
 
     const response = await runHandler(
@@ -212,5 +221,14 @@ describe('POST /api/terminals/:id/kill linked-chat lifecycle', () => {
     // The linked chat is soft-deleted (hidden from every surface).
     expect(findChatRoomById(linkedRoom.id)).toBeUndefined();
     expect(listChatRooms().map((room) => room.id)).toEqual([visibleRoom.id]);
+    // The identity layer cannot stay pairable/live after the terminal is gone.
+    expect(getHandleRow('@doomed')?.lifecycle).toBe('deleted');
+    expect(getLiveBinding('@doomed')).toBeNull();
+    expect(
+      getIdentityDb()
+        .prepare(`SELECT kind FROM identity_ledger WHERE handle = ? ORDER BY id`)
+        .all('@doomed')
+        .map((row) => (row as { kind: string }).kind)
+    ).toContain('handle.deleted');
   });
 });
