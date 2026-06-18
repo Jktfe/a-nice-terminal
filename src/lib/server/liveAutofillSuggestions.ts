@@ -103,7 +103,7 @@ export function extractLiveAutofillSuggestions(
   sourceHandle: string,
   nowMs: number = Date.now()
 ): LiveAutofillSuggestion[] {
-  const lines = captureText.replace(/\r/g, '\n').split('\n').slice(-8);
+  const lines = captureText.replace(/\r\n?/g, '\n').split('\n').slice(-8);
   const seen = new Set<string>();
   const suggestions: LiveAutofillSuggestion[] = [];
 

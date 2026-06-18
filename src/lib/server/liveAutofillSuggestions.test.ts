@@ -41,6 +41,20 @@ describe('extractLiveAutofillSuggestions', () => {
     ]);
   });
 
+  it('keeps current-pane CRLF captures as single rows', () => {
+    const capture = [
+      'older line',
+      '',
+      'status line',
+      `❯ \x1b[2mCrack on with the command-palette route fix\x1b[0m`,
+      'footer line'
+    ].join('\r\n');
+
+    const suggestions = extractLiveAutofillSuggestions(capture, '@claude', 1_000);
+
+    expect(suggestions.map((chip) => chip.text)).toEqual(['Crack on with the command-palette route fix']);
+  });
+
   it('ignores ordinary prompt text and status chrome', () => {
     const capture = [
       '> npm run check',
