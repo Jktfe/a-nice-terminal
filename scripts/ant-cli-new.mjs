@@ -13,6 +13,7 @@
  * `new chat` POSTs /api/chat-rooms with `{ name }`.
  */
 
+import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 import { makeStandardSendJson } from './ant-cli-shared-resolve.mjs';
 
 const BOOLEAN_FLAGS = new Set(['json']);
@@ -110,7 +111,7 @@ async function runNewChat(flags, runtime, CliInputError) {
     throw new CliInputError('chat name is required (positional or --name)');
   }
   const sendJson = makeStandardSendJson(runtime);
-  const result = await sendJson('/api/chat-rooms', 'POST', { name: flags.name });
+  const result = await sendJson(pathWithPidChain('/api/chat-rooms'), 'POST', { name: flags.name });
 
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
@@ -119,4 +120,10 @@ async function runNewChat(flags, runtime, CliInputError) {
     runtime.writeOut(`Created chat room "${room.name}" with id ${room.id}.`);
   }
   return 0;
+}
+
+function pathWithPidChain(path) {
+  const url = new URL(path, 'http://ant.local');
+  url.searchParams.set('pidChain', JSON.stringify(processIdentityChain()));
+  return `${url.pathname}${url.search}`;
 }

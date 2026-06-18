@@ -66,7 +66,9 @@ describe('ant new', () => {
       ok({ id: 'room_abc', name: 'lane-A' })
     );
     await handleNewVerb('chat', ['lane-A'], runtime, { CliInputError });
-    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms');
+    const url = new URL(captured.requests[0].url);
+    expect(`${url.origin}${url.pathname}`).toBe('http://test.local/api/chat-rooms');
+    expect(url.searchParams.get('pidChain')).toBeTruthy();
     expect(JSON.parse(captured.requests[0].init.body).name).toBe('lane-A');
     expect(captured.stdout.join(' ')).toMatch(/Created chat room "lane-A"/);
   });
@@ -74,7 +76,9 @@ describe('ant new', () => {
   it('new chatroom: alias of new chat', async () => {
     const { runtime, captured } = makeRuntime(() => ok({ id: 'r1', name: 'foo' }));
     await handleNewVerb('chatroom', ['foo'], runtime, { CliInputError });
-    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms');
+    const url = new URL(captured.requests[0].url);
+    expect(`${url.origin}${url.pathname}`).toBe('http://test.local/api/chat-rooms');
+    expect(url.searchParams.get('pidChain')).toBeTruthy();
   });
 
   it('rejects unknown new sub-verb', async () => {

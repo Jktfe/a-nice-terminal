@@ -291,7 +291,7 @@ async function createRoom(name, runtime) {
       'rooms create needs a name\n  Usage: ant rooms create "<NAME>"\n     or: ant rooms create --name "<NAME>"'
     );
   }
-  const response = await fetchFromServer(runtime, '/api/chat-rooms', {
+  const response = await fetchFromServer(runtime, pathWithPidChain('/api/chat-rooms'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ name: trimmedName })

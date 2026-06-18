@@ -190,6 +190,9 @@ describe('ant-cli', () => {
       });
       const exitCode = await runner.run(['rooms', 'create', 'a', 'long', 'room']);
       expect(exitCode).toBe(0);
+      const url = new URL(fetchCalls[0].url);
+      expect(`${url.origin}${url.pathname}`).toBe('http://localhost:4321/api/chat-rooms');
+      expect(url.searchParams.get('pidChain')).toBeTruthy();
       const body = JSON.parse(fetchCalls[0].init.body);
       expect(body.name).toBe('a long room');
     });
@@ -202,6 +205,9 @@ describe('ant-cli', () => {
       });
       const exitCode = await runner.run(['rooms', 'create', '--name', 'flag-named']);
       expect(exitCode).toBe(0);
+      const url = new URL(fetchCalls[0].url);
+      expect(`${url.origin}${url.pathname}`).toBe('http://localhost:4321/api/chat-rooms');
+      expect(url.searchParams.get('pidChain')).toBeTruthy();
       const body = JSON.parse(fetchCalls[0].init.body);
       expect(body.name).toBe('flag-named');
     });

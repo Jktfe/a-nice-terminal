@@ -18,6 +18,7 @@ import { recordParticipation } from '$lib/server/chatRoomParticipationHistorySto
 import { bindRoomHandleToLiveTerminal } from '$lib/server/terminalHandleBinding';
 import { resolveChatRoomReadAccess, canReadChatRoom } from '$lib/server/chatRoomReadGate';
 import { canonicaliseOperatorHandle, getOperatorHandle } from '$lib/server/operatorHandle';
+import type { ChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 
 export const GET: RequestHandler = async ({ request }) => {
   // Auth FIRST, then load. The previous shape `listReadableChatRooms(request, listChatRooms())`
@@ -50,12 +51,9 @@ export const POST: RequestHandler = async ({ request }) => {
   const whoCreatedItFromBody = (rawBody as { whoCreatedIt?: unknown }).whoCreatedIt;
   const whoCreatedItCandidate =
     typeof whoCreatedItFromBody === 'string' ? whoCreatedItFromBody.trim() : '';
-  // Task #138 originally resolved CLI placeholders to the legacy @you sentinel.
-  // The clean identity cutover makes the configured operator handle structural.
-  const whoCreatedIt =
-    whoCreatedItCandidate.length > 0 && whoCreatedItCandidate !== '@cli'
-      ? canonicaliseOperatorHandle(whoCreatedItCandidate)
-      : getOperatorHandle();
+  const access = await resolveChatRoomReadAccess(request);
+  if (!access) throw error(401, 'Authentication required.');
+  const whoCreatedIt = resolveCreatedByHandle(access, whoCreatedItCandidate);
 
   // Optional description (a19a496 follow-up): forwarded to createChatRoom
   // when set so the new room lands with its description already populated
@@ -80,3 +78,30 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error(400, message);
   }
 };
+
+function resolveCreatedByHandle(access: ChatRoomReadAccess, requestedCreator: string): string {
+  // Admin-bearer automation keeps the historical explicit creator override
+  // for seed/migration paths. Non-admin callers are stamped from the
+  // server-resolved identity below; body-supplied creators cannot spoof.
+  if (access.isAdminBearer) {
+    return requestedCreator.length > 0 && requestedCreator !== '@cli'
+      ? canonicaliseOperatorHandle(requestedCreator)
+      : getOperatorHandle();
+  }
+
+  const authorisedHandles = [
+    ...(access.principalHandles ?? []),
+    ...access.handles
+  ].map(canonicaliseOperatorHandle);
+  const fallback = authorisedHandles[0];
+  if (!fallback) throw error(401, 'Authentication required.');
+
+  if (requestedCreator.length > 0 && requestedCreator !== '@cli') {
+    const requested = canonicaliseOperatorHandle(requestedCreator);
+    if (!authorisedHandles.includes(requested)) {
+      throw error(403, 'whoCreatedIt must match the authenticated caller.');
+    }
+    return requested;
+  }
+  return fallback;
+}

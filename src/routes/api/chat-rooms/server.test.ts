@@ -24,19 +24,21 @@ import { getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
 import { adoptExternalProcessForTerminal } from '$lib/server/terminalsStore';
 import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
 
-function eventForPost(body?: string) {
+const ADMIN_TOKEN_FOR_TESTS = 'chat-room-post-test-admin-token';
+
+function eventForPost(body?: string, headers: Record<string, string> = { authorization: `Bearer ${ADMIN_TOKEN_FOR_TESTS}` }) {
   const url = new URL('http://localhost/api/chat-rooms');
   const request = new Request(url.toString(), {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body
   });
   return { request, params: {}, url } as unknown as Parameters<typeof POST>[0];
 }
 
-async function callPost(body?: string): Promise<Response> {
+async function callPost(body?: string, headers?: Record<string, string>): Promise<Response> {
   try {
-    return (await POST(eventForPost(body))) as Response;
+    return (await POST(eventForPost(body, headers))) as Response;
   } catch (thrownByHandler) {
     if (thrownByHandler instanceof Response) return thrownByHandler;
     const httpFailure = thrownByHandler as { status?: number; body?: { message?: string } };
@@ -76,6 +78,40 @@ describe('POST /api/chat-rooms whoCreatedIt normalisation', () => {
     resetChatRoomParticipationHistoryStoreForTests();
     // Reproduce the org email→handle map (real emails moved to env/secrets).
     installFixtureOrgHandleMap();
+    process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN_FOR_TESTS;
+  });
+
+  it('rejects unauthenticated room creation', async () => {
+    const response = await callPost(JSON.stringify({ name: 'anonymous-room' }), {});
+
+    expect(response.status).toBe(401);
+    expect(listChatRooms()).toHaveLength(0);
+  });
+
+  it('rejects non-admin creator spoofing', async () => {
+    const { token } = issueToken('demo-operator@example.test');
+
+    const response = await callPost(
+      JSON.stringify({ name: 'spoof-room', whoCreatedIt: '@mark' }),
+      { authorization: `Bearer ${token}` }
+    );
+
+    expect(response.status).toBe(403);
+    expect(listChatRooms()).toHaveLength(0);
+  });
+
+  it('stamps authenticated non-admin room creation from the resolved caller', async () => {
+    const { token } = issueToken('demo-operator@example.test');
+
+    const response = await callPost(
+      JSON.stringify({ name: 'bearer-created-room' }),
+      { authorization: `Bearer ${token}` }
+    );
+
+    expect(response.status).toBe(201);
+    const created = listChatRooms()[0];
+    expect(created.whoCreatedIt).toBe('@demooperator');
+    expect(created.members.map((member) => member.handle)).toContain('@demooperator');
   });
 
   it('falls back to the configured operator handle when whoCreatedIt is whitespace-only', async () => {
