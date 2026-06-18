@@ -51,7 +51,10 @@
     writePaneCollapsedFlag
   } from '$lib/components/roomDetailHelpers';
   import { mergeQuietMessageFeed } from '$lib/chat/quietMessageFeed';
-  import { ensureBrowserSessionForRoom } from '$lib/browserSessionClient';
+  import {
+    ensureBrowserSessionForRoom,
+    type EnsureBrowserSessionResult
+  } from '$lib/browserSessionClient';
   import type { ChatRoom, RoomMember } from '$lib/server/chatRoomStore';
   import type { ChatMessage } from '$lib/server/chatMessageStore';
   import type { RoomAliasEntry } from '$lib/server/chatRoomAliasStore';
@@ -186,6 +189,24 @@
 
   let lastBrowserSessionRebindKey = $state('');
   let browserSessionReadyKey = $state('');
+  let browserSessionError = $state('');
+  let browserSessionRetrying = $state(false);
+  function rememberBrowserSessionResult(
+    key: string,
+    authorHandle: string,
+    result: EnsureBrowserSessionResult
+  ): void {
+    if (lastBrowserSessionRebindKey !== key) return;
+    if (result.ok) {
+      browserSessionReadyKey = key;
+      browserSessionError = '';
+      return;
+    }
+    if (result.reason === 'no-handle') return;
+    browserSessionReadyKey = '';
+    const statusHint = typeof result.status === 'number' ? ` (${result.status})` : '';
+    browserSessionError = `Could not establish session for ${authorHandle} in this room${statusHint}: ${result.reason}`;
+  }
   $effect(() => {
     const roomId = roomFromServer.id;
     const authorHandle = callerHandle.trim();
@@ -194,13 +215,14 @@
     if (key === lastBrowserSessionRebindKey) return;
     lastBrowserSessionRebindKey = key;
     browserSessionReadyKey = '';
+    browserSessionError = '';
     // Per-room browser_session rebind. The cookie is site-scoped so the
     // /api/realtime/<roomId>/events EventSource can authenticate too; the
     // server-side read/write gates still enforce room access per request.
     // This must be keyed on room id, not only onMount: SvelteKit can reuse
     // this route component across client-side room navigation.
     void ensureBrowserSessionForRoom({ roomId, authorHandle, force: true }).then((result) => {
-      if (result.ok && lastBrowserSessionRebindKey === key) browserSessionReadyKey = key;
+      rememberBrowserSessionResult(key, authorHandle, result);
     });
   });
 
@@ -300,9 +322,17 @@
     const authorHandle = callerHandle.trim();
     const key = `${roomId}:${authorHandle}`;
     if (roomId.length === 0 || authorHandle.length === 0) return;
-    void ensureBrowserSessionForRoom({ roomId, authorHandle, force: true }).then((result) => {
-      if (result.ok && lastBrowserSessionRebindKey === key) browserSessionReadyKey = key;
-    });
+    lastBrowserSessionRebindKey = key;
+    browserSessionReadyKey = '';
+    browserSessionError = '';
+    browserSessionRetrying = true;
+    void ensureBrowserSessionForRoom({ roomId, authorHandle, force: true })
+      .then((result) => {
+        rememberBrowserSessionResult(key, authorHandle, result);
+      })
+      .finally(() => {
+        if (lastBrowserSessionRebindKey === key) browserSessionRetrying = false;
+      });
   }
 
   // GAP-55 T2-A SSE subscription (realtime-layer-design-contract 2026-05-14).
@@ -464,7 +494,7 @@
   >
     {#snippet status()}
       {#if realtimeStatus}
-        <RealtimeStatusIndicator store={realtimeStatus} />
+        <RealtimeStatusIndicator store={realtimeStatus} onManualRetry={remintBrowserSessionForCurrentRoom} />
       {/if}
       <RoomCardActivity roomId={roomFromServer.id} variant="header" />
     {/snippet}
@@ -498,6 +528,15 @@
       </RoomMenuDropdown>
     {/snippet}
   </RoomNameHeader>
+
+  {#if browserSessionError}
+    <div class="session-alert" role="alert">
+      <span>{browserSessionError}</span>
+      <button type="button" onclick={remintBrowserSessionForCurrentRoom} disabled={browserSessionRetrying}>
+        {browserSessionRetrying ? 'Retrying session...' : 'Retry session'}
+      </button>
+    </div>
+  {/if}
 
   <Explainable explainKey="room-mode">
     <RoomModeSwitcher
@@ -666,6 +705,37 @@
     background: linear-gradient(to bottom, transparent 0, var(--bg) 0.6rem, var(--bg) 100%);
   }
 
+  .session-alert {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin: 0.65rem 0;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid color-mix(in srgb, #dc2626 45%, var(--line-soft));
+    border-radius: 0.55rem;
+    background: color-mix(in srgb, #dc2626 8%, var(--surface-raised));
+    color: var(--ink-strong);
+    font-size: 0.86rem;
+    font-weight: 700;
+  }
+  .session-alert button {
+    flex: 0 0 auto;
+    min-height: 2rem;
+    border: 1px solid color-mix(in srgb, #dc2626 54%, var(--line-soft));
+    border-radius: 999px;
+    background: var(--surface);
+    color: #b91c1c;
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 0.28rem 0.7rem;
+  }
+  .session-alert button:disabled {
+    cursor: wait;
+    opacity: 0.7;
+  }
+
   /* Mobile chat app-shell (JWPK IMG_0671 fix): on phones the room column
      uses page-level scrolling. iOS Safari is brittle when dynamic control
      rows live inside a fixed-height overflow:hidden shell: a slightly taller
@@ -700,6 +770,14 @@
       margin: 0 -0.15rem;
       padding: 0.15rem 0.15rem env(safe-area-inset-bottom, 0);
       background: var(--bg);
+    }
+    .session-alert {
+      align-items: stretch;
+      flex-direction: column;
+      margin: 0.45rem 0.48rem;
+    }
+    .session-alert button {
+      width: 100%;
     }
     .room-main :global(.room-mode-switcher),
     .room-main :global(.away-mode-bar),

@@ -159,6 +159,14 @@ describe('/rooms/[roomId] load', () => {
     expect(source).toContain('href="#tasks"');
   });
 
+  it('surfaces room session failures with a retry action', () => {
+    const source = readFileSync('src/routes/rooms/[roomId]/+page.svelte', 'utf8');
+    expect(source).toContain('browserSessionError');
+    expect(source).toContain('role="alert"');
+    expect(source).toContain('Retry session');
+    expect(source).toContain('onManualRetry={remintBrowserSessionForCurrentRoom}');
+  });
+
   it('threads room mode and roster-based agent identity into message claims', () => {
     const roomPageSource = readFileSync('src/routes/rooms/[roomId]/+page.svelte', 'utf8');
     const messageListSource = readFileSync('src/lib/components/MessageList.svelte', 'utf8');
