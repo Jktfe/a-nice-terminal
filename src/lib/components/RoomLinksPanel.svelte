@@ -15,7 +15,6 @@
   room appears in the panel immediately. Restores v3 parity.
 -->
 <script lang="ts">
-  import { goto } from '$app/navigation';
   import Skeleton from './Skeleton.svelte';
 
   type RoomLinkWithPeer = {
@@ -184,10 +183,6 @@
     if (isLinkFormOpen) void loadCandidateRooms();
   }
 
-  function gotoRoom(targetRoomId: string) {
-    void goto(`/rooms/${targetRoomId}`);
-  }
-
   $effect(() => {
     if (roomId) void loadLinksFromServer();
   });
@@ -302,10 +297,10 @@
       <ul class="link-list">
         {#each outgoing as link (link.id)}
           <li class="link-row">
-            <button type="button" class="link-jump" onclick={() => gotoRoom(link.peerRoomId)}>
+            <a class="link-jump" href="/rooms/{encodeURIComponent(link.peerRoomId)}">
               <span class="link-badge">{RELATIONSHIP_LABEL[link.relationship]}</span>
               <span class="link-name">{link.title ?? link.peerRoomName}</span>
-            </button>
+            </a>
             {#if canManage}
               <button
                 type="button"
@@ -325,10 +320,10 @@
       <ul class="link-list">
         {#each incoming as link (link.id)}
           <li class="link-row">
-            <button type="button" class="link-jump link-jump-parent" onclick={() => gotoRoom(link.peerRoomId)}>
+            <a class="link-jump link-jump-parent" href="/rooms/{encodeURIComponent(link.peerRoomId)}">
               <span class="link-badge link-badge-parent">Parent</span>
               <span class="link-name">{link.peerRoomName}</span>
-            </button>
+            </a>
           </li>
         {/each}
       </ul>
@@ -490,6 +485,7 @@
     color: var(--ink-strong);
     font: inherit;
     text-align: left;
+    text-decoration: none;
     cursor: pointer;
   }
   .link-jump:hover {

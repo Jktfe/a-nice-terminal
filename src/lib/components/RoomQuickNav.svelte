@@ -18,7 +18,6 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
   import { roomBookmarks } from '$lib/stores/roomBookmarks.svelte';
 
   type Props = {
@@ -51,11 +50,6 @@
   function isCurrent(roomId: string): boolean {
     return roomId === currentRoomId;
   }
-
-  async function hopToRoom(roomId: string): Promise<void> {
-    if (isCurrent(roomId)) return;
-    await goto(`/rooms/${encodeURIComponent(roomId)}`);
-  }
 </script>
 
 <aside class="room-quick-nav" aria-label="Starred rooms quick navigation">
@@ -69,16 +63,15 @@
     <ul class="room-list">
       {#each starredIds as roomId (roomId)}
         <li>
-          <button
-            type="button"
+          <a
             class="room-link"
             class:current={isCurrent(roomId)}
+            href="/rooms/{encodeURIComponent(roomId)}"
             aria-current={isCurrent(roomId) ? 'page' : undefined}
-            onclick={() => void hopToRoom(roomId)}
           >
             <span class="star" aria-hidden="true">★</span>
             <span class="room-name">{labelFor(roomId)}</span>
-          </button>
+          </a>
         </li>
       {/each}
     </ul>
@@ -151,6 +144,7 @@
     font: inherit;
     font-size: 0.88rem;
     text-align: left;
+    text-decoration: none;
     cursor: pointer;
   }
   .room-link:hover {
