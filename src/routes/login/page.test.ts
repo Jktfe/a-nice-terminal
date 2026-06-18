@@ -7,6 +7,7 @@ describe('/login page source', () => {
   it('does not fall back to stored login after account login accepted credentials but local session failed', () => {
     expect(pageSource).toContain('failure.fallbackToStoredLogin === false');
     expect(pageSource).toContain('canTryStoredLogin(response, failure ?? {})');
-    expect(pageSource).toContain('return failure.message');
+    expect(pageSource).toContain('return `${failure.message}${requestSuffix}`');
+    expect(pageSource).toContain('Reference: ${failure.requestId}.');
   });
 });

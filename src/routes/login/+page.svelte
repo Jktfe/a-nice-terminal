@@ -11,6 +11,7 @@
     message?: string;
     code?: string;
     fallbackToStoredLogin?: boolean;
+    requestId?: string;
   };
 
   let email = $state('');
@@ -64,14 +65,15 @@
   }
 
   function describeLoginFailure(response: Response, failure: LoginFailure): string {
-    if (failure.fallbackToStoredLogin === false && failure.message) return failure.message;
+    const requestSuffix = failure.requestId ? ` Reference: ${failure.requestId}.` : '';
+    if (failure.fallbackToStoredLogin === false && failure.message) return `${failure.message}${requestSuffix}`;
     if (response.status === 401 || response.status === 403) {
-      return 'That email or password did not match. Try again.';
+      return `That email or password did not match. Try again.${requestSuffix}`;
     }
     if (response.status === 503) {
-      return failure.message ?? 'Login is not configured on this server.';
+      return `${failure.message ?? 'Login is not configured on this server.'}${requestSuffix}`;
     }
-    return failure.message ?? `Sign-in failed (${response.status}).`;
+    return `${failure.message ?? `Sign-in failed (${response.status}).`}${requestSuffix}`;
   }
 
   async function handleSubmit(event: SubmitEvent): Promise<void> {

@@ -18,7 +18,8 @@
  * delete — never remove the working login before the new one is proven).
  */
 
-import { error, json } from '@sveltejs/kit';
+import { json } from '@sveltejs/kit';
+import { randomUUID } from 'node:crypto';
 import type { RequestHandler } from './$types';
 import { accountsBaseUrl } from '$lib/server/accountsProxy';
 import { resolveAccountsBearerIdentity } from '$lib/server/accountsBearerIdentity';
@@ -30,13 +31,59 @@ import { getOperatorEmail, setOperatorEmail } from '$lib/server/operatorEmail';
 import { resolveBrowserLoginRoom } from '$lib/server/browserLoginRoom';
 
 type AccountLoginFailureCode =
+  | 'invalid_json'
+  | 'missing_credentials'
+  | 'accounts_auth_unreachable'
+  | 'invalid_credentials'
+  | 'accounts_session_token_missing'
+  | 'accounts_session_not_verified'
   | 'operator_email_not_configured'
   | 'account_not_configured_operator'
   | 'browser_login_room_unavailable'
   | 'browser_session_mint_failed';
 
-function localLoginFailure(status: number, code: AccountLoginFailureCode, message: string): Response {
-  return json({ ok: false, code, message, fallbackToStoredLogin: false }, { status });
+type FailureOptions = {
+  requestId: string;
+  status: number;
+  code: AccountLoginFailureCode;
+  message: string;
+  fallbackToStoredLogin: boolean;
+};
+
+function requestIdFor(request: Request): string {
+  const incoming = request.headers.get('x-ant-request-id') ?? request.headers.get('x-request-id');
+  if (incoming && /^[a-zA-Z0-9_.:-]{6,96}$/.test(incoming)) return incoming;
+  return `auth_${randomUUID()}`;
+}
+
+function logLoginFailure(input: FailureOptions): void {
+  console.warn(
+    JSON.stringify({
+      event: 'accounts_login_failure',
+      requestId: input.requestId,
+      code: input.code,
+      status: input.status,
+      fallbackToStoredLogin: input.fallbackToStoredLogin
+    })
+  );
+}
+
+function loginFailure(input: FailureOptions): Response {
+  logLoginFailure(input);
+  return json(
+    {
+      ok: false,
+      code: input.code,
+      message: input.message,
+      fallbackToStoredLogin: input.fallbackToStoredLogin,
+      requestId: input.requestId
+    },
+    { status: input.status, headers: { 'x-ant-request-id': input.requestId } }
+  );
+}
+
+function localLoginFailure(requestId: string, status: number, code: AccountLoginFailureCode, message: string): Response {
+  return loginFailure({ requestId, status, code, message, fallbackToStoredLogin: false });
 }
 
 function buildSessionCookie(secret: string, expiresAtMs: number, nowMs: number, request: Request): string {
@@ -69,16 +116,29 @@ function extractSessionToken(body: unknown, setCookie: string | null): string | 
 }
 
 export const POST: RequestHandler = async ({ request }) => {
+  const requestId = requestIdFor(request);
   let body: Record<string, unknown> | null = null;
   try {
     body = (await request.json()) as Record<string, unknown>;
   } catch {
-    throw error(400, 'invalid JSON body');
+    return loginFailure({
+      requestId,
+      status: 400,
+      code: 'invalid_json',
+      message: 'invalid JSON body',
+      fallbackToStoredLogin: false
+    });
   }
   const email = body?.email;
   const password = body?.password;
   if (typeof email !== 'string' || typeof password !== 'string' || email.length === 0 || password.length === 0) {
-    throw error(400, 'email + password required');
+    return loginFailure({
+      requestId,
+      status: 400,
+      code: 'missing_credentials',
+      message: 'email + password required',
+      fallbackToStoredLogin: false
+    });
   }
 
   // 1. accounts Better-Auth email sign-in
@@ -91,22 +151,53 @@ export const POST: RequestHandler = async ({ request }) => {
       body: JSON.stringify({ email, password, rememberMe: true })
     });
   } catch {
-    throw error(502, 'accounts auth unreachable');
+    return loginFailure({
+      requestId,
+      status: 502,
+      code: 'accounts_auth_unreachable',
+      message: 'accounts auth unreachable',
+      fallbackToStoredLogin: true
+    });
   }
-  if (!signin.ok) throw error(401, 'invalid email or password');
+  if (!signin.ok) {
+    return loginFailure({
+      requestId,
+      status: 401,
+      code: 'invalid_credentials',
+      message: 'invalid email or password',
+      fallbackToStoredLogin: true
+    });
+  }
 
   const signinBody = await signin.json().catch(() => null);
   const token = extractSessionToken(signinBody, signin.headers.get('set-cookie'));
-  if (!token) throw error(502, 'accounts auth returned no session token');
+  if (!token) {
+    return loginFailure({
+      requestId,
+      status: 502,
+      code: 'accounts_session_token_missing',
+      message: 'accounts auth returned no session token',
+      fallbackToStoredLogin: true
+    });
+  }
 
   // 2. validate the token + resolve the account identity
   const identity = await resolveAccountsBearerIdentity(token);
-  if (!identity) throw error(401, 'accounts session could not be verified');
+  if (!identity) {
+    return loginFailure({
+      requestId,
+      status: 401,
+      code: 'accounts_session_not_verified',
+      message: 'accounts session could not be verified',
+      fallbackToStoredLogin: true
+    });
+  }
 
   // 3. authorise: only the configured operator email may assume the operator
   const allowed = getOperatorEmail();
   if (!allowed) {
     return localLoginFailure(
+      requestId,
       503,
       'operator_email_not_configured',
       'Your account signed in, but this ANT server has no operator email configured.'
@@ -114,6 +205,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
   if (identity.email.trim().toLowerCase() !== allowed) {
     return localLoginFailure(
+      requestId,
       403,
       'account_not_configured_operator',
       'Your account signed in, but it is not the configured ANT operator account.'
@@ -125,6 +217,7 @@ export const POST: RequestHandler = async ({ request }) => {
   const room = resolveBrowserLoginRoom();
   if (!room) {
     return localLoginFailure(
+      requestId,
       503,
       'browser_login_room_unavailable',
       'Your account signed in, but ANT could not find an active room for the browser session.'
@@ -147,6 +240,7 @@ export const POST: RequestHandler = async ({ request }) => {
   const result = createBrowserSession({ roomId, authorHandle: handle, nowMs });
   if (!result) {
     return localLoginFailure(
+      requestId,
       503,
       'browser_session_mint_failed',
       'Your account signed in, but ANT could not create the local browser session.'
@@ -157,8 +251,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const cookie = buildSessionCookie(result.browserSessionSecret, result.session.expires_at_ms, nowMs, request);
   return json(
-    { ok: true, handle, roomId, email: identity.email },
-    { status: 200, headers: { 'set-cookie': cookie } }
+    { ok: true, handle, roomId, email: identity.email, requestId },
+    { status: 200, headers: { 'set-cookie': cookie, 'x-ant-request-id': requestId } }
   );
 };
 

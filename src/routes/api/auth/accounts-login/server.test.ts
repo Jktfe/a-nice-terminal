@@ -56,6 +56,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   resetIdentityRows();
   if (PREV_OPERATOR_EMAIL === undefined) delete process.env.ANT_OPERATOR_EMAIL;
   else process.env.ANT_OPERATOR_EMAIL = PREV_OPERATOR_EMAIL;
@@ -114,9 +115,11 @@ describe('POST /api/auth/accounts-login', () => {
     );
 
     expect(response.status).toBe(503);
+    expect(response.headers.get('x-ant-request-id')).toMatch(/^auth_/);
     await expect(response.json()).resolves.toMatchObject({
       code: 'operator_email_not_configured',
-      fallbackToStoredLogin: false
+      fallbackToStoredLogin: false,
+      requestId: expect.stringMatching(/^auth_/)
     });
     expect(getPersistedOperatorEmail()).toBeNull();
   });
@@ -187,6 +190,34 @@ describe('POST /api/auth/accounts-login', () => {
       message: expect.stringContaining('account signed in')
     });
     expect(getPersistedOperatorEmail()).toBeNull();
+  });
+
+  it('logs a redacted request id on account-login failures without passwords or tokens', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchMock = stubAccountsIdentity('operator@example.com');
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await capture(() =>
+      POST(eventForPost({ email: 'operator@example.com', password: 'super-secret-password' }))
+    );
+
+    expect(response.status).toBe(200);
+    expect(warn).not.toHaveBeenCalled();
+
+    process.env.ANT_BROWSER_LOGIN_ROOM_ID = 'missing-room';
+    resetChatRoomStoreForTests();
+    const failure = await capture(() =>
+      POST(eventForPost({ email: 'operator@example.com', password: 'super-secret-password' }))
+    );
+
+    expect(failure.status).toBe(503);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const logged = warn.mock.calls[0][0] as string;
+    expect(logged).toContain('"event":"accounts_login_failure"');
+    expect(logged).toContain('"code":"browser_login_room_unavailable"');
+    expect(logged).not.toContain('super-secret-password');
+    expect(logged).not.toContain('better-auth-token');
+    expect(logged).not.toContain('operator@example.com');
   });
 
   it('stores an env-confirmed operator email during successful account confirmation', async () => {
