@@ -58,6 +58,11 @@
       ? artefact.refUrl.startsWith('/') || artefact.refUrl.startsWith('http://') || artefact.refUrl.startsWith('https://')
       : false
   );
+  // Security: the "Open source" control renders artefact.refUrl as an href, so
+  // a javascript:/data: ref (artefact data is agent/user-supplied) would
+  // execute on click. Only expose the link for safe schemes (canFrame already
+  // allowlists http/https/relative); unsafe refs render no link.
+  const safeRefUrl = $derived(canFrame && artefact.refUrl ? artefact.refUrl : null);
   const isUniverKind = $derived(['spreadsheet', 'doc', 'deck'].includes(artefact.kind));
   // Validation panel renders for all doc/deck artefacts. Markdown runs
   // directly through the markdown extractor; univer-json first extracts
@@ -142,8 +147,8 @@
   <div class="toolbar" role="toolbar" aria-label="Artefact controls">
     <a class="back" href={`/rooms/${encodeURIComponent(artefact.roomId)}`}>← Back to room</a>
     <span class="spacer"></span>
-    {#if artefact.refUrl}
-      <a class="action" href={artefact.refUrl} target="_blank" rel="noreferrer">Open source</a>
+    {#if safeRefUrl}
+      <a class="action" href={safeRefUrl} target="_blank" rel="noopener noreferrer">Open source</a>
     {/if}
   </div>
 
