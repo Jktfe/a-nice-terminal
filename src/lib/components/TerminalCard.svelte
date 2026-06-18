@@ -119,6 +119,22 @@
     } catch { /* non-blocking */ }
   }
 
+  // Re-sync just the operator-settable CLI type from the canonical record.
+  // agentKind is otherwise only read once on mount, so a change made on the
+  // terminals main page (PATCH .../cli) never reached an already-open card
+  // until a full reload — the "set CLI type, card doesn't update" bug
+  // (JWPK msg_ii0mz70kdk). Kept lightweight (no access/state refetch) so it
+  // can ride the existing safety poll cheaply.
+  async function refreshAgentKind(): Promise<void> {
+    if (!browser) return;
+    try {
+      const res = await fetch(`/api/terminals/${encodeURIComponent(terminalId)}`);
+      if (!res.ok) return;
+      const body = (await res.json()) as { agentKind?: string | null };
+      agentKind = body.agentKind ?? null;
+    } catch { /* non-blocking */ }
+  }
+
   async function loadTerminalAccess(): Promise<void> {
     if (!browser) return;
     try {
@@ -258,7 +274,7 @@
     // Safety net: REST poll at 30s catches dropped SSE connections.
     // Was 15s pre-SSE; now we lean on the stream for responsiveness
     // and only fall back when it goes quiet.
-    const poll = setInterval(() => { void loadAgentState(); }, 30_000);
+    const poll = setInterval(() => { void loadAgentState(); void refreshAgentKind(); }, 30_000);
     return () => {
       clearInterval(poll);
       if (es) {

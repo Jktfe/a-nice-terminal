@@ -64,6 +64,15 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
   if (!callerIsOperator && !isSameAuthor(existing.authorHandle, callerHandle)) {
     throw error(403, 'Only the author or the operator can delete this message.');
   }
+  if (existing.deletedAtMs) {
+    throw error(409, 'Message is already deleted.');
+  }
+  // JWPK msg_uot85o75mh: the operator may clear system clutter (join notices,
+  // idle nudges, context breaks) from the room/search; everyone else is still
+  // blocked from deleting system-authored posts via the message menu.
+  if (!callerIsOperator && (existing.kind === 'system' || existing.kind === 'system-break')) {
+    throw error(409, 'System messages cannot be deleted from the message menu.');
+  }
 
   const updated = softDeleteMessage({
     messageId: params.messageId,
@@ -71,8 +80,7 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
     asOperator: callerIsOperator
   });
   if (!updated) {
-    // Already deleted, or system-kind — either way return current state.
-    throw error(409, 'Message cannot be deleted (already deleted or system message).');
+    throw error(409, 'Message changed before delete completed. Refresh and try again.');
   }
   broadcastToRoom(params.roomId, { type: 'message_updated', message: updated });
   return new Response(null, { status: 204 });

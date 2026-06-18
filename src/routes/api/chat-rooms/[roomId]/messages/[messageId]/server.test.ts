@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resetIdentityDbForTests } from '\$lib/server/db';
 import { createChatRoom, resetChatRoomStoreForTests } from '\$lib/server/chatRoomStore';
-import { postMessage, resetChatMessageStoreForTests } from '\$lib/server/chatMessageStore';
+import { postMessage, postSystemMessage, getMessageById, resetChatMessageStoreForTests } from '\$lib/server/chatMessageStore';
 import { createBrowserSession } from '\$lib/server/browserSessionStore';
 import { canonicaliseOperatorHandle } from '\$lib/server/operatorHandle';
 import { DELETE, PATCH } from './+server';
@@ -102,6 +102,16 @@ describe('/api/chat-rooms/:roomId/messages/:messageId', () => {
     expect(res.status).toBe(401);
   });
 
+  it('DELETE 409s with a precise message when the row is already deleted', async () => {
+    const room = createChatRoom({ name: 'test', whoCreatedIt: '@you' });
+    const msg = postMessage({ roomId: room.id, authorHandle: '@you', body: 'hello' });
+    const cookie = await memberCookie(room.id, '@you');
+    await run(DELETE as unknown as AnyHandler, eventFor(room.id, msg.id, 'DELETE', `ant_browser_session=${cookie}`));
+    const res = await run(DELETE as unknown as AnyHandler, eventFor(room.id, msg.id, 'DELETE', `ant_browser_session=${cookie}`));
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({ message: 'Message is already deleted.' });
+  });
+
   it("DELETE iterates multiple ant_browser_session cookies (JWPK msg_nla01cyqyw 2026-05-19)", async () => {
     // Regression for the "can't delete in antv4" case: demo-login mints
     // Path=/ + per-room mint adds Path=/api/chat-rooms/{id}, browsers
@@ -114,6 +124,28 @@ describe('/api/chat-rooms/:roomId/messages/:messageId', () => {
     const cookieHeader = `ant_browser_session=bws_stale_demo_login; ant_browser_session=${validCookie}`;
     const res = await run(DELETE as unknown as AnyHandler, eventFor(room.id, msg.id, 'DELETE', cookieHeader));
     expect(res.status).toBe(204);
+  });
+
+  it('DELETE lets the operator delete a system message and purges its body (E)', async () => {
+    // JWPK msg_uot85o75mh: the operator must be able to clear system clutter
+    // (join notices, idle nudges) from the room/search. Non-operators still
+    // cannot (the author gate at @system fires first → 403).
+    const room = createChatRoom({ name: 'sys', whoCreatedIt: '@you' });
+    const sys = postSystemMessage({ roomId: room.id, body: 'idle nudge clutter' });
+    const cookie = await memberCookie(room.id, '@you');
+    const res = await run(DELETE as unknown as AnyHandler, eventFor(room.id, sys.id, 'DELETE', `ant_browser_session=${cookie}`));
+    expect(res.status).toBe(204);
+    const after = getMessageById(sys.id);
+    expect(after?.deletedAtMs).toBeTruthy();
+    expect(after?.body).toBe('');
+  });
+
+  it('DELETE still 403s when a non-operator targets a system message', async () => {
+    const room = createChatRoom({ name: 'sys', whoCreatedIt: '@you' });
+    const sys = postSystemMessage({ roomId: room.id, body: 'system notice' });
+    const cookie = await memberCookie(room.id, '@other');
+    const res = await run(DELETE as unknown as AnyHandler, eventFor(room.id, sys.id, 'DELETE', `ant_browser_session=${cookie}`));
+    expect(res.status).toBe(403);
   });
 
   it('PATCH edits the author\'s own message', async () => {
