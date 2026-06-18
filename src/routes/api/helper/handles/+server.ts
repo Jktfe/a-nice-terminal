@@ -11,11 +11,11 @@
  */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate';
+import { tryAdminBearer, tryOperatorSession, tryAntchatOperatorBearer } from '$lib/server/chatRoomAuthGate';
 import { listLiveColonyHandles } from '$lib/server/liveColonyHandles';
 
 export const GET: RequestHandler = async ({ request }) => {
-  if (!tryAdminBearer(request) && !tryOperatorSession(request)) {
+  if (!tryAdminBearer(request) && !tryOperatorSession(request) && !tryAntchatOperatorBearer(request)) {
     throw error(401, 'operator login required');
   }
   return json({ handles: await listLiveColonyHandles() });

@@ -27,6 +27,7 @@ import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { getOperatorEmail, setOperatorEmail } from '$lib/server/operatorEmail';
 
 const DEFAULT_LANDING_ROOM = 'fnokx03pud';
 
@@ -36,12 +37,6 @@ function landingRoomId(): string {
     process.env.ANT_DEMO_ROOM_ID ||
     DEFAULT_LANDING_ROOM
   );
-}
-
-/** The email permitted to log in as the operator. */
-function operatorEmail(): string | null {
-  const configured = process.env.ANT_OPERATOR_EMAIL || process.env.ANT_DEMO_EMAIL;
-  return configured && configured.trim().length > 0 ? configured.trim().toLowerCase() : null;
 }
 
 function buildSessionCookie(secret: string, expiresAtMs: number, nowMs: number, request: Request): string {
@@ -109,10 +104,12 @@ export const POST: RequestHandler = async ({ request }) => {
   if (!identity) throw error(401, 'accounts session could not be verified');
 
   // 3. authorise: only the configured operator email may assume the operator
-  const allowed = operatorEmail();
-  if (allowed && identity.email.trim().toLowerCase() !== allowed) {
+  const allowed = getOperatorEmail();
+  if (!allowed) throw error(503, 'operator account email not configured');
+  if (identity.email.trim().toLowerCase() !== allowed) {
     throw error(403, 'this account is not the configured operator');
   }
+  setOperatorEmail({ email: identity.email, updatedBy: 'accounts-login' });
 
   // 4. mint a local browser session bound to the operator handle
   const handle = getOperatorHandle();

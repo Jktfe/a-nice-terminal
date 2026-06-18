@@ -12,7 +12,7 @@
  */
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate';
+import { tryAdminBearer, tryOperatorSession, tryAntchatOperatorBearer } from '$lib/server/chatRoomAuthGate';
 import { getOperatorHandle } from '$lib/server/operatorHandle';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { createPairingCode } from '$lib/server/helperPairingStore';
@@ -21,7 +21,7 @@ import { listLiveColonyHandles } from '$lib/server/liveColonyHandles';
 type Body = { handle?: unknown; role?: unknown; owners?: unknown; ttlMs?: unknown };
 
 export const POST: RequestHandler = async ({ request }) => {
-  if (!tryAdminBearer(request) && !tryOperatorSession(request)) {
+  if (!tryAdminBearer(request) && !tryOperatorSession(request) && !tryAntchatOperatorBearer(request)) {
     throw error(401, 'operator login required to mint a pairing code');
   }
   const body = (await request.json().catch(() => null)) as Body | null;

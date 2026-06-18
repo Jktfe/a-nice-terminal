@@ -1,18 +1,21 @@
 /**
- * Persisted store for global Quick Shortcuts — the chips that line the
+ * Persisted store for user-owned Quick Shortcuts — the chips that line the
  * bottom of every terminal and, on click, type literal text into the PTY.
  *
- * Per JWPK 2026-05-15 lock: GLOBAL scope (one shared list across all
- * terminals), server-side persistence in ~/.ant/fresh-ant.db via
+ * Per JWPK 2026-06-18 correction: shortcuts are owned by the logged-in
+ * browser-session handle, but shared across all terminals for that owner.
+ * Server-side persistence in ~/.ant/fresh-ant.db via
  * better-sqlite3 (mirrors chatRoomStore / terminalRecords pattern), and
  * literal text payload with optional autoEnter (default true sends \r
  * after the text). Hard-delete only — no soft-delete or audit history;
  * shortcuts are personal prefs and easy to recreate.
  */
 import { getIdentityDb } from './db';
+import { canonicaliseOperatorHandle, getOperatorHandle } from './operatorHandle';
 
 export type QuickShortcut = {
   id: string;
+  ownerHandle: string;
   label: string;
   text: string;
   autoEnter: boolean;
@@ -23,6 +26,7 @@ export type QuickShortcut = {
 
 type QuickShortcutRow = {
   id: string;
+  owner_handle: string;
   label: string;
   text: string;
   auto_enter: number;
@@ -37,9 +41,18 @@ function makeShortcutId(): string {
   return `${fourLetters}${sixMore}`;
 }
 
+function normaliseOwnerHandle(ownerHandle: string | null | undefined): string {
+  const fallback = getOperatorHandle();
+  const raw = typeof ownerHandle === 'string' && ownerHandle.trim().length > 0
+    ? ownerHandle
+    : fallback;
+  return canonicaliseOperatorHandle(raw);
+}
+
 function rowToShortcut(row: QuickShortcutRow): QuickShortcut {
   return {
     id: row.id,
+    ownerHandle: row.owner_handle,
     label: row.label,
     text: row.text,
     autoEnter: row.auto_enter === 1,
@@ -49,35 +62,39 @@ function rowToShortcut(row: QuickShortcutRow): QuickShortcut {
   };
 }
 
-function loadShortcutById(id: string): QuickShortcut | undefined {
+function loadShortcutById(id: string, ownerHandle?: string | null): QuickShortcut | undefined {
   const db = getIdentityDb();
+  const owner = normaliseOwnerHandle(ownerHandle);
   const row = db
     .prepare(
-      `SELECT id, label, text, auto_enter, order_index, created_at_ms, updated_at_ms
-       FROM quick_shortcuts WHERE id = ?`
+      `SELECT id, owner_handle, label, text, auto_enter, order_index, created_at_ms, updated_at_ms
+       FROM quick_shortcuts WHERE id = ? AND owner_handle = ?`
     )
-    .get(id) as QuickShortcutRow | undefined;
+    .get(id, owner) as QuickShortcutRow | undefined;
   if (!row) return undefined;
   return rowToShortcut(row);
 }
 
-export function listQuickShortcuts(): QuickShortcut[] {
+export function listQuickShortcuts(ownerHandle?: string | null): QuickShortcut[] {
   const db = getIdentityDb();
+  const owner = normaliseOwnerHandle(ownerHandle);
   const rows = db
     .prepare(
-      `SELECT id, label, text, auto_enter, order_index, created_at_ms, updated_at_ms
+      `SELECT id, owner_handle, label, text, auto_enter, order_index, created_at_ms, updated_at_ms
        FROM quick_shortcuts
+       WHERE owner_handle = ?
        ORDER BY order_index ASC, created_at_ms ASC`
     )
-    .all() as QuickShortcutRow[];
+    .all(owner) as QuickShortcutRow[];
   return rows.map(rowToShortcut);
 }
 
-export function findQuickShortcutById(id: string): QuickShortcut | undefined {
-  return loadShortcutById(id);
+export function findQuickShortcutById(id: string, ownerHandle?: string | null): QuickShortcut | undefined {
+  return loadShortcutById(id, ownerHandle);
 }
 
 export function createQuickShortcut(input: {
+  ownerHandle?: string | null;
   label: string;
   text: string;
   autoEnter?: boolean;
@@ -93,30 +110,33 @@ export function createQuickShortcut(input: {
 
   const db = getIdentityDb();
   const newId = makeShortcutId();
+  const owner = normaliseOwnerHandle(input.ownerHandle);
   const nowMs = Date.now();
   const autoEnterFlag = input.autoEnter === false ? 0 : 1;
 
   const txn = db.transaction(() => {
     const nextOrderRow = db
-      .prepare(`SELECT COALESCE(MAX(order_index), 0) + 1 AS next FROM quick_shortcuts`)
-      .get() as { next: number };
+      .prepare(`SELECT COALESCE(MAX(order_index), 0) + 1 AS next FROM quick_shortcuts WHERE owner_handle = ?`)
+      .get(owner) as { next: number };
     const orderIndex = nextOrderRow.next;
     db.prepare(
       `INSERT INTO quick_shortcuts
-        (id, label, text, auto_enter, order_index, created_at_ms, updated_at_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(newId, trimmedLabel, trimmedText, autoEnterFlag, orderIndex, nowMs, nowMs);
+        (id, owner_handle, label, text, auto_enter, order_index, created_at_ms, updated_at_ms)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(newId, owner, trimmedLabel, trimmedText, autoEnterFlag, orderIndex, nowMs, nowMs);
   });
 
   txn();
-  return loadShortcutById(newId)!;
+  return loadShortcutById(newId, owner)!;
 }
 
 export function updateQuickShortcut(
   id: string,
-  patch: { label?: string; text?: string; autoEnter?: boolean }
+  patch: { label?: string; text?: string; autoEnter?: boolean },
+  ownerHandle?: string | null
 ): QuickShortcut | undefined {
-  const existing = loadShortcutById(id);
+  const owner = normaliseOwnerHandle(ownerHandle);
+  const existing = loadShortcutById(id, owner);
   if (!existing) return undefined;
 
   let nextLabel = existing.label;
@@ -145,38 +165,43 @@ export function updateQuickShortcut(
   db.prepare(
     `UPDATE quick_shortcuts
      SET label = ?, text = ?, auto_enter = ?, updated_at_ms = ?
-     WHERE id = ?`
-  ).run(nextLabel, nextText, nextAutoEnter ? 1 : 0, nowMs, id);
+     WHERE id = ? AND owner_handle = ?`
+  ).run(nextLabel, nextText, nextAutoEnter ? 1 : 0, nowMs, id, owner);
 
-  return loadShortcutById(id);
+  return loadShortcutById(id, owner);
 }
 
-export function deleteQuickShortcut(id: string): boolean {
+export function deleteQuickShortcut(id: string, ownerHandle?: string | null): boolean {
   const db = getIdentityDb();
-  const info = db.prepare(`DELETE FROM quick_shortcuts WHERE id = ?`).run(id);
+  const owner = normaliseOwnerHandle(ownerHandle);
+  const info = db.prepare(`DELETE FROM quick_shortcuts WHERE id = ? AND owner_handle = ?`).run(id, owner);
   return info.changes > 0;
 }
 
-export function reorderQuickShortcuts(idsInOrder: string[]): QuickShortcut[] {
+export function reorderQuickShortcuts(
+  idsInOrder: string[],
+  ownerHandle?: string | null
+): QuickShortcut[] {
   const db = getIdentityDb();
   const nowMs = Date.now();
+  const owner = normaliseOwnerHandle(ownerHandle);
 
   const txn = db.transaction(() => {
-    const existsStmt = db.prepare(`SELECT 1 AS present FROM quick_shortcuts WHERE id = ?`);
+    const existsStmt = db.prepare(`SELECT 1 AS present FROM quick_shortcuts WHERE id = ? AND owner_handle = ?`);
     const updateStmt = db.prepare(
-      `UPDATE quick_shortcuts SET order_index = ?, updated_at_ms = ? WHERE id = ?`
+      `UPDATE quick_shortcuts SET order_index = ?, updated_at_ms = ? WHERE id = ? AND owner_handle = ?`
     );
     let position = 0;
     for (const id of idsInOrder) {
-      const present = existsStmt.get(id) as { present: number } | undefined;
+      const present = existsStmt.get(id, owner) as { present: number } | undefined;
       if (!present) continue;
-      updateStmt.run(position, nowMs, id);
+      updateStmt.run(position, nowMs, id, owner);
       position += 1;
     }
   });
 
   txn();
-  return listQuickShortcuts();
+  return listQuickShortcuts(owner);
 }
 
 export function resetQuickShortcutsStoreForTests(): void {

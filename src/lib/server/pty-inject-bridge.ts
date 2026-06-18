@@ -392,19 +392,80 @@ function deliveryEnvelopeLine(m: EnvelopeMessage): string {
   return `\n[ANT delivery-envelope] ${JSON.stringify(m.deliveryEnvelope)}`;
 }
 
+function safeDecodePathPart(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function safeAttachmentOutputName(label: string | undefined, fallback: string): string {
+  const unescaped = (label ?? '')
+    .replace(/\\([\\[\]()`<>])/g, '$1')
+    .replace(/^[^\w.~-]+/, '')
+    .trim();
+  const lastSegment = unescaped.split(/[\\/]/).filter(Boolean).pop() ?? '';
+  const safe = lastSegment.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '');
+  if (!safe || safe === '.' || safe === '..') return fallback;
+  return safe;
+}
+
+function attachmentAccessCommands(body: string): string[] {
+  const commandsByKey = new Map<string, string>();
+  const remember = (roomIdRaw: string, attachmentIdRaw: string, label?: string) => {
+    const roomId = safeDecodePathPart(roomIdRaw);
+    const attachmentId = safeDecodePathPart(attachmentIdRaw);
+    const key = `${roomId}\0${attachmentId}`;
+    if (commandsByKey.has(key)) return;
+    const outputName = safeAttachmentOutputName(label, attachmentId);
+    commandsByKey.set(
+      key,
+      `ant attach get --room ${shellQuote(roomId)} --id ${shellQuote(attachmentId)} --output ${shellQuote(outputName)}`
+    );
+  };
+
+  const markdownLinkPattern =
+    /!?\[([^\]]*)\]\(\/api\/chat-rooms\/([^/\s)]+)\/attachments\/([^?\s)]+)(?:\?[^)\s]*)?\)/g;
+  for (const match of body.matchAll(markdownLinkPattern)) {
+    remember(match[2], match[3], match[1]);
+  }
+
+  const bareLinkPattern = /\/api\/chat-rooms\/([^/\s)]+)\/attachments\/([^?\s)]+)/g;
+  for (const match of body.matchAll(bareLinkPattern)) {
+    remember(match[1], match[2]);
+  }
+
+  return [...commandsByKey.values()];
+}
+
+function attachmentAccessLines(m: EnvelopeMessage): string {
+  const commands = attachmentAccessCommands(m.body);
+  if (commands.length === 0) return '';
+  return commands.map((command) => `\n[ANT attachment access: ${command}]`).join('');
+}
+
+function deliverySupportLines(m: EnvelopeMessage): string {
+  return `${deliveryEnvelopeLine(m)}${attachmentAccessLines(m)}`;
+}
+
 export function formatEnvelope(input: EnvelopeInput): string {
   const head = input.head;
   const extras = input.batchedExtras ?? [];
   const singleRoom = extras.length === 0 || isSingleRoomBatch(head, extras);
   if (extras.length === 0) {
     const header = `[ANT room ${head.roomName} id=${head.roomId} msg=${head.messageId}${discTag(head)}${replyToTag(head)}]`;
-    return `${header} ${renderMessageWithReplyContext(head)}${deliveryEnvelopeLine(head)}${replyInstruction(head.messageId)}`;
+    return `${header} ${renderMessageWithReplyContext(head)}${deliverySupportLines(head)}${replyInstruction(head.messageId)}`;
   }
   if (singleRoom) {
     const lastMessageId = extras[extras.length - 1].messageId;
     const header = `[ANT room ${head.roomName} id=${head.roomId} msg=${lastMessageId}]`;
     const all = [renderMessageWithReplyContext(head), ...extras.map(renderMessageWithReplyContext)].join(', ');
-    const deliveryLines = [head, ...extras].map(deliveryEnvelopeLine).join('');
+    const deliveryLines = [head, ...extras].map(deliverySupportLines).join('');
     return `${header} ${extras.length + 1} messages: ${all}${deliveryLines}${replyInstruction(lastMessageId)}`;
   }
   const lastMessageId = extras[extras.length - 1].messageId;

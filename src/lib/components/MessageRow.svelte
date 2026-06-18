@@ -42,6 +42,7 @@
     // passes it down to ChatComposer. system + system-break stay
     // root-level by construction (slice 3b approved guardrail).
     onReplyRequested?: (messageId: string) => void;
+    onInlineReplyRequested?: (message: ChatMessage) => void;
     // M30 slice 3e: count of direct replies to this message in the
     // current list. Default 0 → no badge rendered. MessageList
     // computes via countDirectRepliesByParent and passes per-row.
@@ -74,7 +75,7 @@
     readReceiptEvent?: Record<string, unknown> | null;
   };
 
-  let { message, member, members = [], onReplyRequested, childCount = 0, parentMessage, claims = [], roomMode = 'brainstorm', onClaimChanged, viewerIsAgent = false, viewerIsOperator = false, asHandle, readReceiptEvent }: Props = $props();
+  let { message, member, members = [], onReplyRequested, onInlineReplyRequested, childCount = 0, parentMessage, claims = [], roomMode = 'brainstorm', onClaimChanged, viewerIsAgent = false, viewerIsOperator = false, asHandle, readReceiptEvent }: Props = $props();
   // deleteError is owned by MessageRowHeader but bound back here so the
   // <p class="message-error"> renders in its original spot below the
   // message body (visual contract preserved across the split).
@@ -194,6 +195,7 @@
       {members}
       {roomMode}
       {onReplyRequested}
+      {onInlineReplyRequested}
       {asHandle}
       bind:deleteError
     />

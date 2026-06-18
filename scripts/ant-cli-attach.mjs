@@ -20,13 +20,16 @@
  *
  *   ant attach list --room <roomId> [--json]
  *
+ *   ant attach get  --room <roomId> --id <attachmentId> [--output <path>]
+ *
  * 9-year-old-readable. Stay under 260 lines.
  */
 
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
 import { makeStandardSendJson } from './ant-cli-shared-resolve.mjs';
 import { processIdentityChain } from './ant-cli-identity-chain.mjs';
+import { durableSessionHeaders } from './ant-cli-chat.mjs';
 
 // Literal --room id (no name-lookup) — same reasoning as ant-cli-artefact.
 
@@ -75,9 +78,10 @@ function parseFlags(rawArgs, CliInputError) {
 }
 
 function writeUsage(runtime) {
-  runtime.writeOut('ant attach <add|list>');
+  runtime.writeOut('ant attach <add|list|get>');
   runtime.writeOut('  attach add  --room <id> --file <path> [--mime <mimeType>]');
   runtime.writeOut('  attach list --room <id> [--json]');
+  runtime.writeOut('  attach get  --room <id> --id <attachmentId> [--output <path>]');
 }
 
 function callerHandle(runtime) {
@@ -149,6 +153,75 @@ async function runList(args, runtime, CliInputError) {
   return 0;
 }
 
+function parseAttachmentUrl(rawUrl) {
+  if (typeof rawUrl !== 'string' || rawUrl.trim().length === 0) return null;
+  let parsed;
+  try {
+    parsed = new URL(rawUrl, 'http://ant.local');
+  } catch {
+    return null;
+  }
+  const match = parsed.pathname.match(/^\/api\/chat-rooms\/([^/]+)\/attachments\/([^/]+)$/);
+  if (!match) return null;
+  return {
+    roomId: decodeURIComponent(match[1]),
+    attachmentId: decodeURIComponent(match[2])
+  };
+}
+
+function filenameFromDisposition(disposition) {
+  if (typeof disposition !== 'string' || disposition.length === 0) return null;
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+  const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+  return plainMatch ? plainMatch[1] : null;
+}
+
+function safeOutputName(candidate, fallback) {
+  const raw = typeof candidate === 'string' && candidate.trim().length > 0
+    ? candidate.trim()
+    : fallback;
+  const base = basename(raw).replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '');
+  if (!base || base === '.' || base === '..') return fallback;
+  return base;
+}
+
+async function runGet(args, runtime, CliInputError) {
+  const { flags, positionals } = parseFlags(args, CliInputError);
+  const parsedUrl = parseAttachmentUrl(flags.url ?? positionals[0]);
+  const roomId = (parsedUrl?.roomId ?? flags.room ?? positionals[0] ?? '').trim();
+  const attachmentId = (parsedUrl?.attachmentId ?? flags.id ?? flags.attachment ?? positionals[1] ?? '').trim();
+  if (!roomId) throw new CliInputError('attach get needs --room <id> or an attachment URL');
+  if (!attachmentId) throw new CliInputError('attach get needs --id <attachmentId> or an attachment URL');
+
+  const url = new URL(
+    `/api/chat-rooms/${encodeURIComponent(roomId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    runtime.serverUrl
+  );
+  url.searchParams.set('pidChain', JSON.stringify(processIdentityChain()));
+  const response = await runtime.fetchImpl(url.toString(), {
+    method: 'GET',
+    headers: durableSessionHeaders(runtime, roomId)
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Request failed (${response.status}): ${text.slice(0, 200)}`);
+  }
+
+  const responseFilename = filenameFromDisposition(response.headers.get('content-disposition'));
+  const outputPath = resolve(flags.output ?? safeOutputName(responseFilename, attachmentId));
+  const bytes = Buffer.from(await response.arrayBuffer());
+  writeFileSync(outputPath, bytes);
+  runtime.writeOut(`saved ${outputPath}`);
+  return 0;
+}
+
 export async function handleAttachVerb(action, args, runtime, ctx) {
   const { CliInputError } = ctx;
   if (!action || action === 'help' || action === '--help') {
@@ -158,6 +231,7 @@ export async function handleAttachVerb(action, args, runtime, ctx) {
   switch (action) {
     case 'add':  return runAdd(args, runtime, CliInputError);
     case 'list': return runList(args, runtime, CliInputError);
+    case 'get':  return runGet(args, runtime, CliInputError);
     default:
       writeUsage(runtime);
       throw new CliInputError(`unknown attach verb: ${action}`);

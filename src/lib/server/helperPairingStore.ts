@@ -29,7 +29,7 @@ export function mintPairingCode(bytes = randomBytes(6)): string {
 
 export type CreatePairingInput = {
   handle: string;
-  /** 'reader' (helper, default) or 'agent' (paneless authoring ANThandle). */
+  /** 'reader' (helper, default) or 'agent' (status attachment; no room posting). */
   role?: AttachmentRole;
   owners: string[];
   createdBy?: string | null;

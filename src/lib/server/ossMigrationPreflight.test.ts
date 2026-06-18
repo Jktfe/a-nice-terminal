@@ -35,7 +35,7 @@ const goodFiles = {
   '.env.example': 'ANT_API_KEY=\n',
   '.gitignore': '.env\n.env.*\n!.env.example\n*.db\n*.sqlite\n.mcp.json\n.claude/\nstatic/artefacts/\n',
   'package.json': goodPackage,
-  'package-lock.json': JSON.stringify({ packages: { '': { license: 'AGPL-3.0-or-later' } } })
+  'bun.lock': '# bun lockfile\n'
 };
 
 describe('check-oss-migration-preflight', () => {

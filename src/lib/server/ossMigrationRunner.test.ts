@@ -43,7 +43,7 @@ describe('run-oss-migration helpers', () => {
       repository: { url: 'https://github.com/Jktfe/a-nice-terminal.git' },
       bugs: { url: 'https://github.com/Jktfe/a-nice-terminal/issues' }
     }));
-    writeFileSync(join(tmp, 'package-lock.json'), JSON.stringify({ packages: { '': { license: 'AGPL-3.0-or-later' } } }));
+    writeFileSync(join(tmp, 'bun.lock'), '# bun lockfile\n');
     writeFileSync(join(tmp, '.gitignore'), [
       '.env',
       '.env.*',

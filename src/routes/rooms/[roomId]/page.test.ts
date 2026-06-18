@@ -152,4 +152,17 @@ describe('/rooms/[roomId] load', () => {
     expect(messageListSource).toContain('{viewerIsAgent}');
     expect(messageRowSource).not.toContain('@evolveant');
   });
+
+  it('wires inline reply drafting from message rows into the room panel', () => {
+    const roomPageSource = readFileSync('src/routes/rooms/[roomId]/+page.svelte', 'utf8');
+    const messageListSource = readFileSync('src/lib/components/MessageList.svelte', 'utf8');
+    const messageRowSource = readFileSync('src/lib/components/MessageRow.svelte', 'utf8');
+    const messageHeaderSource = readFileSync('src/lib/components/MessageRowHeader.svelte', 'utf8');
+
+    expect(messageHeaderSource).toContain('Reply in line');
+    expect(messageRowSource).toContain('onInlineReplyRequested');
+    expect(messageListSource).toContain('onInlineReplyRequested');
+    expect(roomPageSource).toContain('InlineReplyComposer');
+    expect(roomPageSource).toContain('setInlineReplyTarget');
+  });
 });

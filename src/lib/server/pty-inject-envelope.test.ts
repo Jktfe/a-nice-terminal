@@ -16,6 +16,21 @@ describe('formatEnvelope', () => {
     expect(out).toBe(`[ANT room ant-build id=r1 msg=m1] @a: hi${reply}`);
   });
 
+  it('adds an authenticated attachment fetch command for terminal recipients', () => {
+    const out = formatEnvelope({
+      head: {
+        roomName: 'ant-build',
+        roomId: 'r1',
+        messageId: 'm1',
+        senderHandle: '@a',
+        body: 'see ![wide shot.png](/api/chat-rooms/r1/attachments/file_123)'
+      }
+    });
+    expect(out).toContain(
+      "[ANT attachment access: ant attach get --room 'r1' --id 'file_123' --output 'wide_shot.png']"
+    );
+  });
+
   it('renders single-room batched envelope', () => {
     const out = formatEnvelope({
       head: { roomName: 'ant-build', roomId: 'r1', messageId: 'm1', senderHandle: '@a', body: 'first' },

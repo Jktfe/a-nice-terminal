@@ -1,7 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { GET, PATCH } from './+server';
-import { resetIdentityDbForTests } from '$lib/server/db';
+import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
 import { getTerminalById, upsertTerminal } from '$lib/server/terminalsStore';
+import { createTerminalRecord, getTerminalRecord, parseAllowlist } from '$lib/server/terminalRecordsStore';
 
 const ADMIN_TOKEN_FOR_TESTS = 'terminal-settings-test-token';
 const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
@@ -89,5 +90,38 @@ describe('/api/terminals/[id]/settings deliveryMode', () => {
     );
 
     expect(response.status).toBe(400);
+  });
+
+  it('persists deliveryTargetMode handle_only', async () => {
+    const terminal = upsertTerminal({ pid: 1004, pid_start: 'p', name: 'target-mode' });
+
+    const patch = await runHandler(
+      PATCH as AnyHandler,
+      eventFor('PATCH', terminal.id, { field: 'deliveryTargetMode', value: 'handle_only' })
+    );
+    expect(patch.status).toBe(200);
+
+    const reread = await runHandler(GET as AnyHandler, eventFor('GET', terminal.id));
+    const body = await reread.json() as { deliveryTargetMode: string };
+    expect(body.deliveryTargetMode).toBe('handle_only');
+  });
+
+  it('persists coOwners through terminal_records allowlist', async () => {
+    const record = createTerminalRecord({ sessionId: 'term-coowners', name: 'coowners' });
+    getIdentityDb().prepare(
+      `INSERT INTO terminals (id, pid, pid_start, name, source, meta, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'test', '{}', ?, ?)`
+    ).run(record.session_id, 1005, 'p', 'term-coowners', 1, 1);
+
+    const patch = await runHandler(
+      PATCH as AnyHandler,
+      eventFor('PATCH', record.session_id, { field: 'coOwners', value: ['JWPK', '@Codex'] })
+    );
+    expect(patch.status).toBe(200);
+
+    const reread = await runHandler(GET as AnyHandler, eventFor('GET', record.session_id));
+    const body = await reread.json() as { coOwners: string[] };
+    expect(body.coOwners).toEqual(['@jwpk', '@codex']);
+    expect(parseAllowlist(getTerminalRecord(record.session_id)?.allowlist ?? null)).toEqual(['@jwpk', '@codex']);
   });
 });

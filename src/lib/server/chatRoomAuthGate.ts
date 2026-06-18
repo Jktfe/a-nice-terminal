@@ -35,6 +35,7 @@ import { timingSafeEqual } from 'crypto';
 import {
   bearerTokenFromHeader,
   resolveToken as resolveAntchatToken,
+  normalizeAntchatEmail,
   userShapeForEmail as antchatUserShapeForEmail
 } from './antchatAuthStore';
 import { parsePidChainFromBody, resolveServerSideHandle } from './identityGate';
@@ -50,6 +51,7 @@ import { isHandleMemberOfRoom, findChatRoomById } from './chatRoomStore';
 import { buildPermissionDeniedPayload } from './permissionDeniedPayload';
 import { resolveApproversFor } from './permissionApproverResolver';
 import { resolveOrNull } from './sessionResolver';
+import { getOperatorEmail } from './operatorEmail';
 import { isMember as isCleanMember, displayHandleForSession } from './roomHandleLeaseClean';
 import { lookupTerminalByPidChain } from './terminalsStore';
 import {
@@ -133,6 +135,34 @@ export function tryOperatorSession(request: Request): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Accept the operator when they're signed in via the native antOS/antchat app,
+ * which presents `Authorization: Bearer <token>` (issued by /api/auth/login) —
+ * the SAME credential the rooms/tasks write paths already accept. The browser
+ * `tryOperatorSession` only sees the `ant_browser_session` cookie, which a
+ * native app never has; without this, operator-gated endpoints (the helper
+ * pairing/leases surface) 401 a signed-in operator on the desktop app.
+ *
+ * SECURITY (trust-tier, @ecoantcodex audit on e1c860e): the operator decision is
+ * anchored on the account's EMAIL — resolved from the token record and compared
+ * to the configured operator email — BEFORE any handle projection. A derived /
+ * alias-canonicalised handle (`@JWPK`/`@you`) can be produced by a NON-operator
+ * account (email local-part `jwpk`/`you`, or a stored handle override), so the
+ * handle must never be the operator decision. Email is an account identity the
+ * operator owns (password-gated at login), so it can't be spoofed that way.
+ * Fail closed when no operator email is configured: admin-token + browser-cookie
+ * stay the only operator paths.
+ */
+export function tryAntchatOperatorBearer(request: Request): boolean {
+  const operatorEmail = getOperatorEmail();
+  if (!operatorEmail) return false;
+  const token = bearerTokenFromHeader(request.headers.get('authorization'));
+  if (!token) return false;
+  const record = resolveAntchatToken(token);
+  if (!record) return false;
+  return normalizeAntchatEmail(record.email) === normalizeAntchatEmail(operatorEmail);
 }
 
 /**

@@ -8,6 +8,9 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { makeCliRunner } from './ant-cli.mjs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 function makeJsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -52,6 +55,45 @@ function setupRunner({
 }
 
 describe('ant-cli', () => {
+  describe('attach get', () => {
+    it('downloads a room attachment with durable session and pidChain read auth', async () => {
+      const tmpDir = mkdtempSync(join(tmpdir(), 'ant-attach-get-'));
+      try {
+        const outputPath = join(tmpDir, 'shot.png');
+        const { runner, writtenOut, fetchCalls } = setupRunner({
+          envTmuxPane: '%42',
+          config: { antSessions: { byPane: { '%42': 'sess-attach-reader' } } },
+          fetchReplies: [
+            new Response(Buffer.from('image-bytes'), {
+              status: 200,
+              headers: {
+                'content-type': 'image/png',
+                'content-disposition': "attachment; filename*=UTF-8''room-shot.png"
+              }
+            })
+          ]
+        });
+
+        const exitCode = await runner.run([
+          'attach', 'get',
+          '--room', 'room-a',
+          '--id', 'file-1',
+          '--output', outputPath
+        ]);
+
+        expect(exitCode).toBe(0);
+        expect(readFileSync(outputPath, 'utf8')).toBe('image-bytes');
+        const url = new URL(fetchCalls[0].url);
+        expect(`${url.origin}${url.pathname}`).toBe('http://localhost:4321/api/chat-rooms/room-a/attachments/file-1');
+        expect(url.searchParams.get('pidChain')).toBeTruthy();
+        expect(fetchCalls[0].init?.headers?.['x-ant-session-id']).toBe('sess-attach-reader');
+        expect(writtenOut[0]).toContain(`saved ${outputPath}`);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe('rooms list', () => {
     it('GETs /api/chat-rooms and prints each room', async () => {
       const { runner, writtenOut, fetchCalls } = setupRunner({

@@ -370,6 +370,50 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
     expect(q.pendingCountForTests(`${room.id}::${t3.id}`)).toBe(1);
   });
 
+  it('handle_only delivery target only skips plain no-@ fanout', () => {
+    const room = createChatRoom({ name: 'handle-only-room', whoCreatedIt: '@JWPK' });
+    const operator = upsertTerminal({ pid: 1, pid_start: 'p1', name: 'operator-term' });
+    const target = upsertTerminal({
+      pid: 2,
+      pid_start: 'p2',
+      name: 'handle-only-target',
+      meta: { deliveryTargetMode: 'handle_only' }
+    });
+    updatePaneTarget(target.id, '%handle-only', 'codex_cli');
+    addMembership({ room_id: room.id, handle: '@JWPK', terminal_id: operator.id });
+    addMembership({ room_id: room.id, handle: '@agent1', terminal_id: target.id });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@agent1' });
+    setRoomAlias({ roomId: room.id, globalHandle: '@agent1', newAlias: '@roomagent' });
+
+    const ambient = postMessage({
+      roomId: room.id,
+      authorHandle: '@JWPK',
+      body: 'No @ mention operator update',
+      kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, ambient);
+    const q = getFanoutQueueForTests();
+    expect(q.pendingCountForTests(`${room.id}::${target.id}`)).toBe(0);
+
+    const direct = postMessage({
+      roomId: room.id,
+      authorHandle: '@JWPK',
+      body: '@roomagent direct task',
+      kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, direct);
+    expect(q.pendingCountForTests(`${room.id}::${target.id}`)).toBe(1);
+
+    const everyone = postMessage({
+      roomId: room.id,
+      authorHandle: '@JWPK',
+      body: '@everyone deploy check',
+      kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, everyone);
+    expect(q.pendingCountForTests(`${room.id}::${target.id}`)).toBe(2);
+  });
+
   it('skips members whose terminal has no tmux_target_pane', () => {
     const { roomId, terminalId } = setupRoomAndMember('no-pane-room', '@nopane', null);
     const message = postMessage({ roomId, authorHandle: '@sender', body: 'hi', kind: 'human' });

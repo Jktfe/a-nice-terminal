@@ -12,13 +12,21 @@ import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { listTerminals } from '$lib/server/ptyClient';
 import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle';
+import { getTerminalById } from '$lib/server/terminalsStore';
+import {
+  socketBackedTerminalAlive,
+  terminalSocketBindingFromMeta
+} from '$lib/server/terminalSocketMetadata';
 
 export const GET: RequestHandler = async ({ params }) => {
   const sessionId = params.id ?? '';
   if (sessionId.length === 0) throw error(400, 'sessionId required.');
   const record = getTerminalRecord(sessionId);
   if (!record) throw error(404, 'terminal not found');
-  const alive = (await listTerminals()).includes(sessionId);
+  const terminalRow = getTerminalById(sessionId);
+  const socketBinding = terminalSocketBindingFromMeta(terminalRow?.meta);
+  const alive = (await listTerminals()).includes(sessionId)
+    || (socketBinding ? socketBackedTerminalAlive(terminalRow?.meta, record.tmux_target_pane) : false);
   return json({
     sessionId, name: record.name,
     autoForwardRoomId: record.auto_forward_room_id,
@@ -31,6 +39,8 @@ export const GET: RequestHandler = async ({ params }) => {
     handle: record.handle,
     derivedHandle: deriveHandle(record),
     bootCommand: record.boot_command,
+    tmuxSocketPath: socketBinding?.tmuxSocketPath ?? null,
+    tmuxSessionName: socketBinding?.tmuxSessionName ?? null,
     createdAtMs: record.created_at_ms, updatedAtMs: record.updated_at_ms,
     alive
   });

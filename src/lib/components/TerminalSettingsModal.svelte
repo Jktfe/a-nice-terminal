@@ -4,23 +4,25 @@
 -->
 <script lang="ts">
   import ModalShell from './ModalShell.svelte';
-  import TerminalSettingsOnlyRespond from './TerminalSettingsOnlyRespond.svelte';
 
   type PersistenceChoice = '1h' | '24h' | '7d' | 'forever';
   type WriteGrant = { handle: string; grantedAtMs: number };
   type KillDefault = 'prompt' | 'archive' | 'delete' | 'just-kill';
   type DeliveryMode = 'inject' | 'queue_raw' | 'queue_summarise';
+  type DeliveryTargetMode = 'room_flow' | 'handle_only';
   type Settings = {
     persistence: PersistenceChoice;
-    onlyRespondTo: string[];
+    coOwners: string[];
     writeGrants: WriteGrant[];
     killDefault: KillDefault;
     deliveryMode: DeliveryMode;
+    deliveryTargetMode: DeliveryTargetMode;
   };
 
   type Props = {
     terminalId: string;
     terminalName: string;
+    terminalHandle?: string | null;
     roomAgentHandles: string[];
     open: boolean;
     onClose: () => void;
@@ -48,12 +50,18 @@
     { value: 'queue_summarise' as DeliveryMode, label: 'Queue + summarise', description: 'Store messages for a parser or summariser before work starts' }
   ];
 
+  const DELIVERY_TARGET_CHOICES = [
+    { value: 'room_flow' as DeliveryTargetMode, label: 'Room flow', description: 'Receive messages that the room routes to this terminal.' },
+    { value: 'handle_only' as DeliveryTargetMode, label: 'Handle only', description: 'Skip plain fanout with no @ mentions; keep ANT-resolved mentions and @everyone.' }
+  ];
+
   const DEFAULT_SETTINGS: Settings = {
     persistence: 'forever',
-    onlyRespondTo: [],
+    coOwners: [],
     writeGrants: [],
     killDefault: 'prompt',
-    deliveryMode: 'inject'
+    deliveryMode: 'inject',
+    deliveryTargetMode: 'room_flow'
   };
 
   let settings = $state<Settings>({ ...DEFAULT_SETTINGS });
@@ -64,7 +72,7 @@
   let dirtyFields = $state<Set<keyof Settings>>(new Set());
   let stagedNewGrantee = $state('');
   let manualGranteeInput = $state('');
-  let manualOnlyRespondInput = $state('');
+  let manualCoOwnerInput = $state('');
 
   function normaliseHandleInput(raw: string): string | null {
     const trimmed = raw.trim();
@@ -98,9 +106,13 @@
         && ['inject', 'queue_raw', 'queue_summarise'].includes(incoming.deliveryMode)
         ? incoming.deliveryMode as DeliveryMode
         : 'inject';
+      const incomingDeliveryTargetMode = typeof incoming.deliveryTargetMode === 'string'
+        && ['room_flow', 'handle_only'].includes(incoming.deliveryTargetMode)
+        ? incoming.deliveryTargetMode as DeliveryTargetMode
+        : 'room_flow';
       settings = {
         persistence: (incoming.persistence as Settings['persistence']) ?? 'forever',
-        onlyRespondTo: (incoming.onlyRespondTo as string[]) ?? [],
+        coOwners: (incoming.coOwners as string[]) ?? [],
         writeGrants: Array.isArray(incoming.writeGrants)
           ? incoming.writeGrants.map((g) => {
               const obj = g as { handle?: unknown; grantedAtMs?: unknown };
@@ -111,7 +123,8 @@
             }).filter((g) => g.handle.length > 0)
           : [],
         killDefault: incomingKillDefault,
-        deliveryMode: incomingDeliveryMode
+        deliveryMode: incomingDeliveryMode,
+        deliveryTargetMode: incomingDeliveryTargetMode
       };
       dirtyFields.clear();
     } catch (cause) {
@@ -171,6 +184,12 @@
     await persistField('deliveryMode', next);
   }
 
+  async function changeDeliveryTargetMode(next: DeliveryTargetMode) {
+    settings.deliveryTargetMode = next;
+    markDirty('deliveryTargetMode');
+    await persistField('deliveryTargetMode', next);
+  }
+
   async function grantWriteTo(handle: string) {
     if (!handle || settings.writeGrants.some((g) => g.handle === handle)) return;
     const nextGrants = [...settings.writeGrants, { handle, grantedAtMs: Date.now() }];
@@ -194,46 +213,32 @@
     await grantWriteTo(normalised);
   }
 
-  async function addOnlyRespondManual() {
-    const normalised = normaliseHandleInput(manualOnlyRespondInput);
+  async function addCoOwnerManual() {
+    const normalised = normaliseHandleInput(manualCoOwnerInput);
     if (!normalised) return;
-    manualOnlyRespondInput = '';
-    if (settings.onlyRespondTo.includes(normalised)) return;
-    const next = [...settings.onlyRespondTo, normalised];
-    settings.onlyRespondTo = next;
-    markDirty('onlyRespondTo');
-    await persistField('onlyRespondTo', next);
+    manualCoOwnerInput = '';
+    if (settings.coOwners.includes(normalised)) return;
+    const next = [...settings.coOwners, normalised];
+    settings.coOwners = next;
+    markDirty('coOwners');
+    await persistField('coOwners', next);
   }
 
-  async function removeOnlyRespondHandle(handle: string) {
-    const next = settings.onlyRespondTo.filter((h) => h !== handle);
-    settings.onlyRespondTo = next;
-    markDirty('onlyRespondTo');
-    await persistField('onlyRespondTo', next);
-  }
-
-  function isOnlyRespondActive(): boolean {
-    return settings.onlyRespondTo.length > 0;
-  }
-
-  async function toggleOnlyRespondTo(handle: string) {
-    const existing = settings.onlyRespondTo.includes(handle);
-    const next = existing
-      ? settings.onlyRespondTo.filter((h) => h !== handle)
-      : [...settings.onlyRespondTo, handle];
-    settings.onlyRespondTo = next;
-    markDirty('onlyRespondTo');
-    await persistField('onlyRespondTo', next);
-  }
-
-  async function clearOnlyRespondTo() {
-    settings.onlyRespondTo = [];
-    markDirty('onlyRespondTo');
-    await persistField('onlyRespondTo', []);
+  async function removeCoOwner(handle: string) {
+    const next = settings.coOwners.filter((h) => h !== handle);
+    settings.coOwners = next;
+    markDirty('coOwners');
+    await persistField('coOwners', next);
   }
 
   const eligibleNewGrantees = $derived(
     roomAgentHandles.filter((h) => !settings.writeGrants.some((g) => g.handle === h))
+  );
+
+  const deliveryTargetDescription = $derived(
+    settings.deliveryTargetMode === 'handle_only'
+      ? 'Plain fanout with no @ mentions is skipped. ANT-resolved roomHandle/ANThandle mentions and bare @everyone still reach this pane.'
+      : 'Room broadcasts and normal room routing can reach this pane.'
   );
 </script>
 
@@ -258,6 +263,47 @@
     {#if errorMessage}
       <p class="error" role="alert">{errorMessage}</p>
     {/if}
+
+    <section class="settings-section" aria-labelledby="coOwnersHeading">
+      <h3 id="coOwnersHeading">Co-owners</h3>
+      <p class="section-help">Co-owners can manage this terminal alongside the creator and operator.</p>
+
+      {#if settings.coOwners.length === 0}
+        <p class="empty-state">No co-owners set.</p>
+      {:else}
+        <ul class="grant-list">
+          {#each settings.coOwners as handle (handle)}
+            <li class="grant-row">
+              <span class="grant-handle">{handle}</span>
+              <button
+                type="button"
+                class="revoke-btn"
+                onclick={() => void removeCoOwner(handle)}
+                disabled={saving}
+                aria-label={`Remove ${handle} as co-owner`}
+              >Remove</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+
+      <div class="grant-picker">
+        <input
+          type="text"
+          bind:value={manualCoOwnerInput}
+          placeholder="@handle (add co-owner)"
+          disabled={saving}
+          aria-label="Type a handle to add as co-owner"
+          onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void addCoOwnerManual(); } }}
+        />
+        <button
+          type="button"
+          class="grant-btn"
+          onclick={() => void addCoOwnerManual()}
+          disabled={saving || manualCoOwnerInput.trim().length === 0}
+        >Add co-owner</button>
+      </div>
+    </section>
 
     <section class="settings-section" aria-labelledby="writeAccessHeading">
       <h3 id="writeAccessHeading">Write access</h3>
@@ -374,18 +420,24 @@
       </div>
     </section>
 
-    <TerminalSettingsOnlyRespond
-      onlyRespondTo={settings.onlyRespondTo}
-      {roomAgentHandles}
-      {manualOnlyRespondInput}
-      {saving}
-      onManualInputChange={(next) => { manualOnlyRespondInput = next; }}
-      onAddManual={() => void addOnlyRespondManual()}
-      onToggleHandle={(handle) => void toggleOnlyRespondTo(handle)}
-      onRemoveHandle={(handle) => void removeOnlyRespondHandle(handle)}
-      onClear={() => void clearOnlyRespondTo()}
-      isActive={isOnlyRespondActive()}
-    />
+    <section class="settings-section" aria-labelledby="deliveryTargetHeading">
+      <h3 id="deliveryTargetHeading">Delivery target</h3>
+      <p class="section-help">{deliveryTargetDescription}</p>
+      <div class="persistence-picker" role="radiogroup" aria-label="Delivery target mode">
+        {#each DELIVERY_TARGET_CHOICES as choice (choice.value)}
+          <button
+            type="button"
+            role="radio"
+            class="persistence-choice"
+            class:active={settings.deliveryTargetMode === choice.value}
+            aria-checked={settings.deliveryTargetMode === choice.value}
+            onclick={() => void changeDeliveryTargetMode(choice.value)}
+            disabled={saving}
+            title={choice.description}
+          >{choice.label}</button>
+        {/each}
+      </div>
+    </section>
   {/if}
 
   {#snippet actions()}

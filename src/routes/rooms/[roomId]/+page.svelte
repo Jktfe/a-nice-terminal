@@ -39,6 +39,7 @@
   import RoomDetailMoreMenu from '$lib/components/RoomDetailMoreMenu.svelte';
   import AwayModeToggle from '$lib/components/AwayModeToggle.svelte';
   import RoomModeSwitcher from '$lib/components/RoomModeSwitcher.svelte';
+  import InlineReplyComposer from '$lib/components/InlineReplyComposer.svelte';
   import Explainable from '$lib/components/Explainable.svelte';
   import {
     LEFT_PANE_KEY,
@@ -265,6 +266,7 @@
   let showDigestPanel = $state(false);
   // M30 slice 3b: reply target from MessageRow Reply button.
   let replyingToMessageId = $state<string | null>(null);
+  let inlineReplyTarget = $state<ChatMessage | null>(null);
   let liveMessages = $state<ChatMessage[]>([]);
   let liveMessageRoomId = $state<string | null>(null);
   let hasOlderMessages = $state(false);
@@ -358,10 +360,17 @@
   onDestroy(() => { realtime?.close(); });
   function setReplyingTo(messageId: string) {
     replyingToMessageId = messageId;
+    inlineReplyTarget = null;
   }
   function clearReplyingTo() { replyingToMessageId = null; }
+  function setInlineReplyTarget(message: ChatMessage) {
+    inlineReplyTarget = message;
+    clearReplyingTo();
+  }
+  function clearInlineReplyTarget() { inlineReplyTarget = null; }
   function mergePostedMessageAndClearReply(message?: ChatMessage) {
     clearReplyingTo();
+    clearInlineReplyTarget();
     if (message) liveMessages = mergeQuietMessageFeed(liveMessages, [message]);
   }
 
@@ -531,11 +540,22 @@
     {roomMode}
     asHandle={callerHandle}
     onReplyRequested={setReplyingTo}
+    onInlineReplyRequested={setInlineReplyTarget}
     {hasOlderMessages}
     isLoadingOlder={loadingOlderMessages}
     onLoadOlder={loadOlderMessages}
     readReceiptEvent={latestRealtimeEvent}
   />
+  {#if inlineReplyTarget}
+    <InlineReplyComposer
+      roomId={roomFromServer.id}
+      asHandle={callerHandle}
+      targetMessage={inlineReplyTarget}
+      membersInRoom={roomFromServer.members}
+      onMessagePosted={mergePostedMessageAndClearReply}
+      onCancel={clearInlineReplyTarget}
+    />
+  {/if}
   <div class="composer-dock">
     <ChatComposer
       roomId={roomFromServer.id}

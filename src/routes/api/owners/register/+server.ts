@@ -15,6 +15,7 @@ import type { RequestHandler } from './$types';
 import { createOwner, findOwnerByHandle } from '$lib/server/ownersStore';
 import { ADMIN_BEARER_HANDLE } from '$lib/server/chatRoomAuthGate';
 import { bearerTokenFromHeader } from '$lib/server/antchatAuthStore';
+import { normalizeOperatorEmailOrThrow, setOperatorEmail } from '$lib/server/operatorEmail';
 import { timingSafeEqual } from 'crypto';
 
 function requireAdminBearer(request: Request): void {
@@ -29,14 +30,30 @@ function requireAdminBearer(request: Request): void {
 
 export const POST: RequestHandler = async ({ request }) => {
   requireAdminBearer(request);
-  const body = (await request.json().catch(() => ({}))) as { handle?: unknown; password?: unknown };
+  const body = (await request.json().catch(() => ({}))) as {
+    handle?: unknown;
+    password?: unknown;
+    operatorEmail?: unknown;
+  };
   const handleRaw = typeof body.handle === 'string' ? body.handle.trim() : '';
   const password = typeof body.password === 'string' ? body.password : '';
+  const operatorEmailRaw = typeof body.operatorEmail === 'string' ? body.operatorEmail : '';
+  let operatorEmail: string | null = null;
+  if (operatorEmailRaw.length > 0) {
+    try {
+      operatorEmail = normalizeOperatorEmailOrThrow(operatorEmailRaw);
+    } catch {
+      throw error(400, 'operatorEmail must be a valid account email');
+    }
+  }
   if (handleRaw.length === 0) throw error(400, 'handle required');
   if (password.length < 8) throw error(400, 'password must be at least 8 characters');
   const handle = handleRaw.startsWith('@') ? handleRaw : `@${handleRaw}`;
   if (findOwnerByHandle(handle)) throw error(409, 'handle already claimed');
   const owner = createOwner({ handle, password });
+  if (operatorEmail) {
+    setOperatorEmail({ email: operatorEmail, updatedBy: 'owners-register' });
+  }
   // Never echo password back; ADMIN_BEARER_HANDLE used to attribute audit.
   void ADMIN_BEARER_HANDLE;
   return json(
@@ -46,7 +63,8 @@ export const POST: RequestHandler = async ({ request }) => {
         primaryHandle: owner.primaryHandle,
         totpEnrolledAtMs: owner.totpEnrolledAtMs,
         createdAtMs: owner.createdAtMs
-      }
+      },
+      operatorEmailConfigured: Boolean(operatorEmail)
     },
     { status: 201 }
   );

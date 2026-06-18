@@ -118,7 +118,7 @@
     <span class="subnav-label">Discover:</span>
     <a class="subnav-link" href="/discover">CLI verbs</a>
     <a class="subnav-link active" href="/discover/visuals" aria-current="page">Visuals</a>
-    <a class="subnav-link" href="/discover/vocab">Vocab</a>
+    <a class="subnav-link" href="/discover/vocab">Vocabulary</a>
     <a class="subnav-link" href="/manual">Screens canvas</a>
   </nav>
 

@@ -95,6 +95,15 @@ const SCHEMA_DDL_STATEMENTS = [
     UNIQUE(room_id, order_index)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_responders_room_order ON chat_room_responders (room_id, order_index ASC)`,
+  // Server-owned configuration values that must survive restart and should not
+  // require normal users to hand-edit launchd/env. Environment variables remain
+  // the ops override; this table is the trusted bootstrap/account-confirm layer.
+  `CREATE TABLE IF NOT EXISTS server_config (
+    key           TEXT PRIMARY KEY,
+    value         TEXT NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    updated_by    TEXT
+  )`,
   `CREATE TABLE IF NOT EXISTS chat_remote_admissions (
     id                 TEXT PRIMARY KEY,
     room_id            TEXT NOT NULL,
@@ -116,7 +125,8 @@ const SCHEMA_DDL_STATEMENTS = [
   // unwitnessed side-effect token). `role` selects one of two FIXED scope
   // profiles (no per-row knobs — the anti-spaghetti rule): 'reader' is the
   // helper — subscribe to the feed, never post, never IS the handle; 'agent'
-  // is a paneless ANThandle authoring credential (the desktop/mcp/api case).
+  // is a status attachment — subscribe, route, and report status without
+  // writing room timeline messages.
   // Scope profiles live as code constants in helperLeaseStore.
   `CREATE TABLE IF NOT EXISTS helper_leases (
     id              TEXT PRIMARY KEY,
@@ -644,14 +654,13 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_plans_archived ON plans (archived_at_ms)`,
   `CREATE INDEX IF NOT EXISTS idx_plans_deleted ON plans (deleted_at_ms)`,
-  // QUICK-SHORTCUTS (2026-05-15): global, user-editable list of terminal
-  // shortcut chips. JWPK-locked: global scope (one shared list across all
-  // terminals), server-persisted in fresh-ant.db so a tab-reload or fresh
-  // session sees the same shortcuts. Hard-delete only (these are user prefs
-  // — easy to recreate; no soft-delete plumbing needed). order_index is the
-  // sort key (smaller first); reorder bulk-updates via a transaction.
+  // QUICK-SHORTCUTS (2026-05-15, owner-scoped 2026-06-18): user-editable
+  // list of terminal shortcut chips. Scoped by owner_handle so different
+  // browser-session users can carry different shortcuts while keeping one
+  // shared list across that user's terminals.
   `CREATE TABLE IF NOT EXISTS quick_shortcuts (
     id            TEXT PRIMARY KEY,
+    owner_handle  TEXT NOT NULL DEFAULT '${getOperatorHandle()}',
     label         TEXT NOT NULL,
     text          TEXT NOT NULL,
     auto_enter    INTEGER NOT NULL DEFAULT 1,
@@ -659,7 +668,9 @@ const SCHEMA_DDL_STATEMENTS = [
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL
   )`,
+  `ALTER TABLE quick_shortcuts ADD COLUMN owner_handle TEXT NOT NULL DEFAULT '${getOperatorHandle()}'`,
   `CREATE INDEX IF NOT EXISTS idx_quick_shortcuts_order ON quick_shortcuts (order_index ASC)`,
+  `CREATE INDEX IF NOT EXISTS idx_quick_shortcuts_owner_order ON quick_shortcuts (owner_handle, order_index ASC)`,
   // cwd_bookmarks: server-side persistence for the cwd pills surfaced under
   // the breadcrumb in TerminalFolderPicker. Mirrors quick_shortcuts pattern
   // per JWPK 2026-05-15 lock (GLOBAL scope, fresh-ant.db) so bookmarks sync

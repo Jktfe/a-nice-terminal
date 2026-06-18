@@ -27,8 +27,16 @@ import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle'
 import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 import {
   autoRegisterTerminalForSpawnedSession,
-  listTerminalClassByIds
+  listTerminalClassByIds,
+  listTerminalRowsByIds,
+  upsertTerminal
 } from '$lib/server/terminalsStore';
+import { bindHandle, ensureHandleOwnedBy } from '$lib/server/handleBindingsStore';
+import {
+  socketBackedTerminalAlive,
+  terminalSocketBindingFromMeta
+} from '$lib/server/terminalSocketMetadata';
+import { isTerminalDeliveryTargetMode } from '$lib/server/terminalDeliveryMode';
 
 function makeSessionId(): string {
   return 't_' + Math.random().toString(36).slice(2, 12);
@@ -46,6 +54,7 @@ export const GET: RequestHandler = async () => {
   const aliveSessionIds = await listTerminals();
   const aliveSet = new Set(aliveSessionIds);
   const rawRecords = listTerminalRecords();
+  const terminalRowsById = listTerminalRowsByIds(rawRecords.map((r) => r.session_id));
   // Batched lookup of the per-terminal model flag (JWPK msg_fespxsi2lu
   // antV4 2026-05-28). Fold null/missing into null so the UI can render
   // an "unspecified" subgroup cleanly.
@@ -70,27 +79,36 @@ export const GET: RequestHandler = async () => {
       roomCountById.set(row.terminal_id, row.n);
     }
   } catch { /* status/room enrichment is best-effort; chips degrade gracefully */ }
-  const records = rawRecords.map((r) => ({
-    sessionId: r.session_id,
-    name: r.name,
-    autoForwardRoomId: r.auto_forward_room_id,
-    autoForwardChat: r.auto_forward_chat,
-    agentKind: r.agent_kind,
-    tmuxTargetPane: r.tmux_target_pane,
-    linkedChatRoomId: r.linked_chat_room_id,
-    createdBy: r.created_by,
-    allowlist: parseAllowlist(r.allowlist),
-    handle: r.handle,
-    derivedHandle: deriveHandle(r),
-    bootCommand: r.boot_command,
-    agentStatus: statusById.get(r.session_id) ?? null,
-    roomCount: roomCountById.get(r.session_id) ?? 0,
-    accountType: classById.get(r.session_id)?.accountType ?? null,
-    modelFamily: classById.get(r.session_id)?.modelFamily ?? null,
-    createdAtMs: r.created_at_ms,
-    updatedAtMs: r.updated_at_ms,
-    alive: aliveSet.has(r.session_id)
-  }));
+  const records = rawRecords.map((r) => {
+    const terminalRow = terminalRowsById.get(r.session_id);
+    const socketBinding = terminalSocketBindingFromMeta(terminalRow?.meta);
+    const socketAlive = socketBinding
+      ? socketBackedTerminalAlive(terminalRow?.meta, r.tmux_target_pane)
+      : false;
+    return {
+      sessionId: r.session_id,
+      name: r.name,
+      autoForwardRoomId: r.auto_forward_room_id,
+      autoForwardChat: r.auto_forward_chat,
+      agentKind: terminalRow?.agent_kind ?? r.agent_kind,
+      tmuxTargetPane: r.tmux_target_pane,
+      tmuxSocketPath: socketBinding?.tmuxSocketPath ?? null,
+      tmuxSessionName: socketBinding?.tmuxSessionName ?? null,
+      linkedChatRoomId: r.linked_chat_room_id,
+      createdBy: r.created_by,
+      allowlist: parseAllowlist(r.allowlist),
+      handle: r.handle,
+      derivedHandle: deriveHandle(r),
+      bootCommand: r.boot_command,
+      agentStatus: statusById.get(r.session_id) ?? null,
+      roomCount: roomCountById.get(r.session_id) ?? 0,
+      accountType: classById.get(r.session_id)?.accountType ?? null,
+      modelFamily: classById.get(r.session_id)?.modelFamily ?? null,
+      createdAtMs: r.created_at_ms,
+      updatedAtMs: r.updated_at_ms,
+      alive: aliveSet.has(r.session_id) || socketAlive
+    };
+  });
   // JWPK two-tier dogfood spec (2026-05-14): split daemon-active sessions
   // into bare-tmux-panes (no terminal_records row) vs ANT-attached
   // terminals (with row). Frontend renders top tier "Attach existing tmux"
@@ -141,9 +159,13 @@ export const POST: RequestHandler = async ({ request }) => {
   }
   // S7 (2026-05-14): optional handle binds the terminal to a routable
   // identifier (@x). Used by the JWPK allowed-posters picker.
-  const handle = typeof raw?.handle === 'string' && (raw.handle as string).trim().length > 0
+  const requestedHandle = typeof raw?.handle === 'string' && (raw.handle as string).trim().length > 0
     ? (raw.handle as string).trim()
     : undefined;
+  const deliveryTargetMode = isTerminalDeliveryTargetMode(raw?.deliveryTargetMode)
+    ? raw.deliveryTargetMode
+    : undefined;
+  let handle: string | undefined;
   // Session recovery: the exact CLI line that launches the agent in this pane.
   // Stored so `POST /api/terminals/recover` can re-run it after a reboot. Custom
   // agents (Kimi/Minimax model flags) round-trip verbatim.
@@ -157,12 +179,13 @@ export const POST: RequestHandler = async ({ request }) => {
   // (Fix #1) catches this even if we forget here; the API-layer
   // validation is the UX layer — operators get a precise 400 with the
   // validator's `reason` string rather than a 500 from the store throw.
-  if (handle !== undefined) {
-    const validation = validateHandleForRegistration(handle);
+  if (requestedHandle !== undefined) {
+    const validation = validateHandleForRegistration(requestedHandle);
     if (!validation.ok) {
       throw error(400, validation.message);
     }
     requireOperatorForOperatorHandle(request, validation.canonicalHandle);
+    handle = validation.canonicalHandle;
   }
 
   const result = await spawnTerminal(sessionId, { cwd, cols, rows });
@@ -214,11 +237,50 @@ export const POST: RequestHandler = async ({ request }) => {
   // because lookupTerminalByPidChain finds no row matching the shell's
   // PID. Best-effort — if tmux query fails (rare), the terminal can
   // still self-register via `ant register` from inside.
-  if (record.tmux_target_pane) {
-    autoRegisterTerminalForSpawnedSession({
+  const registeredTerminal = record.tmux_target_pane
+    ? autoRegisterTerminalForSpawnedSession({
       sessionId,
       tmuxTargetPane: record.tmux_target_pane,
       agentKind: record.agent_kind
+    })
+    : null;
+  if (deliveryTargetMode && registeredTerminal) {
+    const existingMeta = (() => {
+      try {
+        const parsed = JSON.parse(registeredTerminal.meta ?? '{}');
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? parsed as Record<string, unknown>
+          : {};
+      } catch {
+        return {};
+      }
+    })();
+    upsertTerminal({
+      pid: registeredTerminal.pid,
+      pid_start: registeredTerminal.pid_start ?? '',
+      name: registeredTerminal.name,
+      source: registeredTerminal.source,
+      ttlSeconds: 30 * 24 * 60 * 60,
+      meta: { ...existingMeta, deliveryTargetMode }
+    });
+  }
+
+  // Clean identity witness: a user-chosen ANThandle on terminal creation is a
+  // real claim, not just display text. Mirror local adoption's contract by
+  // binding the handle to the spawned pane and stamping the creator as owner.
+  if (handle && record.tmux_target_pane && registeredTerminal) {
+    const owner = user ?? getOperatorHandle();
+    bindHandle({
+      handle,
+      pane: record.tmux_target_pane,
+      pid: registeredTerminal.pid,
+      pidStart: registeredTerminal.pid_start,
+      spawnedBy: owner,
+      terminalId: sessionId
+    });
+    ensureHandleOwnedBy(handle, owner, {
+      actor: owner,
+      reason: 'terminal-create'
     });
   }
 

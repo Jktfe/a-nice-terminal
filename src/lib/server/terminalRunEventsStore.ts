@@ -189,3 +189,33 @@ export function searchTerminalRunEvents(
   );
   return rows.sort((a, b) => b.ts_ms - a.ts_ms).slice(0, limit);
 }
+
+/**
+ * Soft-delete every run-event for a terminal (sets deleted_at_ms). The rows
+ * STAY in the DB — recoverable, respecting the firehose-asset "mine before
+ * prune" rule — but are hidden from every reader. Returns the count hidden.
+ * Spans both read DBs (telemetry sidecar + identity). Used by archived-terminal
+ * delete (after the optional mine/archive step).
+ */
+export function softDeleteTerminalRunEvents(terminalId: string, nowMs = Date.now()): number {
+  let hidden = 0;
+  for (const db of runEventReadDbs()) {
+    const res = db
+      .prepare(`UPDATE terminal_run_events SET deleted_at_ms = ? WHERE terminal_id = ? AND deleted_at_ms IS NULL`)
+      .run(nowMs, terminalId);
+    hidden += res.changes as number;
+  }
+  return hidden;
+}
+
+/** Read ALL of a terminal's (non-deleted) run-events, oldest-first — for the
+ * mine/archive export before a destructive delete. */
+export function readAllTerminalRunEventsForArchive(terminalId: string): TerminalRunEvent[] {
+  const rows = runEventReadDbs().flatMap(
+    (db) =>
+      db
+        .prepare(`SELECT * FROM terminal_run_events WHERE terminal_id = ? AND deleted_at_ms IS NULL`)
+        .all(terminalId) as TerminalRunEvent[]
+  );
+  return rows.sort((a, b) => a.ts_ms - b.ts_ms);
+}

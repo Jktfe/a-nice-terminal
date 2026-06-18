@@ -10,7 +10,8 @@
  *
  * The leaseSecret is returned ONCE — the app stores it in the OS keychain. The
  * scope is the FIXED profile for the pairing's role: a 'reader' (helper) may
- * subscribe + fire routes but never posts; an 'agent' may author + post status.
+ * subscribe + fire routes; an 'agent' may also post status. Neither role can
+ * write room timeline messages.
  * Claiming handles / approving asks are never granted by an attachment.
  */
 import { error, json } from '@sveltejs/kit';

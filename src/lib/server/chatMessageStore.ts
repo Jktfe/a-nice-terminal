@@ -404,7 +404,10 @@ export function softDeleteMessage(input: {
   if (!existing) return null;
   if (!input.asOperator && !isSameAuthorHandle(existing.authorHandle, input.byHandle)) return null;
   if (existing.deletedAtMs) return null;
-  if (existing.kind === 'system' || existing.kind === 'system-break') return null;
+  // JWPK msg_uot85o75mh: the operator may delete system-authored posts (join
+  // notices, idle nudges, context breaks) to clear clutter; non-operators
+  // cannot — the normal author-owned path still refuses them.
+  if (!input.asOperator && (existing.kind === 'system' || existing.kind === 'system-break')) return null;
 
   const nowMs = input.nowMs ?? Date.now();
   if (input.asOperator) {

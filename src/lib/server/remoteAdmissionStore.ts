@@ -181,6 +181,24 @@ export function listActiveForRoom(roomId: string): StoredAdmission[] {
   return rows.map(rowToAdmission);
 }
 
+/**
+ * Pending = still redeemable: not accepted, not revoked, inside the acceptance
+ * window. (Accepted ones graduate to mappings; expired ones can't be redeemed.)
+ */
+export function filterPendingAdmissions(admissions: StoredAdmission[], nowMs: number): StoredAdmission[] {
+  return admissions.filter(
+    (a) => a.accepted_at_ms === null && a.revoked_at_ms === null && nowMs <= a.expires_acceptance_at_ms
+  );
+}
+
+/**
+ * Pending remote-invite admissions aggregated across rooms — the machine-wide
+ * "who's invited where" view for the terminals page (vs the per-room list).
+ */
+export function listActivePendingAcrossRooms(roomIds: string[], nowMs: number): StoredAdmission[] {
+  return filterPendingAdmissions(roomIds.flatMap((id) => listActiveForRoom(id)), nowMs);
+}
+
 export function findById(admissionId: string): StoredAdmission | null {
   const db = getIdentityDb();
   const row = db.prepare(`SELECT * FROM chat_remote_admissions WHERE id = ?`).get(admissionId) as
