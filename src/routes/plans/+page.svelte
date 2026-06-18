@@ -105,6 +105,17 @@
     <a class="subnav-link" href="/plans/triggers">Triggers →</a>
   </nav>
 
+  {#if data.plansFetchFailed}
+    <p class="plans-alert" role="alert">
+      Could not load plan completion data. The plan list may be incomplete until the server responds.
+    </p>
+  {/if}
+  {#if data.taskFetchFailed && !data.showArchived && !data.showDeleted}
+    <p class="plans-alert" role="alert">
+      Could not load standalone tasks. Plan cards are shown, but the Unfiled lane may be missing.
+    </p>
+  {/if}
+
   <div class="plan-filter-row">
     <input
       bind:this={planFilterInputEl}
@@ -188,6 +199,16 @@
     margin: 0; padding: 1rem 1.1rem; line-height: 1.5;
     border: 1px dashed var(--line-soft); border-radius: 0.85rem;
     background: var(--surface-card); color: var(--ink-soft);
+  }
+  .plans-alert {
+    margin: 0 0 0.9rem;
+    padding: 0.72rem 0.9rem;
+    border: 1px solid color-mix(in srgb, #dc2626 42%, var(--line-soft));
+    border-radius: 0.65rem;
+    background: color-mix(in srgb, #dc2626 8%, var(--surface-card));
+    color: var(--ink-strong);
+    font-size: 0.88rem;
+    font-weight: 750;
   }
   .empty code {
     padding: 0.05rem 0.4rem; border-radius: 0.3rem;

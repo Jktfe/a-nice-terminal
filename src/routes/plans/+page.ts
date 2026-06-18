@@ -24,6 +24,8 @@ export const load: PageLoad = async ({ url, fetch }) => {
     fetch(completionsPath),
     fetch('/api/tasks')
   ]);
+  const plansFetchFailed = !compRes.ok;
+  const taskFetchFailed = !taskRes.ok;
   const plans = compRes.ok
     ? ((await compRes.json()) as {
         plans: {
@@ -47,6 +49,8 @@ export const load: PageLoad = async ({ url, fetch }) => {
           total: unfiled.length,
           completed: unfiled.filter((t) => t.status === 'completed').length
         },
+    plansFetchFailed,
+    taskFetchFailed,
     showArchived,
     showDeleted
   };
