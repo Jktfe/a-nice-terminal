@@ -18,16 +18,22 @@
 
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { requireAdminAuth } from '$lib/server/chatInviteAuth';
+import { isAdminRequest, requireAdminAuth } from '$lib/server/chatInviteAuth';
 import {
   addTrigger,
   isPlanTriggerAction,
   isPlanTriggerEvent,
   listTriggers,
+  type PlanTrigger,
   type PlanTriggerEvent
 } from '$lib/server/planTriggerStore';
 
-export const GET: RequestHandler = async ({ url }) => {
+function readableTrigger(trigger: PlanTrigger, includeConfig: boolean): PlanTrigger & { actionConfigRedacted?: boolean } {
+  if (includeConfig) return trigger;
+  return { ...trigger, actionConfig: {}, actionConfigRedacted: true };
+}
+
+export const GET: RequestHandler = async ({ request, url }) => {
   const planIdParam = url.searchParams.get('planId');
   const eventParam = url.searchParams.get('event');
   const opts: { planId?: string | null; event?: PlanTriggerEvent } = {};
@@ -38,7 +44,8 @@ export const GET: RequestHandler = async ({ url }) => {
     }
     opts.event = eventParam;
   }
-  return json({ triggers: listTriggers(opts) });
+  const includeConfig = isAdminRequest(request);
+  return json({ triggers: listTriggers(opts).map((trigger) => readableTrigger(trigger, includeConfig)) });
 };
 
 export const POST: RequestHandler = async ({ request }) => {

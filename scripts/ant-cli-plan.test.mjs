@@ -54,6 +54,62 @@ function makeFailingRuntime(status, errorBody) {
   return { runtime, captured };
 }
 
+function makeTriggerRuntime() {
+  const captured = { requests: [], stdout: [], stderr: [] };
+  const fetchImpl = async (url, init = {}) => {
+    captured.requests.push({ url, init });
+    if (url.endsWith('/api/plan-triggers') && init.method === 'POST') {
+      const body = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({ trigger: { id: 'trig_abc', ...body, planId: body.planId ?? null } }),
+        text: async () => 'ok'
+      };
+    }
+    if ((url.endsWith('/api/plan-triggers') || url.includes('/api/plan-triggers?')) && !init.method) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ triggers: [{ id: 'trig_abc', event: 'plan.completed', action: 'room.message', planId: 'plan-a' }] }),
+        text: async () => 'ok'
+      };
+    }
+    if (url.endsWith('/api/plan-triggers/trig_abc/fire') && init.method === 'POST') {
+      const body = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ fired: true, triggerId: 'trig_abc', event: 'plan.completed', planId: body.planId ?? 'plan-a' }),
+        text: async () => 'ok'
+      };
+    }
+    if (url.endsWith('/api/plan-triggers/trig_abc') && init.method === 'DELETE') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ removed: true }),
+        text: async () => 'ok'
+      };
+    }
+    return {
+      ok: false,
+      status: 404,
+      json: async () => ({}),
+      text: async () => 'unexpected trigger request'
+    };
+  };
+  return {
+    runtime: {
+      fetchImpl,
+      serverUrl: 'http://test.local',
+      writeOut: (line) => captured.stdout.push(line),
+      writeErr: (line) => captured.stderr.push(line)
+    },
+    captured
+  };
+}
+
 beforeEach(() => {
   delete process.env.ANT_AUTHOR;
 });
@@ -220,5 +276,71 @@ describe('ant plan CLI write verbs', () => {
       captured = failure;
     }
     expect(captured).toBeInstanceOf(CliInputError);
+  });
+
+  it('C14: trigger add wires the command built by /plans/triggers to the trigger API', async () => {
+    const { runtime, captured } = makeTriggerRuntime();
+
+    await handlePlanVerb(
+      'trigger',
+      ['add', 'plan.completed', 'room.message', '--plan', 'plan-a', '--message', 'Plan done', '--by', '@codex', '--bearer', 'admin-secret'],
+      runtime,
+      { CliInputError }
+    );
+
+    expect(captured.requests[0].url).toBe('http://test.local/api/plan-triggers');
+    expect(captured.requests[0].init.method).toBe('POST');
+    expect(captured.requests[0].init.headers.authorization).toBe('Bearer admin-secret');
+    expect(JSON.parse(captured.requests[0].init.body)).toEqual({
+      event: 'plan.completed',
+      action: 'room.message',
+      actionConfig: { messageTemplate: 'Plan done' },
+      planId: 'plan-a',
+      createdBy: '@codex'
+    });
+    expect(captured.stdout[0]).toContain('Created trigger trig_abc');
+  });
+
+  it('C15: trigger list filters by plan/event and prints rows', async () => {
+    const { runtime, captured } = makeTriggerRuntime();
+
+    await handlePlanVerb('trigger', ['list', '--plan', 'plan-a', '--event', 'plan.completed'], runtime, { CliInputError });
+
+    expect(captured.requests[0].url).toBe('http://test.local/api/plan-triggers?planId=plan-a&event=plan.completed');
+    expect(captured.stdout[0]).toBe('trig_abc\tplan.completed\troom.message\tplan-a');
+  });
+
+  it('C15b: trigger list can present admin bearer to see full trigger config server-side', async () => {
+    const { runtime, captured } = makeTriggerRuntime();
+
+    await handlePlanVerb('trigger', ['list', '--bearer', 'admin-secret', '--json'], runtime, { CliInputError });
+
+    expect(captured.requests[0].init.headers.authorization).toBe('Bearer admin-secret');
+  });
+
+  it('C16: trigger fire and remove use admin auth and support json output', async () => {
+    const { runtime, captured } = makeTriggerRuntime();
+
+    await handlePlanVerb('trigger', ['fire', 'trig_abc', '--plan', 'plan-a', '--bearer', 'admin-secret', '--json'], runtime, { CliInputError });
+    await handlePlanVerb('trigger', ['remove', 'trig_abc', '--bearer', 'admin-secret', '--json'], runtime, { CliInputError });
+
+    expect(captured.requests[0].url).toBe('http://test.local/api/plan-triggers/trig_abc/fire');
+    expect(captured.requests[0].init.method).toBe('POST');
+    expect(captured.requests[0].init.headers.authorization).toBe('Bearer admin-secret');
+    expect(JSON.parse(captured.requests[0].init.body)).toEqual({ planId: 'plan-a' });
+    expect(JSON.parse(captured.stdout[0])).toMatchObject({ fired: true, triggerId: 'trig_abc' });
+    expect(captured.requests[1].url).toBe('http://test.local/api/plan-triggers/trig_abc');
+    expect(captured.requests[1].init.method).toBe('DELETE');
+    expect(JSON.parse(captured.stdout[1])).toEqual({ removed: true });
+  });
+
+  it('C17: trigger mutations require an admin token before fetch', async () => {
+    const { runtime, captured } = makeTriggerRuntime();
+
+    await expect(
+      handlePlanVerb('trigger', ['remove', 'trig_abc'], runtime, { CliInputError })
+    ).rejects.toThrow('admin token required');
+
+    expect(captured.requests).toHaveLength(0);
   });
 });

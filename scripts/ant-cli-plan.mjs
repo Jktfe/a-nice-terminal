@@ -39,6 +39,10 @@ const PLAN_VERB_USAGE = [
   '  list [--include-archived] [--json]',
   '  archive <planId> [--unarchive] [--json]',
   '  show <planId> [--include-archived] [--json]',
+  '  trigger add <event> <action> [--plan PLAN_ID] [--message TEXT] [--url URL] [--subject TEXT] [--target-plan same|PLAN_ID] [--by @h] [--bearer TOKEN] [--json]',
+  '  trigger list [--plan PLAN_ID] [--event EVENT] [--bearer TOKEN] [--json]',
+  '  trigger fire <triggerId> [--plan PLAN_ID] [--bearer TOKEN] [--json]',
+  '  trigger remove <triggerId> [--bearer TOKEN] [--json]',
   '  cron list|create|start|stop|pause|delete|show [flags...]'
 ];
 
@@ -51,6 +55,9 @@ export async function handlePlanVerb(action, args, runtime, ctx) {
   if (action === 'cron') {
     const { handlePlanCronVerb } = await import('./ant-cli-plan-cron.mjs');
     return handlePlanCronVerb(args[0], args.slice(1), runtime, ctx);
+  }
+  if (action === 'trigger') {
+    return runTriggerVerb(args[0], args.slice(1), runtime, CliInputError);
   }
   const planId = args[0];
   if (!planId || planId.startsWith('--')) {
@@ -111,6 +118,150 @@ function parseFlags(rawArgs, CliInputError) {
     cursor += 2;
   }
   return collected;
+}
+
+function adminBearer(flags) {
+  return flags.bearer ?? flags['admin-token'] ?? process.env.ANT_ADMIN_TOKEN ?? process.env.ANT_ADMIN_BEARER ?? null;
+}
+
+function adminHeaders(flags, CliInputError) {
+  const token = adminBearer(flags);
+  if (!token) {
+    throw new CliInputError('admin token required: pass --bearer, pass --admin-token, or set ANT_ADMIN_TOKEN');
+  }
+  return { 'content-type': 'application/json', authorization: `Bearer ${token}` };
+}
+
+async function requestJson(runtime, path, init = undefined) {
+  const response = await runtime.fetchImpl(`${runtime.serverUrl}${path}`, init);
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Request failed (${response.status}): ${text.slice(0, 200)}`);
+  }
+  return response.status === 204 ? {} : response.json().catch(() => ({}));
+}
+
+function triggerActionConfig(action, flags, CliInputError) {
+  if (action === 'room.message') {
+    return flags.message ? { messageTemplate: flags.message } : {};
+  }
+  if (action === 'console.log') {
+    return flags.message ? { message: flags.message } : {};
+  }
+  if (action === 'webhook.post') {
+    return {
+      url: requireFlag(flags, 'url', CliInputError),
+      ...(flags['body-template'] ? { bodyTemplate: flags['body-template'] } : {})
+    };
+  }
+  if (action === 'task.create') {
+    const config = {};
+    if (flags.subject) config.subject = flags.subject;
+    if (flags.description) config.description = flags.description;
+    if (flags['target-plan']) config.planId = flags['target-plan'];
+    if (flags['assigned-agent']) config.assignedAgent = flags['assigned-agent'];
+    if (flags.priority !== undefined) {
+      const priority = Number(flags.priority);
+      if (!Number.isInteger(priority)) throw new CliInputError('--priority must be an integer');
+      config.priority = priority;
+    }
+    return config;
+  }
+  throw new CliInputError('action must be room.message|console.log|webhook.post|task.create');
+}
+
+async function runTriggerVerb(subaction, rawArgs, runtime, CliInputError) {
+  switch (subaction) {
+    case 'add': return runTriggerAdd(rawArgs, runtime, CliInputError);
+    case 'list': return runTriggerList(rawArgs, runtime, CliInputError);
+    case 'fire': return runTriggerFire(rawArgs, runtime, CliInputError);
+    case 'remove': return runTriggerRemove(rawArgs, runtime, CliInputError);
+    case undefined:
+    case '--help':
+    case 'help':
+      writeUsage(runtime);
+      return subaction === undefined ? 1 : 0;
+    default:
+      throw new CliInputError(`unknown plan trigger verb: ${subaction}`);
+  }
+}
+
+async function runTriggerAdd(rawArgs, runtime, CliInputError) {
+  const event = rawArgs[0];
+  const action = rawArgs[1];
+  if (!event || event.startsWith('--')) throw new CliInputError('plan trigger add needs an event');
+  if (!action || action.startsWith('--')) throw new CliInputError('plan trigger add needs an action');
+  const flags = parseFlags(rawArgs.slice(2), CliInputError);
+  const body = {
+    event,
+    action,
+    actionConfig: triggerActionConfig(action, flags, CliInputError)
+  };
+  if (flags.plan !== undefined && flags.plan !== '') body.planId = flags.plan;
+  if (flags.by !== undefined && flags.by !== '') body.createdBy = flags.by;
+  const payload = await requestJson(runtime, '/api/plan-triggers', {
+    method: 'POST',
+    headers: adminHeaders(flags, CliInputError),
+    body: JSON.stringify(body)
+  });
+  if (flags.json !== undefined) runtime.writeOut(JSON.stringify(payload));
+  else runtime.writeOut(`Created trigger ${payload.trigger?.id ?? '?'} (${event} -> ${action}).`);
+  return 0;
+}
+
+async function runTriggerList(rawArgs, runtime, CliInputError) {
+  const flags = parseFlags(rawArgs, CliInputError);
+  const query = new URLSearchParams();
+  if (flags.plan !== undefined) query.set('planId', flags.plan);
+  if (flags.event !== undefined) query.set('event', flags.event);
+  const qs = query.toString();
+  const token = adminBearer(flags);
+  const payload = await requestJson(
+    runtime,
+    `/api/plan-triggers${qs ? `?${qs}` : ''}`,
+    token ? { headers: { authorization: `Bearer ${token}` } } : undefined
+  );
+  if (flags.json !== undefined) {
+    runtime.writeOut(JSON.stringify(payload));
+    return 0;
+  }
+  const triggers = payload.triggers ?? [];
+  if (triggers.length === 0) {
+    runtime.writeOut('No triggers.');
+    return 0;
+  }
+  for (const trigger of triggers) {
+    runtime.writeOut(`${trigger.id}\t${trigger.event}\t${trigger.action}\t${trigger.planId ?? 'wildcard'}`);
+  }
+  return 0;
+}
+
+async function runTriggerFire(rawArgs, runtime, CliInputError) {
+  const triggerId = rawArgs[0];
+  if (!triggerId || triggerId.startsWith('--')) throw new CliInputError('plan trigger fire needs a triggerId');
+  const flags = parseFlags(rawArgs.slice(1), CliInputError);
+  const body = flags.plan ? { planId: flags.plan } : {};
+  const payload = await requestJson(runtime, `/api/plan-triggers/${encodeURIComponent(triggerId)}/fire`, {
+    method: 'POST',
+    headers: adminHeaders(flags, CliInputError),
+    body: JSON.stringify(body)
+  });
+  if (flags.json !== undefined) runtime.writeOut(JSON.stringify(payload));
+  else runtime.writeOut(`Fired trigger ${payload.triggerId ?? triggerId} for ${payload.planId ?? 'its plan'}.`);
+  return 0;
+}
+
+async function runTriggerRemove(rawArgs, runtime, CliInputError) {
+  const triggerId = rawArgs[0];
+  if (!triggerId || triggerId.startsWith('--')) throw new CliInputError('plan trigger remove needs a triggerId');
+  const flags = parseFlags(rawArgs.slice(1), CliInputError);
+  const payload = await requestJson(runtime, `/api/plan-triggers/${encodeURIComponent(triggerId)}`, {
+    method: 'DELETE',
+    headers: adminHeaders(flags, CliInputError)
+  });
+  if (flags.json !== undefined) runtime.writeOut(JSON.stringify(payload));
+  else runtime.writeOut(`Removed trigger ${triggerId}.`);
+  return 0;
 }
 
 function writeUsage(runtime) {

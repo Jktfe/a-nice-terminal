@@ -7,15 +7,19 @@
 
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { requireAdminAuth } from '$lib/server/chatInviteAuth';
+import { isAdminRequest, requireAdminAuth } from '$lib/server/chatInviteAuth';
 import { getTrigger, removeTrigger } from '$lib/server/planTriggerStore';
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
   const id = params.triggerId ?? '';
   if (id.length === 0) throw error(400, 'triggerId is required.');
   const trigger = getTrigger(id);
   if (!trigger) throw error(404, 'trigger not found');
-  return json({ trigger });
+  return json({
+    trigger: isAdminRequest(request)
+      ? trigger
+      : { ...trigger, actionConfig: {}, actionConfigRedacted: true }
+  });
 };
 
 export const DELETE: RequestHandler = async ({ params, request }) => {

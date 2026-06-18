@@ -27,7 +27,7 @@
 <SimplePageShell
   eyebrow="Plans · Triggers"
   title="Triggers."
-  summary="Automate plan/task lifecycle events. Add triggers to post messages to attached rooms, log to console, or (when shipped) hit webhooks. Mutation via the `ant plan trigger` CLI — this page builds the commands for you."
+  summary="Automate plan/task lifecycle events. Add triggers to post messages to attached rooms, log to console, hit webhooks, or create follow-up tasks. Mutation via the `ant plan trigger` CLI — this page builds the commands for you."
 >
   <nav class="sub" aria-label="Plans sub-nav">
     <a class="back" href="/plans">← All plans</a>

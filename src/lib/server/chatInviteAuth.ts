@@ -18,19 +18,27 @@
 import { error } from '@sveltejs/kit';
 import { timingSafeEqual } from 'crypto';
 
-export function requireAdminAuth(request: Request): void {
+function adminBearerMatches(request: Request): boolean | null {
   const configured = process.env.ANT_ADMIN_TOKEN;
-  if (!configured || configured.length === 0) {
-    throw error(503, 'admin not configured');
-  }
+  if (!configured || configured.length === 0) return null;
   const header = request.headers.get('authorization') ?? '';
   const supplied = header.startsWith('Bearer ') ? header.slice(7) : '';
-  if (supplied.length === 0) {
-    throw error(401, 'admin auth required');
-  }
+  if (supplied.length === 0) return false;
   const a = Buffer.from(supplied);
   const b = Buffer.from(configured);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export function isAdminRequest(request: Request): boolean {
+  return adminBearerMatches(request) === true;
+}
+
+export function requireAdminAuth(request: Request): void {
+  const match = adminBearerMatches(request);
+  if (match === null) {
+    throw error(503, 'admin not configured');
+  }
+  if (!match) {
     throw error(401, 'admin auth required');
   }
 }

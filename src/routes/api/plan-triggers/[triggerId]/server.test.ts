@@ -55,12 +55,23 @@ afterEach(() => {
 
 describe('/api/plan-triggers/:triggerId', () => {
   it('GET returns the trigger', async () => {
-    const trigger = addTrigger({ event: 'plan.completed', action: 'console.log', actionConfig: {} });
-    const res = await run(GET as unknown as AnyHandler, eventFor(trigger.id, 'GET'));
+    const trigger = addTrigger({ event: 'plan.completed', action: 'console.log', actionConfig: { message: 'secret-ish' } });
+    const res = await run(GET as unknown as AnyHandler, eventFor(trigger.id, 'GET', null));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.trigger.id).toBe(trigger.id);
     expect(body.trigger.event).toBe('plan.completed');
+    expect(body.trigger.actionConfig).toEqual({});
+    expect(body.trigger.actionConfigRedacted).toBe(true);
+  });
+
+  it('GET includes actionConfig for admin bearer readers', async () => {
+    const trigger = addTrigger({ event: 'plan.completed', action: 'console.log', actionConfig: { message: 'secret-ish' } });
+    const res = await run(GET as unknown as AnyHandler, eventFor(trigger.id, 'GET'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.trigger.actionConfig).toEqual({ message: 'secret-ish' });
+    expect(body.trigger.actionConfigRedacted).toBeUndefined();
   });
 
   it('GET 404s for missing trigger', async () => {

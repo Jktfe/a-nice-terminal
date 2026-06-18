@@ -13,8 +13,11 @@ const ADMIN_TOKEN = 'trigger-admin-token';
 
 type AnyHandler = (event: unknown) => unknown;
 
-function getReq(search = ''): Parameters<typeof GET>[0] {
+function getReq(search = '', token: string | null = null): Parameters<typeof GET>[0] {
+  const headers: Record<string, string> = {};
+  if (token !== null) headers.authorization = `Bearer ${token}`;
   return {
+    request: new Request('http://localhost/api/plan-triggers' + search, { headers }),
     url: new URL('http://localhost/api/plan-triggers' + search)
   } as Parameters<typeof GET>[0];
 }
@@ -62,13 +65,24 @@ afterEach(() => {
 });
 
 describe('/api/plan-triggers', () => {
-  it('GET lists triggers', async () => {
+  it('GET lists triggers without leaking actionConfig to non-admin readers', async () => {
     addTrigger({ event: 'plan.completed', action: 'console.log', actionConfig: { message: 'done' } });
     const res = await run(GET as unknown as AnyHandler, getReq());
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.triggers.length).toBe(1);
     expect(body.triggers[0].event).toBe('plan.completed');
+    expect(body.triggers[0].actionConfig).toEqual({});
+    expect(body.triggers[0].actionConfigRedacted).toBe(true);
+  });
+
+  it('GET includes actionConfig for admin bearer readers', async () => {
+    addTrigger({ event: 'plan.completed', action: 'console.log', actionConfig: { message: 'done' } });
+    const res = await run(GET as unknown as AnyHandler, getReq('', ADMIN_TOKEN));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.triggers[0].actionConfig).toEqual({ message: 'done' });
+    expect(body.triggers[0].actionConfigRedacted).toBeUndefined();
   });
 
   it('GET filters by planId', async () => {
