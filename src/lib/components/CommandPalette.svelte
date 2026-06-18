@@ -95,7 +95,10 @@
             id: term.sessionId,
             title: term.name || term.sessionId,
             subtitle: term.sessionId,
-            href: `/terminals/${encodeURIComponent(term.sessionId)}`
+            // /terminals/<id> is not a route (404) — the list page is the
+            // terminal surface and carries id="term-<sessionId>" anchors on
+            // each desk chip, so deep-link to the chip on the list instead.
+            href: `/terminals#term-${term.sessionId}`
           });
         }
       }
