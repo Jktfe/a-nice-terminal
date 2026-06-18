@@ -120,6 +120,8 @@
   }
 </script>
 
+<svelte:head><title>CLI Manifest | ANT vNext</title></svelte:head>
+
 <SimplePageShell
   eyebrow="discover"
   title="ant CLI verbs"

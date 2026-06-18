@@ -29,6 +29,8 @@
   }
 </script>
 
+<svelte:head><title>Diagnostics | ANT vNext</title></svelte:head>
+
 <SimplePageShell eyebrow="Operator" title="Diagnostics" summary="Runtime health, DB size, SSE state, and recent errors.">
   {#if !summary}
     <p class="error-nudge">Diagnostics summary unavailable. Check that the server is running.</p>

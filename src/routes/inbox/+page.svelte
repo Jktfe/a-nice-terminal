@@ -61,6 +61,8 @@
   });
 </script>
 
+<svelte:head><title>Inbox | ANT vNext</title></svelte:head>
+
 <SimplePageShell title="Inbox">
   {#if unauthorised}
     <p class="empty">Sign in to see your inbox.</p>
