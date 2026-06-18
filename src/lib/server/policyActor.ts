@@ -15,22 +15,8 @@ import type { PolicyActorKind } from './policyStore';
 import { getIdentityDb } from './db';
 import { resolveBrowserSessionSecret } from './browserSessionStore';
 import { hashToken } from './chatInviteStore';
+import { getCookieValuesFromRequest } from './authGate';
 import { parsePidChainFromBody, resolveServerSideHandle } from './identityGate';
-
-function getCookieValue(request: Request, name: string): string | null {
-  const cookieHeader = request.headers.get('cookie');
-  if (!cookieHeader) return null;
-  for (const part of cookieHeader.split(';')) {
-    const trimmed = part.trim();
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    if (trimmed.slice(0, eq) === name) {
-      const raw = trimmed.slice(eq + 1);
-      try { return decodeURIComponent(raw); } catch { return raw; }
-    }
-  }
-  return null;
-}
 
 export type ResolvedPolicyActor = {
   handle: string;
@@ -44,22 +30,24 @@ export type ResolvedPolicyActor = {
  * since it was bound at session creation.
  */
 function resolveByBrowserSession(request: Request): ResolvedPolicyActor | null {
-  const cookieSecret = getCookieValue(request, 'ant_browser_session');
-  if (cookieSecret === null) return null;
+  const cookieSecrets = getCookieValuesFromRequest(request, 'ant_browser_session');
+  if (cookieSecrets.length === 0) return null;
 
   const db = getIdentityDb();
   // The browser session row has the handle directly. We don't need a
   // room context for policy writes; we just need to know the caller is
   // a real authenticated browser identity. resolveBrowserSessionSecret
   // requires a roomId so we do a direct row lookup instead.
-  const row = db
-    .prepare(
-      'SELECT handle FROM browser_sessions WHERE secret_hash = ? AND (expires_at_ms IS NULL OR expires_at_ms > ?)'
-    )
-    .get(hashToken(cookieSecret), Date.now()) as { handle: string } | undefined;
+  const lookup = db.prepare(
+    'SELECT handle FROM browser_sessions WHERE secret_hash = ? AND (expires_at_ms IS NULL OR expires_at_ms > ?)'
+  );
+  const now = Date.now();
 
-  if (!row) return null;
-  return { handle: row.handle, kind: 'human' };
+  for (const cookieSecret of cookieSecrets) {
+    const row = lookup.get(hashToken(cookieSecret), now) as { handle: string } | undefined;
+    if (row) return { handle: row.handle, kind: 'human' };
+  }
+  return null;
 }
 
 function resolveByPidChain(request: Request, rawBody: unknown): ResolvedPolicyActor | null {

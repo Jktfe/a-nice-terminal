@@ -25,6 +25,12 @@ function cookieRequest(cookieValue: string) {
   });
 }
 
+function cookieHeaderRequest(cookieHeader: string) {
+  return new Request('http://test.local/api/policies', {
+    headers: { cookie: cookieHeader }
+  });
+}
+
 describe('resolvePolicyActor', () => {
   it('resolves by browser session cookie', () => {
     const room = makeRoom();
@@ -46,6 +52,25 @@ describe('resolvePolicyActor', () => {
   it('returns null for invalid cookie', () => {
     const actor = resolvePolicyActor(cookieRequest('nope'), null);
     expect(actor).toBeNull();
+  });
+
+  it('tries every same-name browser session cookie before falling back', () => {
+    const room = makeRoom();
+    const db = getIdentityDb();
+    const nowSec = Math.floor(Date.now() / 1000);
+    db.prepare(`INSERT OR IGNORE INTO terminals (id, pid, pid_start, name, tmux_target_pane, agent_kind, pane_status, source, expires_at, meta, created_at, updated_at)
+      VALUES (?, 0, 'test', 'test-term', NULL, NULL, 'verified', 'test', ?, '{}', ?, ?)`)
+      .run('t_test', nowSec + 99999, nowSec, nowSec);
+    addMembership({ room_id: room.id, handle: '@you', terminal_id: 't_test' });
+    const result = createBrowserSession({ roomId: room.id, authorHandle: '@you' });
+    if (!result) throw new Error('Failed to create browser session');
+
+    const actor = resolvePolicyActor(
+      cookieHeaderRequest(`ant_browser_session=stale; ant_browser_session=${encodeURIComponent(result.browserSessionSecret)}`),
+      null
+    );
+
+    expect(actor).toEqual({ handle: '@JWPK', kind: 'human' });
   });
 
   it('returns null for no cookie and no pidChain', () => {
