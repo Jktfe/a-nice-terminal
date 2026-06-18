@@ -49,7 +49,14 @@
       const r = await fetch(
         `/api/chat-rooms/${encodeURIComponent(roomId)}/trackers/${encodeURIComponent(trackerId)}`
       );
-      if (r.status === 401 || r.status === 403 || r.status === 404) return;
+      if (r.status === 401 || r.status === 403) {
+        errorText = `Could not load tracker (${r.status}). Sign in again or retry the room session.`;
+        return;
+      }
+      if (r.status === 404) {
+        errorText = 'Tracker not found or no longer visible in this room.';
+        return;
+      }
       if (!r.ok) throw new Error(`Could not load tracker (${r.status}).`);
       const body = (await r.json()) as { tracker?: TrackerView };
       if (body.tracker) live = body.tracker;
@@ -225,6 +232,15 @@
 
     {#if errorText}<p class="tk-error" role="alert">{errorText}</p>{/if}
   </section>
+{:else if isLoading}
+  <section class="tracker tracker-unavailable" aria-label="Loading tracker" aria-live="polite">
+    <p class="tk-empty">Loading tracker...</p>
+  </section>
+{:else if errorText}
+  <section class="tracker tracker-unavailable" aria-label="Tracker unavailable">
+    <p class="tk-error" role="alert">{errorText}</p>
+    <button type="button" class="tk-btn" onclick={refresh}>Retry</button>
+  </section>
 {/if}
 
 <style>
@@ -242,6 +258,11 @@
     justify-content: space-between;
     gap: 0.5rem;
     margin-bottom: 0.5rem;
+  }
+  .tracker-unavailable {
+    display: grid;
+    gap: 0.45rem;
+    justify-items: start;
   }
   .tracker-title-wrap { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
   .tracker-title {

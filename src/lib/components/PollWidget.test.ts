@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import PollWidget from './PollWidget.svelte';
@@ -31,6 +32,8 @@ const VOTE: VoteView = {
     { optionId: 'opt_no', label: 'No', count: 0 }
   ]
 };
+
+const source = readFileSync('src/lib/components/PollWidget.svelte', 'utf8');
 
 describe('PollWidget', () => {
   it('renders title, state, options and the per-option counts', () => {
@@ -92,5 +95,12 @@ describe('PollWidget', () => {
       }
     });
     expect(closed.body).not.toContain('>Vote<');
+  });
+
+  it('surfaces poll fetch auth/not-found failures instead of silently hiding the widget', () => {
+    expect(source).toContain('Could not load poll (${response.status})');
+    expect(source).toContain('Poll not found or no longer visible in this room.');
+    expect(source).toContain('aria-label="Poll unavailable"');
+    expect(source).toContain('>Retry</button>');
   });
 });

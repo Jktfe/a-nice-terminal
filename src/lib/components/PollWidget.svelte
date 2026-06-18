@@ -45,8 +45,12 @@
       const response = await fetch(
         `/api/votes/${encodeURIComponent(voteId)}?roomId=${encodeURIComponent(roomId)}`
       );
-      if (response.status === 401 || response.status === 403 || response.status === 404) {
-        // No read access / not found — fall back to whatever SSR gave us.
+      if (response.status === 401 || response.status === 403) {
+        errorText = `Could not load poll (${response.status}). Sign in again or retry the room session.`;
+        return;
+      }
+      if (response.status === 404) {
+        errorText = 'Poll not found or no longer visible in this room.';
         return;
       }
       if (!response.ok) throw new Error(`Could not load poll (${response.status}).`);
@@ -201,6 +205,15 @@
       <code class="poll-cli">ant vote cast {vote.id} --room {roomId} --option &lt;optionId&gt;</code>
     {/if}
   </section>
+{:else if isLoading}
+  <section class="poll poll-unavailable" aria-label="Loading poll" aria-live="polite">
+    <p class="poll-empty">Loading poll...</p>
+  </section>
+{:else if errorText}
+  <section class="poll poll-unavailable" aria-label="Poll unavailable">
+    <p class="poll-error" role="alert">{errorText}</p>
+    <button type="button" class="poll-refresh" onclick={refresh}>Retry</button>
+  </section>
 {/if}
 
 <style>
@@ -219,6 +232,11 @@
 
   .poll[data-state='closed'] {
     opacity: 0.85;
+  }
+
+  .poll-unavailable {
+    display: grid;
+    gap: 0.45rem;
   }
 
   .poll-header {
@@ -408,6 +426,13 @@
     margin: 0.5rem 0 0.2rem;
     color: var(--danger, #b91c1c);
     font-size: 0.78rem;
+  }
+
+  .poll-empty {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 0.8rem;
+    font-weight: 700;
   }
 
   .poll-cli {

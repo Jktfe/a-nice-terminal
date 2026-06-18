@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import TrackerTable from './TrackerTable.svelte';
@@ -18,6 +19,8 @@ const VIEW: TrackerView = {
     { seq: 2, tableId: 'trk_1', rowId: 'row_1', kind: 'cell.set', columnKey: 'paid', oldValue: '', newValue: 'true', byHandle: '@b', atMs: 3 }
   ]
 };
+
+const source = readFileSync('src/lib/components/TrackerTable.svelte', 'utf8');
 
 describe('TrackerTable', () => {
   it('renders the title + every column header + the row data', () => {
@@ -64,5 +67,12 @@ describe('TrackerTable', () => {
     };
     const { body } = render(TrackerTable, { props: { trackerId: 'trk_1', roomId: 'r1', initialTracker: ok } });
     expect(body).toContain('href="https://pay.example/inv/1"');
+  });
+
+  it('surfaces tracker fetch auth/not-found failures instead of silently hiding the table', () => {
+    expect(source).toContain('Could not load tracker (${r.status})');
+    expect(source).toContain('Tracker not found or no longer visible in this room.');
+    expect(source).toContain('aria-label="Tracker unavailable"');
+    expect(source).toContain('>Retry</button>');
   });
 });
