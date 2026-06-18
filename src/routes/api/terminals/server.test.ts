@@ -26,7 +26,11 @@ vi.mock('$lib/server/ptyClient', () => ({
 }));
 
 import { POST as terminalsPost } from './+server';
-import { resetIdentityDbForTests } from '$lib/server/db';
+import { spawnTerminal } from '$lib/server/ptyClient';
+import * as terminalsStore from '$lib/server/terminalsStore';
+import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
+import { getHandleRow, getLiveBinding } from '$lib/server/handleBindingsStore';
+import type { TerminalRow } from '$lib/server/terminalsStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
@@ -255,5 +259,54 @@ describe('/api/terminals POST sec-iter2 Fix #2: API-layer handle validation', ()
     // validation gate. Any status other than 400 (the only validation
     // failure code) means the gate accepted the handle.
     expect(response.status).not.toBe(400);
+  });
+
+  it('witnesses a supplied ANThandle on successful terminal create', async () => {
+    vi.mocked(spawnTerminal).mockResolvedValueOnce({ alive: true });
+    vi.spyOn(terminalsStore, 'autoRegisterTerminalForSpawnedSession').mockReturnValueOnce({
+      id: 't_witness',
+      pid: 4242,
+      pid_start: '2026-06-18T08:20:00.000Z',
+      name: 'auto:t_witness',
+      tmux_target_pane: 't_witness:0.0',
+      agent_kind: null,
+      pane_status: 'unknown',
+      pane_stale_since: null,
+      source: 'spawn-auto',
+      expires_at: null,
+      meta: '{}',
+      created_at: 1,
+      updated_at: 1,
+      status: 'live'
+    } satisfies TerminalRow);
+
+    const response = await runHandler(
+      terminalsPost as unknown as AnyHandler,
+      eventFor('POST', '/api/terminals', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 't_witness',
+          name: 't1',
+          handle: 't1',
+          user: '@jamesK'
+        })
+      })
+    );
+
+    expect(response.status).toBe(201);
+    expect(getHandleRow('@t1')?.owners).toContain('@jamesK');
+    expect(getLiveBinding('@t1')).toMatchObject({
+      pane: 't_witness:0.0',
+      pid: 4242,
+      pid_start: '2026-06-18T08:20:00.000Z',
+      terminal_id: 't_witness'
+    });
+    const ledger = getIdentityDb()
+      .prepare(`SELECT kind, handle, actor FROM identity_ledger WHERE handle = ? ORDER BY id`)
+      .all('@t1') as { kind: string; handle: string; actor: string | null }[];
+    expect(ledger).toEqual([
+      expect.objectContaining({ kind: 'binding.claimed', handle: '@t1', actor: 'daemon' }),
+      expect.objectContaining({ kind: 'owner.added', handle: '@t1', actor: '@jamesK' })
+    ]);
   });
 });

@@ -30,6 +30,7 @@ import {
   listTerminalClassByIds,
   listTerminalRowsByIds
 } from '$lib/server/terminalsStore';
+import { bindHandle, ensureHandleOwnedBy } from '$lib/server/handleBindingsStore';
 import {
   socketBackedTerminalAlive,
   terminalSocketBindingFromMeta
@@ -156,9 +157,10 @@ export const POST: RequestHandler = async ({ request }) => {
   }
   // S7 (2026-05-14): optional handle binds the terminal to a routable
   // identifier (@x). Used by the JWPK allowed-posters picker.
-  const handle = typeof raw?.handle === 'string' && (raw.handle as string).trim().length > 0
+  const requestedHandle = typeof raw?.handle === 'string' && (raw.handle as string).trim().length > 0
     ? (raw.handle as string).trim()
     : undefined;
+  let handle: string | undefined;
   // Session recovery: the exact CLI line that launches the agent in this pane.
   // Stored so `POST /api/terminals/recover` can re-run it after a reboot. Custom
   // agents (Kimi/Minimax model flags) round-trip verbatim.
@@ -172,12 +174,13 @@ export const POST: RequestHandler = async ({ request }) => {
   // (Fix #1) catches this even if we forget here; the API-layer
   // validation is the UX layer — operators get a precise 400 with the
   // validator's `reason` string rather than a 500 from the store throw.
-  if (handle !== undefined) {
-    const validation = validateHandleForRegistration(handle);
+  if (requestedHandle !== undefined) {
+    const validation = validateHandleForRegistration(requestedHandle);
     if (!validation.ok) {
       throw error(400, validation.message);
     }
     requireOperatorForOperatorHandle(request, validation.canonicalHandle);
+    handle = validation.canonicalHandle;
   }
 
   const result = await spawnTerminal(sessionId, { cwd, cols, rows });
@@ -229,11 +232,30 @@ export const POST: RequestHandler = async ({ request }) => {
   // because lookupTerminalByPidChain finds no row matching the shell's
   // PID. Best-effort — if tmux query fails (rare), the terminal can
   // still self-register via `ant register` from inside.
-  if (record.tmux_target_pane) {
-    autoRegisterTerminalForSpawnedSession({
+  const registeredTerminal = record.tmux_target_pane
+    ? autoRegisterTerminalForSpawnedSession({
       sessionId,
       tmuxTargetPane: record.tmux_target_pane,
       agentKind: record.agent_kind
+    })
+    : null;
+
+  // Clean identity witness: a user-chosen ANThandle on terminal creation is a
+  // real claim, not just display text. Mirror local adoption's contract by
+  // binding the handle to the spawned pane and stamping the creator as owner.
+  if (handle && record.tmux_target_pane && registeredTerminal) {
+    const owner = user ?? getOperatorHandle();
+    bindHandle({
+      handle,
+      pane: record.tmux_target_pane,
+      pid: registeredTerminal.pid,
+      pidStart: registeredTerminal.pid_start,
+      spawnedBy: owner,
+      terminalId: sessionId
+    });
+    ensureHandleOwnedBy(handle, owner, {
+      actor: owner,
+      reason: 'terminal-create'
     });
   }
 
