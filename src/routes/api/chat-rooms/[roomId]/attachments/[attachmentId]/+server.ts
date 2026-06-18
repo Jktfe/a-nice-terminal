@@ -6,10 +6,8 @@
  *   → 404    unknown room, unknown attachment, or attachment lives in
  *            a different room (cross-room access prevention)
  *
- * Backs M11 upload-a-file slice 1 (backend, download path). No member
- * gate on GET in this slice — list/download are open within the room
- * surface. Authentication comes in a later milestone alongside the rest
- * of identity.
+ * The route body validates room/file ownership. Read authentication is enforced
+ * in hooks.server.ts for GET /api/chat-rooms/:roomId/... before this handler.
  */
 
 import { error } from '@sveltejs/kit';
