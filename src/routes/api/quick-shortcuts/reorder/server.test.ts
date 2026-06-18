@@ -6,14 +6,40 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { POST } from './+server';
 import {
   createQuickShortcut,
+  listQuickShortcuts,
   resetQuickShortcutsStoreForTests
 } from '$lib/server/quickShortcutsStore';
+import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
+import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { getIdentityDb } from '$lib/server/db';
 
-function eventFor(body?: string) {
+function resetBrowserSessionFixtures(): void {
+  const db = getIdentityDb();
+  db.prepare('DELETE FROM browser_sessions').run();
+  db.prepare('DELETE FROM room_memberships').run();
+  db.prepare('DELETE FROM terminals').run();
+  resetChatRoomStoreForTests();
+}
+
+function browserSessionCookieFor(handle: string): string {
+  const room = createChatRoom({ name: `owner-${handle}`, whoCreatedIt: handle });
+  const terminal = upsertTerminal({ pid: Math.floor(Math.random() * 10_000) + 1, pid_start: 'p', name: `term-${handle}` });
+  addMembership({ room_id: room.id, handle, terminal_id: terminal.id });
+  const session = createBrowserSession({ roomId: room.id, authorHandle: handle });
+  if (!session) throw new Error(`Failed to create browser session for ${handle}`);
+  return `ant_browser_session=${session.browserSessionSecret}`;
+}
+
+function eventFor(body?: string, cookie?: string) {
   const url = new URL('http://localhost/api/quick-shortcuts/reorder');
   const request = new Request(url.toString(), {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(cookie ? { cookie } : {})
+    },
     body
   });
   return { request, params: {}, url } as unknown as Parameters<typeof POST>[0];
@@ -40,11 +66,12 @@ async function runHandler(
   }
 }
 
-const callPost = (body?: string) => runHandler(POST, eventFor(body));
+const callPost = (body?: string, cookie?: string) => runHandler(POST, eventFor(body, cookie));
 
 describe('/api/quick-shortcuts/reorder', () => {
   beforeEach(() => {
     resetQuickShortcutsStoreForTests();
+    resetBrowserSessionFixtures();
   });
 
   it('reorders shortcuts in the requested sequence and returns 200', async () => {
@@ -105,5 +132,21 @@ describe('/api/quick-shortcuts/reorder', () => {
     expect(response.status).toBe(200);
     const payload = (await response.json()) as { shortcuts: { id: string }[] };
     expect(payload.shortcuts.map((s) => s.id)).toEqual([a.id]);
+  });
+
+  it('reorders only the browser-session owner bucket', async () => {
+    const aliceA = createQuickShortcut({ ownerHandle: '@alice', label: 'alice-a', text: 'a' });
+    const aliceB = createQuickShortcut({ ownerHandle: '@alice', label: 'alice-b', text: 'b' });
+    const bobA = createQuickShortcut({ ownerHandle: '@bob', label: 'bob-a', text: 'a' });
+    const bobB = createQuickShortcut({ ownerHandle: '@bob', label: 'bob-b', text: 'b' });
+
+    const response = await callPost(
+      JSON.stringify({ ids: [aliceB.id, aliceA.id, bobB.id] }),
+      browserSessionCookieFor('@alice')
+    );
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { shortcuts: { id: string }[] };
+    expect(payload.shortcuts.map((s) => s.id)).toEqual([aliceB.id, aliceA.id]);
+    expect(listQuickShortcuts('@bob').map((s) => s.id)).toEqual([bobA.id, bobB.id]);
   });
 });

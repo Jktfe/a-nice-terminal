@@ -1,14 +1,14 @@
 /**
  * GET   /api/terminals/[id]/settings — read terminal settings from meta JSON.
- *   200 { persistence, onlyRespondTo, writeGrants, killDefault, deliveryMode }
+ *   200 { persistence, writeGrants, killDefault, deliveryMode, deliveryTargetMode, coOwners }
  * PATCH /api/terminals/[id]/settings — patch a single field.
- *   Body: { field: 'persistence'|'onlyRespondTo'|'writeGrants'|'killDefault'|'deliveryMode', value: ... }
+ *   Body: { field: 'persistence'|'writeGrants'|'killDefault'|'deliveryMode'|'deliveryTargetMode'|'coOwners', value: ... }
  *   200 { ok: true }
  *
  * JWPK msg_fdi280krd3 (2026-05-19) — TerminalSettingsModal UI was wired
  * to this endpoint (7e7c254) but the endpoint didn't exist; PATCH 404'd
  * and the UI looked saved but nothing persisted. This closes the loop.
- * Fanout enforcement of onlyRespondTo is in pty-inject-fanout.ts (89a843d).
+ * Fanout enforcement of deliveryTargetMode is in pty-inject-fanout.ts.
  *
  * killDefault added per JWPK msg_t42mq5ma6u (2026-05-19): per-terminal
  * default disposition for the kill action so the operator doesn't see the
@@ -23,29 +23,34 @@ import type { RequestHandler } from './$types';
 import { requireAdminAuth } from '$lib/server/chatInviteAuth';
 import { resolveCallerHandleAnyRoom } from '$lib/server/authGate';
 import { getTerminalById, upsertTerminal } from '$lib/server/terminalsStore';
-import { getTerminalRecord } from '$lib/server/terminalRecordsStore';
+import { getTerminalRecord, parseAllowlist, updateTerminalRecord } from '$lib/server/terminalRecordsStore';
 import {
   isTerminalDeliveryMode,
+  isTerminalDeliveryTargetMode,
   TERMINAL_DELIVERY_MODES,
-  type TerminalDeliveryMode
+  TERMINAL_DELIVERY_TARGET_MODES,
+  type TerminalDeliveryMode,
+  type TerminalDeliveryTargetMode
 } from '$lib/server/terminalDeliveryMode';
 
 type KillDefault = 'prompt' | 'archive' | 'delete' | 'just-kill';
 
 type Settings = {
   persistence: 'forever' | '7d' | '24h' | '1h';
-  onlyRespondTo: string[];
+  coOwners: string[];
   writeGrants: Array<{ handle: string; mode: 'read' | 'read_write' }>;
   killDefault: KillDefault;
   deliveryMode: TerminalDeliveryMode;
+  deliveryTargetMode: TerminalDeliveryTargetMode;
 };
 
 const DEFAULT_SETTINGS: Settings = {
   persistence: 'forever',
-  onlyRespondTo: [],
+  coOwners: [],
   writeGrants: [],
   killDefault: 'prompt',
-  deliveryMode: 'inject'
+  deliveryMode: 'inject',
+  deliveryTargetMode: 'room_flow'
 };
 
 const KILL_DEFAULT_VALUES: readonly KillDefault[] = ['prompt', 'archive', 'delete', 'just-kill'];
@@ -73,14 +78,30 @@ function parseMeta(metaRaw: string | undefined): Record<string, unknown> {
   }
 }
 
-function settingsFromMeta(meta: Record<string, unknown>): Settings {
+function normaliseHandle(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  const withAt = trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+  return withAt.toLowerCase();
+}
+
+function normaliseHandleList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.flatMap((value) => {
+    if (typeof value !== 'string') return [];
+    const handle = normaliseHandle(value);
+    return handle ? [handle] : [];
+  }))];
+}
+
+function settingsFromMeta(meta: Record<string, unknown>, recordAllowlist: string[] | null): Settings {
   const persistence = typeof meta.persistence === 'string'
     && ['forever', '7d', '24h', '1h'].includes(meta.persistence as string)
     ? meta.persistence as Settings['persistence']
     : DEFAULT_SETTINGS.persistence;
-  const onlyRespondTo = Array.isArray(meta.onlyRespondTo)
-    ? meta.onlyRespondTo.filter((h): h is string => typeof h === 'string')
-    : DEFAULT_SETTINGS.onlyRespondTo;
+  const coOwners = recordAllowlist && recordAllowlist.length > 0
+    ? normaliseHandleList(recordAllowlist)
+    : normaliseHandleList(meta.coOwners);
   const writeGrants = Array.isArray(meta.writeGrants)
     ? meta.writeGrants
         .filter((g): g is { handle: string; mode: 'read' | 'read_write' } =>
@@ -95,7 +116,10 @@ function settingsFromMeta(meta: Record<string, unknown>): Settings {
   const deliveryMode = isTerminalDeliveryMode(meta.deliveryMode)
     ? meta.deliveryMode
     : DEFAULT_SETTINGS.deliveryMode;
-  return { persistence, onlyRespondTo, writeGrants, killDefault, deliveryMode };
+  const deliveryTargetMode = isTerminalDeliveryTargetMode(meta.deliveryTargetMode)
+    ? meta.deliveryTargetMode
+    : DEFAULT_SETTINGS.deliveryTargetMode;
+  return { persistence, coOwners, writeGrants, killDefault, deliveryMode, deliveryTargetMode };
 }
 
 export const GET: RequestHandler = ({ params }) => {
@@ -103,8 +127,9 @@ export const GET: RequestHandler = ({ params }) => {
   if (!id) throw error(400, 'id required.');
   const terminal = getTerminalById(id);
   if (!terminal) throw error(404, 'terminal not found.');
+  const record = getTerminalRecord(id);
   const meta = parseMeta(typeof terminal.meta === 'string' ? terminal.meta : undefined);
-  return json(settingsFromMeta(meta));
+  return json(settingsFromMeta(meta, parseAllowlist(record?.allowlist ?? null)));
 };
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
@@ -118,7 +143,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   // confirms the caller has *some* valid session, but does not check
   // that the caller owns this terminal. Without this, any authenticated
   // browser-session could PATCH another operator's terminal — granting
-  // themselves writeGrants, clearing onlyRespondTo, flipping killDefault
+  // themselves writeGrants, changing coOwners, flipping killDefault
   // to drop the transcript silently.
   //
   // Owner = terminal_records.created_by OR terminal_records.handle.
@@ -134,6 +159,13 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     const owners = new Set<string>();
     if (record?.created_by) owners.add(record.created_by.toLowerCase());
     if (record?.handle) owners.add(record.handle.toLowerCase());
+    for (const coOwner of parseAllowlist(record?.allowlist ?? null) ?? []) {
+      owners.add(coOwner.toLowerCase());
+    }
+    const terminalMeta = parseMeta(typeof terminal.meta === 'string' ? terminal.meta : undefined);
+    for (const coOwner of normaliseHandleList(terminalMeta.coOwners)) {
+      owners.add(coOwner.toLowerCase());
+    }
     // Terminals predating the created_by/handle columns have neither;
     // allow the caller as long as they registered against this terminal
     // (their pidChain resolved to a session-handle, which means there's
@@ -149,12 +181,16 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   const field = body.field;
   if (
     field !== 'persistence'
-    && field !== 'onlyRespondTo'
+    && field !== 'coOwners'
     && field !== 'writeGrants'
     && field !== 'killDefault'
     && field !== 'deliveryMode'
+    && field !== 'deliveryTargetMode'
   ) {
-    throw error(400, 'field must be persistence | onlyRespondTo | writeGrants | killDefault | deliveryMode.');
+    throw error(400, 'field must be persistence | coOwners | writeGrants | killDefault | deliveryMode | deliveryTargetMode.');
+  }
+  if (field === 'coOwners' && !Array.isArray(body.value)) {
+    throw error(400, 'coOwners must be an array of handles.');
   }
   if (field === 'killDefault'
       && !(typeof body.value === 'string'
@@ -164,10 +200,17 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   if (field === 'deliveryMode' && !isTerminalDeliveryMode(body.value)) {
     throw error(400, `deliveryMode must be one of ${TERMINAL_DELIVERY_MODES.join(' | ')}.`);
   }
+  if (field === 'deliveryTargetMode' && !isTerminalDeliveryTargetMode(body.value)) {
+    throw error(400, `deliveryTargetMode must be one of ${TERMINAL_DELIVERY_TARGET_MODES.join(' | ')}.`);
+  }
   const existingMeta = parseMeta(typeof terminal.meta === 'string' ? terminal.meta : undefined);
+  const value = field === 'coOwners' ? normaliseHandleList(body.value) : body.value;
+  if (field === 'coOwners') {
+    updateTerminalRecord(id, { allowlist: value as string[] });
+  }
   // Trust the UI's shape — server-side validation in settingsFromMeta drops
   // garbage on next read. Write-grants gets normalised on read too.
-  const nextMeta = { ...existingMeta, [field]: body.value };
+  const nextMeta = { ...existingMeta, [field]: value };
   upsertTerminal({
     pid: terminal.pid,
     pid_start: terminal.pid_start ?? '',

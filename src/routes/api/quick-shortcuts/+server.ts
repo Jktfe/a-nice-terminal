@@ -1,12 +1,12 @@
 /**
- * HTTP endpoints for the global Quick Shortcuts list (terminal chip bar).
+ * HTTP endpoints for the current user's Quick Shortcuts list (terminal chip bar).
  *
- * GET  /api/quick-shortcuts → list every shortcut, smallest order_index first.
+ * GET  /api/quick-shortcuts → list caller-owned shortcuts, smallest order_index first.
  * POST /api/quick-shortcuts → create one shortcut from { label, text, autoEnter? }.
  *
- * Per JWPK 2026-05-15 lock: global scope (no per-terminal scoping), no auth
- * gate (user prefs, easy to recreate). Empty label / empty text after trim
- * fail with 400.
+ * The browser-session handle is the owner key. Requests without a resolvable
+ * caller fall back to the structural operator handle for CLI/test compatibility.
+ * Empty label / empty text after trim fail with 400.
  */
 
 import { json, error } from '@sveltejs/kit';
@@ -15,9 +15,15 @@ import {
   createQuickShortcut,
   listQuickShortcuts
 } from '$lib/server/quickShortcutsStore';
+import { getOperatorHandle } from '$lib/server/operatorHandle';
+import { resolveCallerHandleAnyRoom } from '$lib/server/authGate';
 
-export const GET: RequestHandler = async () => {
-  return json({ shortcuts: listQuickShortcuts() });
+function ownerHandleFor(request: Request): string {
+  return resolveCallerHandleAnyRoom(request) ?? getOperatorHandle();
+}
+
+export const GET: RequestHandler = async ({ request }) => {
+  return json({ shortcuts: listQuickShortcuts(ownerHandleFor(request)) });
 };
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -42,6 +48,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
   try {
     const shortcut = createQuickShortcut({
+      ownerHandle: ownerHandleFor(request),
       label: labelFromBody,
       text: textFromBody,
       autoEnter

@@ -654,14 +654,13 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_plans_archived ON plans (archived_at_ms)`,
   `CREATE INDEX IF NOT EXISTS idx_plans_deleted ON plans (deleted_at_ms)`,
-  // QUICK-SHORTCUTS (2026-05-15): global, user-editable list of terminal
-  // shortcut chips. JWPK-locked: global scope (one shared list across all
-  // terminals), server-persisted in fresh-ant.db so a tab-reload or fresh
-  // session sees the same shortcuts. Hard-delete only (these are user prefs
-  // — easy to recreate; no soft-delete plumbing needed). order_index is the
-  // sort key (smaller first); reorder bulk-updates via a transaction.
+  // QUICK-SHORTCUTS (2026-05-15, owner-scoped 2026-06-18): user-editable
+  // list of terminal shortcut chips. Scoped by owner_handle so different
+  // browser-session users can carry different shortcuts while keeping one
+  // shared list across that user's terminals.
   `CREATE TABLE IF NOT EXISTS quick_shortcuts (
     id            TEXT PRIMARY KEY,
+    owner_handle  TEXT NOT NULL DEFAULT '${getOperatorHandle()}',
     label         TEXT NOT NULL,
     text          TEXT NOT NULL,
     auto_enter    INTEGER NOT NULL DEFAULT 1,
@@ -669,7 +668,9 @@ const SCHEMA_DDL_STATEMENTS = [
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL
   )`,
+  `ALTER TABLE quick_shortcuts ADD COLUMN owner_handle TEXT NOT NULL DEFAULT '${getOperatorHandle()}'`,
   `CREATE INDEX IF NOT EXISTS idx_quick_shortcuts_order ON quick_shortcuts (order_index ASC)`,
+  `CREATE INDEX IF NOT EXISTS idx_quick_shortcuts_owner_order ON quick_shortcuts (owner_handle, order_index ASC)`,
   // cwd_bookmarks: server-side persistence for the cwd pills surfaced under
   // the breadcrumb in TerminalFolderPicker. Mirrors quick_shortcuts pattern
   // per JWPK 2026-05-15 lock (GLOBAL scope, fresh-ant.db) so bookmarks sync

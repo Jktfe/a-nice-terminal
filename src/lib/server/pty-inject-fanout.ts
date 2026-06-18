@@ -56,7 +56,7 @@ import { buildMessageDeliveryEnvelope } from './messageDeliveryEnvelope';
 import { getContextState, markContextSeen } from './roomSessionContextStore';
 import { resolveCurrentOwner } from './roomIdentityResolver';
 import { enqueue as enqueueDurableQueue } from './messageQueueStore';
-import { readTerminalDeliveryMode } from './terminalDeliveryMode';
+import { readTerminalDeliveryMode, readTerminalDeliveryTargetMode } from './terminalDeliveryMode';
 
 // (room × askee × messageId) → already opened; prevents double-file under
 // retried fanout. Bounded — entries age out after fanout for the message
@@ -234,6 +234,14 @@ function routeQueuedRoomMessage(terminal: { id: string; meta?: string | null }, 
   touchLastPtyByteAt(terminal.id);
 }
 
+function shouldDeliverToTerminalTarget(input: {
+  terminal: { meta?: string | null };
+  hasBareMention: boolean;
+}): boolean {
+  if (readTerminalDeliveryTargetMode(input.terminal.meta) !== 'handle_only') return true;
+  return input.hasBareMention;
+}
+
 function recipientSessionIdFor(q: QueuedItem): string {
   return resolveCleanMember(q.roomId, q.recipientHandle)
     ?? resolveCurrentOwner(q.roomId, q.recipientHandle)?.session.id
@@ -353,9 +361,12 @@ function activeClaimAllowsRecipient(message: ChatMessage, recipientHandle: strin
 
 function emitStaleSystemMessage(roomId: string, handle: string, reason: string): void {
   try {
+    const body = reason === 'shell-mode'
+      ? `${handle} is in shell mode; direct delivery is held to avoid pasting room messages as shell commands. Exit shell mode to resume direct delivery.`
+      : `${handle} appears offline (pane ${reason}). Re-register to resume direct delivery.`;
     postSystemMessage({
       roomId,
-      body: `${handle} appears offline (pane ${reason}). Re-register to resume direct delivery.`
+      body
     });
   } catch {
     /* room may have vanished; system marker is best-effort */
@@ -524,6 +535,7 @@ export function fanoutMessageToRoomTerminals(
   // room) so newly-idle agents get a one-shot directed nudge. Best-effort.
   maybeRunIdleMonitor(roomId, message.authorHandle);
   const memberships = listDeliveryMembershipsForRoom(roomId);
+  const hasBareMention = listBareMentionHandles(message.body).length > 0;
   const targetedHandles = resolveBareMentionsToGlobalHandles(roomId, message.body);
   const containsInformationalMention = hasBracketedMention(message.body);
   // Reply-parent fetched ONCE here; reused for the implied-mention enrichment
@@ -567,9 +579,10 @@ export function fanoutMessageToRoomTerminals(
       if (handle && handle !== selfHandle) targetedHandles.add(handle);
     }
   }
+  const everyoneBroadcast = hasBareEveryoneMention(message.body);
   let broadcastToAll =
     options.forceBroadcastToAll === true ||
-    hasBareEveryoneMention(message.body) ||
+    everyoneBroadcast ||
     (isOperatorBroadcastAuthor(message.authorHandle) && targetedHandles.size === 0);
   // Heads-down responder routing (JWPK msg_eshm5ekuh8):
   // Try ordered responder list first. If a verified non-sender
@@ -710,38 +723,10 @@ export function fanoutMessageToRoomTerminals(
     const terminal = getTerminalById(membership.terminal_id);
     if (!terminal || !terminal.tmux_target_pane) continue;
     if (isBrowserTerminalSource(terminal.source)) continue;
-    // JWPK msg_m6swrkw61q (2026-05-19) — @-only toggle enforcement.
-    // Per-terminal onlyRespondTo allowlist persisted in terminals.meta.
-    // When non-empty, the terminal ONLY receives messages whose bare
-    // mentions include at least one of the allowed handles. Empty list
-    // (or missing) → respond-to-everyone (existing behaviour).
-    // UI shipped in 7e7c254 TerminalSettingsModal; this closes the
-    // server-side enforcement gap that made the toggle UI-only theatre.
-    try {
-      const metaParsed = typeof terminal.meta === 'string' && terminal.meta.length > 0
-        ? JSON.parse(terminal.meta) as Record<string, unknown>
-        : {};
-      const onlyRespondToRaw = metaParsed.onlyRespondTo;
-      if (Array.isArray(onlyRespondToRaw) && onlyRespondToRaw.length > 0) {
-        // Canonicalise the allowlist via the same alias resolver as
-        // targetedHandles — operator may have typed an alias (@cdx) but
-        // means the underlying member, so route on canonical handles in
-        // both directions. PID-as-identity 2026-05-21.
-        const allowedGlobalHandles = new Set<string>();
-        for (const raw of onlyRespondToRaw) {
-          if (typeof raw !== 'string' || raw.length === 0) continue;
-          const withAt = raw.startsWith('@') ? raw : `@${raw}`;
-          allowedGlobalHandles.add(findHandleForAliasInRoom(room.id, withAt));
-        }
-        if (allowedGlobalHandles.size > 0) {
-          const hasAllowedMention = [...targetedHandles].some((h) => allowedGlobalHandles.has(h));
-          if (!hasAllowedMention) continue;  // filter out, terminal stays quiet
-        }
-      }
-    } catch {
-      /* meta JSON malformed → fail-open (respond as if no filter); the
-         operator setting an invalid filter shouldn't silently break delivery */
-    }
+    if (!shouldDeliverToTerminalTarget({
+      terminal,
+      hasBareMention
+    })) continue;
     const rk = routedKey(room.id, message.id, membership.handle);
     if (routedForMessage.has(rk)) continue;
     routedForMessage.add(rk);
@@ -779,6 +764,10 @@ export function fanoutMessageToRoomTerminals(
     }
     if (!broadcastToAll && targetedHandles.size === 0 && containsInformationalMention) continue;
     if (targetedHandles.size > 0 && !broadcastToAll && !targetedHandles.has(linkedHandle)) continue;
+    if (!shouldDeliverToTerminalTarget({
+      terminal,
+      hasBareMention
+    })) continue;
     if (!activeClaimAllowsRecipient(message, linkedHandle)) continue;
     const rk = routedKey(room.id, message.id, linkedHandle);
     if (routedForMessage.has(rk)) continue;

@@ -14,9 +14,16 @@ import {
   findQuickShortcutById,
   updateQuickShortcut
 } from '$lib/server/quickShortcutsStore';
+import { getOperatorHandle } from '$lib/server/operatorHandle';
+import { resolveCallerHandleAnyRoom } from '$lib/server/authGate';
+
+function ownerHandleFor(request: Request): string {
+  return resolveCallerHandleAnyRoom(request) ?? getOperatorHandle();
+}
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
-  const existing = findQuickShortcutById(params.id);
+  const ownerHandle = ownerHandleFor(request);
+  const existing = findQuickShortcutById(params.id, ownerHandle);
   if (!existing) {
     throw error(404, 'Quick shortcut not found.');
   }
@@ -51,7 +58,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   }
 
   try {
-    const shortcut = updateQuickShortcut(params.id, patch);
+    const shortcut = updateQuickShortcut(params.id, patch, ownerHandle);
     if (!shortcut) {
       throw error(404, 'Quick shortcut not found.');
     }
@@ -69,8 +76,8 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   }
 };
 
-export const DELETE: RequestHandler = async ({ params }) => {
-  const wasDeleted = deleteQuickShortcut(params.id);
+export const DELETE: RequestHandler = async ({ params, request }) => {
+  const wasDeleted = deleteQuickShortcut(params.id, ownerHandleFor(request));
   if (!wasDeleted) {
     throw error(404, 'Quick shortcut not found.');
   }

@@ -11,12 +11,37 @@ import {
   createQuickShortcut,
   resetQuickShortcutsStoreForTests
 } from '$lib/server/quickShortcutsStore';
+import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
+import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { getIdentityDb } from '$lib/server/db';
 
-function eventFor(method: 'GET' | 'POST', body?: string) {
+function resetBrowserSessionFixtures(): void {
+  const db = getIdentityDb();
+  db.prepare('DELETE FROM browser_sessions').run();
+  db.prepare('DELETE FROM room_memberships').run();
+  db.prepare('DELETE FROM terminals').run();
+  resetChatRoomStoreForTests();
+}
+
+function browserSessionCookieFor(handle: string): string {
+  const room = createChatRoom({ name: `owner-${handle}`, whoCreatedIt: handle });
+  const terminal = upsertTerminal({ pid: Math.floor(Math.random() * 10_000) + 1, pid_start: 'p', name: `term-${handle}` });
+  addMembership({ room_id: room.id, handle, terminal_id: terminal.id });
+  const session = createBrowserSession({ roomId: room.id, authorHandle: handle });
+  if (!session) throw new Error(`Failed to create browser session for ${handle}`);
+  return `ant_browser_session=${session.browserSessionSecret}`;
+}
+
+function eventFor(method: 'GET' | 'POST', body?: string, cookie?: string) {
   const url = new URL('http://localhost/api/quick-shortcuts');
   const request = new Request(url.toString(), {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(cookie ? { cookie } : {})
+    },
     body
   });
   return { request, params: {}, url } as unknown as Parameters<typeof POST>[0];
@@ -43,12 +68,13 @@ async function runHandler(
   }
 }
 
-const callGet = () => runHandler(GET, eventFor('GET'));
+const callGet = (cookie?: string) => runHandler(GET, eventFor('GET', undefined, cookie));
 const callPost = (body?: string) => runHandler(POST, eventFor('POST', body));
 
 describe('/api/quick-shortcuts', () => {
   beforeEach(() => {
     resetQuickShortcutsStoreForTests();
+    resetBrowserSessionFixtures();
   });
 
   describe('GET', () => {
@@ -68,6 +94,19 @@ describe('/api/quick-shortcuts', () => {
         shortcuts: { id: string }[];
       };
       expect(payload.shortcuts.map((s) => s.id)).toEqual([a.id, b.id]);
+    });
+
+    it('returns only shortcuts owned by the browser-session handle', async () => {
+      const mine = createQuickShortcut({ ownerHandle: '@alice', label: 'mine', text: 'mine' });
+      createQuickShortcut({ ownerHandle: '@bob', label: 'theirs', text: 'theirs' });
+      const response = await callGet(browserSessionCookieFor('@alice'));
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as {
+        shortcuts: { id: string; ownerHandle: string }[];
+      };
+      expect(payload.shortcuts).toEqual([
+        expect.objectContaining({ id: mine.id, ownerHandle: '@alice' })
+      ]);
     });
   });
 

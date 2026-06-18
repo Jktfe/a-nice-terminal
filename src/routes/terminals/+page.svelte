@@ -61,7 +61,8 @@
   let modalSessionId = $state<string | null>(null);
   let pendingName = $state('');
   let pendingUser = $state('@JWPK');
-  let pendingPickedHandles = $state<string[]>([]);  // multi-select from existing handles
+  let pendingPickedHandles = $state<string[]>([]);  // co-owner multi-select from existing terminal handles
+  let pendingHandleOnly = $state(false);
 
   // PICKER-SAME-SET 2026-05-14: picker source == bottom-tier ANT terminals
   // (one source-of-truth per JWPK). Use record.handle if set (S7 column),
@@ -107,6 +108,7 @@
     pendingName = `Terminal ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     pendingUser = '@JWPK';
     pendingPickedHandles = [];
+    pendingHandleOnly = false;
     modalOpen = true;
   }
 
@@ -116,6 +118,7 @@
     pendingName = `Attached ${pane.sessionId.slice(0, 8)}`;
     pendingUser = '@JWPK';
     pendingPickedHandles = [];
+    pendingHandleOnly = false;
     modalOpen = true;
   }
 
@@ -136,6 +139,7 @@
       const body: Record<string, unknown> = { name, user };
       if (modalSessionId) body.sessionId = modalSessionId;
       if (pendingPickedHandles.length > 0) body.allowlist = [...pendingPickedHandles];
+      if (pendingHandleOnly) body.deliveryTargetMode = 'handle_only';
       const res = await fetch('/api/terminals', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -653,8 +657,8 @@
              since it's redundant + canonical edit-point is header. -->
 
         <fieldset class="allowlist-picker">
-          <legend>Allowlist (optional)</legend>
-          <p class="picker-hint">Empty = creator + operator only.</p>
+          <legend>Co-owners (optional)</legend>
+          <p class="picker-hint">Empty = creator + operator only. Co-owners can manage this terminal.</p>
           {#if availableHandles.length === 0}
             <p class="picker-empty">No handles registered yet.</p>
           {:else}
@@ -672,6 +676,14 @@
               {/each}
             </div>
           {/if}
+        </fieldset>
+        <fieldset class="allowlist-picker">
+          <legend>Delivery target</legend>
+          <label class="check-row">
+            <input type="checkbox" bind:checked={pendingHandleOnly} />
+            <span>Handle only</span>
+          </label>
+          <p class="picker-hint">Plain fanout with no @ mention is ignored. ANT-resolved roomHandle/ANThandle mentions and bare @everyone still reach the pane.</p>
         </fieldset>
         <div class="actions">
           <button type="button" class="secondary" onclick={cancelModal}>Cancel</button>
@@ -755,6 +767,8 @@
   .allowlist-picker { border: 1px solid var(--line-soft); border-radius: 0.45rem; padding: 0.5rem 0.65rem 0.55rem; margin: 0; display: grid; gap: 0.35rem; }
   .allowlist-picker legend { padding: 0 0.3rem; font-size: 0.78rem; color: var(--ink-soft); }
   .picker-hint, .picker-empty { margin: 0; font-size: 0.75rem; color: var(--ink-soft); }
+  .check-row { display: inline-flex; align-items: center; gap: 0.45rem; color: var(--ink-strong); font-weight: 700; font-size: 0.85rem; width: fit-content; }
+  .check-row input { width: 1rem; height: 1rem; accent-color: var(--accent); }
   .handle-pills { display: flex; flex-wrap: wrap; gap: 0.3rem; }
   .handle-pill { padding: 0.25rem 0.7rem; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--bg); color: var(--ink-strong); font-size: 0.8rem; font-family: ui-monospace, monospace; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
   .handle-pill:hover { border-color: var(--accent); color: var(--accent); }

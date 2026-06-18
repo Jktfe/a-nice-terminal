@@ -9,12 +9,37 @@ import {
   findQuickShortcutById,
   resetQuickShortcutsStoreForTests
 } from '$lib/server/quickShortcutsStore';
+import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
+import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { getIdentityDb } from '$lib/server/db';
 
-function eventFor(method: 'PATCH' | 'DELETE', id: string, body?: string) {
+function resetBrowserSessionFixtures(): void {
+  const db = getIdentityDb();
+  db.prepare('DELETE FROM browser_sessions').run();
+  db.prepare('DELETE FROM room_memberships').run();
+  db.prepare('DELETE FROM terminals').run();
+  resetChatRoomStoreForTests();
+}
+
+function browserSessionCookieFor(handle: string): string {
+  const room = createChatRoom({ name: `owner-${handle}`, whoCreatedIt: handle });
+  const terminal = upsertTerminal({ pid: Math.floor(Math.random() * 10_000) + 1, pid_start: 'p', name: `term-${handle}` });
+  addMembership({ room_id: room.id, handle, terminal_id: terminal.id });
+  const session = createBrowserSession({ roomId: room.id, authorHandle: handle });
+  if (!session) throw new Error(`Failed to create browser session for ${handle}`);
+  return `ant_browser_session=${session.browserSessionSecret}`;
+}
+
+function eventFor(method: 'PATCH' | 'DELETE', id: string, body?: string, cookie?: string) {
   const url = new URL(`http://localhost/api/quick-shortcuts/${id}`);
   const request = new Request(url.toString(), {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(cookie ? { cookie } : {})
+    },
     body
   });
   return { request, params: { id }, url } as unknown as Parameters<typeof PATCH>[0];
@@ -41,13 +66,14 @@ async function runHandler(
   }
 }
 
-const callPatch = (id: string, body?: string) =>
-  runHandler(PATCH, eventFor('PATCH', id, body));
-const callDelete = (id: string) => runHandler(DELETE, eventFor('DELETE', id));
+const callPatch = (id: string, body?: string, cookie?: string) =>
+  runHandler(PATCH, eventFor('PATCH', id, body, cookie));
+const callDelete = (id: string, cookie?: string) => runHandler(DELETE, eventFor('DELETE', id, undefined, cookie));
 
 describe('/api/quick-shortcuts/:id', () => {
   beforeEach(() => {
     resetQuickShortcutsStoreForTests();
+    resetBrowserSessionFixtures();
   });
 
   describe('PATCH', () => {
@@ -80,6 +106,17 @@ describe('/api/quick-shortcuts/:id', () => {
         JSON.stringify({ label: 'x' })
       );
       expect(response.status).toBe(404);
+    });
+
+    it('does not update another browser-session owner shortcut', async () => {
+      const existing = createQuickShortcut({ ownerHandle: '@alice', label: 'old', text: 'cmd' });
+      const response = await callPatch(
+        existing.id,
+        JSON.stringify({ label: 'new' }),
+        browserSessionCookieFor('@bob')
+      );
+      expect(response.status).toBe(404);
+      expect(findQuickShortcutById(existing.id, '@alice')?.label).toBe('old');
     });
 
     it('returns 400 when label is not a string', async () => {
@@ -138,6 +175,13 @@ describe('/api/quick-shortcuts/:id', () => {
     it('returns 404 for an unknown id', async () => {
       const response = await callDelete('does-not-exist');
       expect(response.status).toBe(404);
+    });
+
+    it('does not delete another browser-session owner shortcut', async () => {
+      const existing = createQuickShortcut({ ownerHandle: '@alice', label: 'l', text: 't' });
+      const response = await callDelete(existing.id, browserSessionCookieFor('@bob'));
+      expect(response.status).toBe(404);
+      expect(findQuickShortcutById(existing.id, '@alice')).toBeDefined();
     });
   });
 });

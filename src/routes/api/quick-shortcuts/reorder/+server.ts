@@ -1,5 +1,5 @@
 /**
- * Bulk-reorder the global Quick Shortcuts list.
+ * Bulk-reorder the current user's Quick Shortcuts list.
  *
  * POST /api/quick-shortcuts/reorder body { ids: string[] } → 200 { shortcuts }
  *
@@ -11,6 +11,12 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { reorderQuickShortcuts } from '$lib/server/quickShortcutsStore';
+import { getOperatorHandle } from '$lib/server/operatorHandle';
+import { resolveCallerHandleAnyRoom } from '$lib/server/authGate';
+
+function ownerHandleFor(request: Request): string {
+  return resolveCallerHandleAnyRoom(request) ?? getOperatorHandle();
+}
 
 export const POST: RequestHandler = async ({ request }) => {
   const rawBody = await request.json().catch(() => null);
@@ -28,6 +34,6 @@ export const POST: RequestHandler = async ({ request }) => {
     }
   }
 
-  const shortcuts = reorderQuickShortcuts(idsFromBody as string[]);
+  const shortcuts = reorderQuickShortcuts(idsFromBody as string[], ownerHandleFor(request));
   return json({ shortcuts });
 };

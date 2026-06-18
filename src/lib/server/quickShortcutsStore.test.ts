@@ -22,6 +22,7 @@ describe('quickShortcutsStore', () => {
   describe('createQuickShortcut', () => {
     it('returns a shortcut with the given label, text, and autoEnter default true', () => {
       const created = createQuickShortcut({ label: 'exit', text: 'exit' });
+      expect(created.ownerHandle).toBe('@JWPK');
       expect(created.label).toBe('exit');
       expect(created.text).toBe('exit');
       expect(created.autoEnter).toBe(true);
@@ -78,6 +79,14 @@ describe('quickShortcutsStore', () => {
     it('returns an empty list when no shortcuts exist', () => {
       expect(listQuickShortcuts()).toEqual([]);
     });
+
+    it('isolates shortcuts by owner handle', () => {
+      const mine = createQuickShortcut({ ownerHandle: '@JWPK', label: 'mine', text: 'mine' });
+      const theirs = createQuickShortcut({ ownerHandle: '@agent', label: 'theirs', text: 'theirs' });
+
+      expect(listQuickShortcuts('@JWPK').map((s) => s.id)).toEqual([mine.id]);
+      expect(listQuickShortcuts('@agent').map((s) => s.id)).toEqual([theirs.id]);
+    });
   });
 
   describe('findQuickShortcutById', () => {
@@ -89,6 +98,11 @@ describe('quickShortcutsStore', () => {
 
     it('returns undefined for an unknown id', () => {
       expect(findQuickShortcutById('does-not-exist')).toBeUndefined();
+    });
+
+    it('does not find another owner shortcut', () => {
+      const created = createQuickShortcut({ ownerHandle: '@agent', label: 'a', text: 'a' });
+      expect(findQuickShortcutById(created.id, '@JWPK')).toBeUndefined();
     });
   });
 
@@ -137,6 +151,12 @@ describe('quickShortcutsStore', () => {
       expect(updateQuickShortcut('does-not-exist', { label: 'x' })).toBeUndefined();
     });
 
+    it('does not update another owner shortcut', () => {
+      const created = createQuickShortcut({ ownerHandle: '@agent', label: 'old', text: 'cmd' });
+      expect(updateQuickShortcut(created.id, { label: 'new' }, '@JWPK')).toBeUndefined();
+      expect(findQuickShortcutById(created.id, '@agent')?.label).toBe('old');
+    });
+
     it('rejects an empty trimmed label', () => {
       const created = createQuickShortcut({ label: 'l', text: 't' });
       expect(() => updateQuickShortcut(created.id, { label: '   ' })).toThrow();
@@ -157,6 +177,12 @@ describe('quickShortcutsStore', () => {
 
     it('returns false for an unknown id', () => {
       expect(deleteQuickShortcut('does-not-exist')).toBe(false);
+    });
+
+    it('does not delete another owner shortcut', () => {
+      const created = createQuickShortcut({ ownerHandle: '@agent', label: 'l', text: 't' });
+      expect(deleteQuickShortcut(created.id, '@JWPK')).toBe(false);
+      expect(findQuickShortcutById(created.id, '@agent')).toBeDefined();
     });
   });
 
@@ -193,6 +219,19 @@ describe('quickShortcutsStore', () => {
       const a = createQuickShortcut({ label: 'a', text: 'a' });
       const reordered = reorderQuickShortcuts([]);
       expect(reordered.map((s) => s.id)).toEqual([a.id]);
+    });
+
+    it('only reorders the requested owner bucket', () => {
+      const mineA = createQuickShortcut({ ownerHandle: '@JWPK', label: 'mine-a', text: 'a' });
+      const mineB = createQuickShortcut({ ownerHandle: '@JWPK', label: 'mine-b', text: 'b' });
+      const theirA = createQuickShortcut({ ownerHandle: '@agent', label: 'their-a', text: 'a' });
+      const theirB = createQuickShortcut({ ownerHandle: '@agent', label: 'their-b', text: 'b' });
+
+      expect(reorderQuickShortcuts([mineB.id, mineA.id], '@JWPK').map((s) => s.id)).toEqual([
+        mineB.id,
+        mineA.id
+      ]);
+      expect(listQuickShortcuts('@agent').map((s) => s.id)).toEqual([theirA.id, theirB.id]);
     });
   });
 });

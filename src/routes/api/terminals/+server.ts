@@ -28,13 +28,15 @@ import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 import {
   autoRegisterTerminalForSpawnedSession,
   listTerminalClassByIds,
-  listTerminalRowsByIds
+  listTerminalRowsByIds,
+  upsertTerminal
 } from '$lib/server/terminalsStore';
 import { bindHandle, ensureHandleOwnedBy } from '$lib/server/handleBindingsStore';
 import {
   socketBackedTerminalAlive,
   terminalSocketBindingFromMeta
 } from '$lib/server/terminalSocketMetadata';
+import { isTerminalDeliveryTargetMode } from '$lib/server/terminalDeliveryMode';
 
 function makeSessionId(): string {
   return 't_' + Math.random().toString(36).slice(2, 12);
@@ -88,7 +90,7 @@ export const GET: RequestHandler = async () => {
       name: r.name,
       autoForwardRoomId: r.auto_forward_room_id,
       autoForwardChat: r.auto_forward_chat,
-      agentKind: r.agent_kind,
+      agentKind: terminalRow?.agent_kind ?? r.agent_kind,
       tmuxTargetPane: r.tmux_target_pane,
       tmuxSocketPath: socketBinding?.tmuxSocketPath ?? null,
       tmuxSessionName: socketBinding?.tmuxSessionName ?? null,
@@ -159,6 +161,9 @@ export const POST: RequestHandler = async ({ request }) => {
   // identifier (@x). Used by the JWPK allowed-posters picker.
   const requestedHandle = typeof raw?.handle === 'string' && (raw.handle as string).trim().length > 0
     ? (raw.handle as string).trim()
+    : undefined;
+  const deliveryTargetMode = isTerminalDeliveryTargetMode(raw?.deliveryTargetMode)
+    ? raw.deliveryTargetMode
     : undefined;
   let handle: string | undefined;
   // Session recovery: the exact CLI line that launches the agent in this pane.
@@ -239,6 +244,26 @@ export const POST: RequestHandler = async ({ request }) => {
       agentKind: record.agent_kind
     })
     : null;
+  if (deliveryTargetMode && registeredTerminal) {
+    const existingMeta = (() => {
+      try {
+        const parsed = JSON.parse(registeredTerminal.meta ?? '{}');
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? parsed as Record<string, unknown>
+          : {};
+      } catch {
+        return {};
+      }
+    })();
+    upsertTerminal({
+      pid: registeredTerminal.pid,
+      pid_start: registeredTerminal.pid_start ?? '',
+      name: registeredTerminal.name,
+      source: registeredTerminal.source,
+      ttlSeconds: 30 * 24 * 60 * 60,
+      meta: { ...existingMeta, deliveryTargetMode }
+    });
+  }
 
   // Clean identity witness: a user-chosen ANThandle on terminal creation is a
   // real claim, not just display text. Mirror local adoption's contract by
