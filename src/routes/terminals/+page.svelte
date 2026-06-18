@@ -61,6 +61,7 @@
   let modalMode = $state<'spawn' | 'attach'>('spawn');
   let modalSessionId = $state<string | null>(null);
   let pendingName = $state('');
+  let pendingHandle = $state('');
   let pendingUser = $state('@JWPK');
   let pendingPickedHandles = $state<string[]>([]);  // co-owner multi-select from existing terminal handles
   let pendingHandleOnly = $state(false);
@@ -77,6 +78,30 @@
     const slug = slugify(r.name) || r.sessionId.slice(0, 8);
     return '@' + slug;
   }
+  function canonicalHandle(raw: string): string {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) return '';
+    return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+  }
+  function suggestedHandle(name: string, fallback: string): string {
+    return '@' + (slugify(name) || fallback);
+  }
+  function validatePendingHandle(raw: string): string {
+    const canonical = canonicalHandle(raw);
+    if (canonical.length === 0) return 'Choose the ANThandle this Desk will use.';
+    if (canonical.length > 64) return 'ANThandle must be 64 characters or fewer.';
+    const local = canonical.slice(1);
+    if (!/^[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_])?$/.test(local)) {
+      return "Use letters, numbers, '_', '-', or '.', and do not start or end with '.' or '-'.";
+    }
+    return '';
+  }
+  const pendingHandleError = $derived(validatePendingHandle(pendingHandle));
+  const canConfirmClaim = $derived(
+    pendingName.trim().length > 0 &&
+    pendingUser.trim().length > 0 &&
+    pendingHandleError.length === 0
+  );
   const liveTerminals = $derived(terminals.filter((r) => r.alive));
   const staleTerminals = $derived(terminals.filter((r) => !r.alive));
 
@@ -106,7 +131,9 @@
   function openSpawnModal(): void {
     modalMode = 'spawn';
     modalSessionId = null;
-    pendingName = `Terminal ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const defaultName = `Terminal ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    pendingName = defaultName;
+    pendingHandle = suggestedHandle(defaultName, `term-${Date.now().toString(36).slice(-5)}`);
     pendingUser = '@JWPK';
     pendingPickedHandles = [];
     pendingHandleOnly = false;
@@ -116,7 +143,9 @@
   function openAttachModal(pane: TmuxPane): void {
     modalMode = 'attach';
     modalSessionId = pane.sessionId;
-    pendingName = `Attached ${pane.sessionId.slice(0, 8)}`;
+    const defaultName = `Attached ${pane.sessionId.slice(0, 8)}`;
+    pendingName = defaultName;
+    pendingHandle = suggestedHandle(defaultName, `pane-${pane.sessionId.slice(0, 8)}`);
     pendingUser = '@JWPK';
     pendingPickedHandles = [];
     pendingHandleOnly = false;
@@ -126,18 +155,20 @@
   function cancelModal(): void {
     modalOpen = false;
     pendingName = '';
+    pendingHandle = '';
     modalSessionId = null;
   }
 
   async function confirmClaim(): Promise<void> {
     const name = pendingName.trim();
+    const handle = canonicalHandle(pendingHandle);
     const user = pendingUser.trim();
-    if (!name || !user) return;
+    if (!name || !user || pendingHandleError) return;
     modalOpen = false;
     creating = true;
     lastError = '';
     try {
-      const body: Record<string, unknown> = { name, user };
+      const body: Record<string, unknown> = { name, handle, user };
       if (modalSessionId) body.sessionId = modalSessionId;
       if (pendingPickedHandles.length > 0) body.allowlist = [...pendingPickedHandles];
       if (pendingHandleOnly) body.deliveryTargetMode = 'handle_only';
@@ -146,7 +177,10 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body)
       });
-      if (!res.ok) throw new Error(`${modalMode} failed: ${res.status}`);
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(`${modalMode} failed: ${res.status}${detail ? ` — ${detail.slice(0, 180)}` : ''}`);
+      }
       const json = (await res.json()) as { sessionId: string; name: string };
       activeId = json.sessionId;
       activeName = json.name || name;
@@ -651,6 +685,8 @@
           <p class="muted">Pane: <code>{modalSessionId}</code></p>
         {/if}
         <label>Name <input type="text" bind:value={pendingName} placeholder="e.g. backend work" required /></label>
+        <label>ANThandle <input type="text" bind:value={pendingHandle} placeholder="@t1" autocapitalize="none" spellcheck="false" required /></label>
+        {#if pendingHandleError}<p class="field-error">{pendingHandleError}</p>{/if}
         <label>User (creator handle) <input type="text" bind:value={pendingUser} placeholder="@JWPK" required /></label>
         <!-- agentKind is set AFTER spawn via TerminalHeader dropdown per JWPK
              Option B 2026-05-14: daemon doesn't launch the CLI, only stores
@@ -688,7 +724,7 @@
         </fieldset>
         <div class="actions">
           <button type="button" class="secondary" onclick={cancelModal}>Cancel</button>
-          <button type="submit" class="primary" disabled={pendingName.trim().length === 0 || pendingUser.trim().length === 0}>
+          <button type="submit" class="primary" disabled={!canConfirmClaim}>
             {modalMode === 'spawn' ? 'Create' : 'Attach'}
           </button>
         </div>
@@ -768,6 +804,7 @@
   .allowlist-picker { border: 1px solid var(--line-soft); border-radius: 0.45rem; padding: 0.5rem 0.65rem 0.55rem; margin: 0; display: grid; gap: 0.35rem; }
   .allowlist-picker legend { padding: 0 0.3rem; font-size: 0.78rem; color: var(--ink-soft); }
   .picker-hint, .picker-empty { margin: 0; font-size: 0.75rem; color: var(--ink-soft); }
+  .field-error { margin: -0.2rem 0 0; font-size: 0.75rem; color: var(--accent); font-weight: 700; }
   .check-row { display: inline-flex; align-items: center; gap: 0.45rem; color: var(--ink-strong); font-weight: 700; font-size: 0.85rem; width: fit-content; }
   .check-row input { width: 1rem; height: 1rem; accent-color: var(--accent); }
   .handle-pills { display: flex; flex-wrap: wrap; gap: 0.3rem; }
