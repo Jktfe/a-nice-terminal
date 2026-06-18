@@ -32,9 +32,11 @@
     /** Render style. `bar` = horizontal scroller (default, terminal card use).
      *  `list` = vertical list (Settings page use). Editor is identical. */
     layout?: 'bar' | 'list';
+    /** Wrap bar chips into a capped tray when the parent reveals many shortcuts. */
+    compactTray?: boolean;
   };
 
-  let { onSend, layout = 'bar' }: Props = $props();
+  let { onSend, layout = 'bar', compactTray = false }: Props = $props();
 
   let shortcuts = $state<QuickShortcut[]>([]);
   let loaded = $state(false);
@@ -172,7 +174,7 @@
   }
 </script>
 
-<div class="quick-shortcuts {layout === 'list' ? 'as-list' : 'as-bar'}">
+<div class="quick-shortcuts {layout === 'list' ? 'as-list' : 'as-bar'} {compactTray ? 'compact-tray' : ''}">
   {#if !loaded}
     <span class="empty-hint">Loading shortcuts…</span>
   {:else if loadError}
@@ -265,6 +267,9 @@
 
   .quick-shortcuts.as-bar { padding: 0.45rem 0.6rem; }
   .quick-shortcuts.as-list { padding: 0.6rem 0.8rem; border-top: none; }
+  .quick-shortcuts.as-bar.compact-tray {
+    padding: 0.5rem 0.65rem 0.65rem;
+  }
 
   .empty-hint {
     display: inline-block;
@@ -287,6 +292,14 @@
     flex-wrap: wrap;
     overflow-x: visible;
   }
+  .compact-tray .scroller {
+    flex-wrap: wrap;
+    align-content: flex-start;
+    overflow-x: hidden;
+    overflow-y: auto;
+    max-height: min(9rem, 32vh);
+    padding-right: 0.15rem;
+  }
 
   .chip-wrap {
     display: inline-flex;
@@ -296,6 +309,10 @@
     border: 1px solid var(--line-soft);
     background: var(--bg);
     overflow: hidden;
+  }
+  .compact-tray .chip-wrap,
+  .compact-tray .add-btn {
+    max-width: min(18rem, 100%);
   }
   .chip-wrap:hover { border-color: var(--accent); }
 
@@ -309,6 +326,11 @@
     font-weight: 700;
     cursor: pointer;
     white-space: nowrap;
+  }
+  .compact-tray .chip {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .chip:hover { color: var(--accent); }
 

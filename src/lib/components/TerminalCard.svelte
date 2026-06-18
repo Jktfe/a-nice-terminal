@@ -47,11 +47,19 @@
     terminalId: string;
     userName?: string;
     defaultView?: ViewMode;
+    showShortcuts?: boolean;
     onRename?: (next: string) => void;
     onKilled?: () => void;
   };
 
-  let { terminalId, userName = 'Untitled terminal', defaultView = 'raw', onRename, onKilled }: Props = $props();
+  let {
+    terminalId,
+    userName = 'Untitled terminal',
+    defaultView = 'raw',
+    showShortcuts = true,
+    onRename,
+    onKilled
+  }: Props = $props();
 
   let killModalOpen = $state(false);
   let killError = $state('');
@@ -478,7 +486,9 @@
     {:else}
       <TerminalAntView {terminalId} onRerun={handleRerun} />
     {/if}
-    <QuickShortcutsBar onSend={(chip) => void handleShortcutSend(chip)} />
+    {#if showShortcuts}
+      <QuickShortcutsBar compactTray={true} onSend={(chip) => void handleShortcutSend(chip)} />
+    {/if}
   </div>
   {#if interruptError}<p class="interrupt-error" role="alert">{interruptError}</p>{/if}
   {#if killError}<p class="kill-error" role="alert">{killError}</p>{/if}

@@ -48,6 +48,7 @@
   let pageUsage = $state<UsagePayload | null>(null);
   let activeId = $state<string | null>(null);
   let activeName = $state<string>('');
+  let shortcutsOpen = $state(false);
   let creating = $state(false);
   let lastError = $state('');
 
@@ -179,6 +180,7 @@
       const json = (await res.json()) as { sessionId: string; name: string };
       activeId = json.sessionId;
       activeName = json.name || name;
+      shortcutsOpen = false;
       await loadTerminals();
     } catch (cause) {
       lastError = cause instanceof Error ? cause.message : String(cause);
@@ -228,6 +230,7 @@
     lastError = '';
     activeId = record.sessionId;
     activeName = record.name;
+    shortcutsOpen = false;
   }
 
   function chipLabel(record: TerminalRecord): string {
@@ -646,13 +649,26 @@
 
   {#if activeId}
     <section class="terminal-mount" aria-label="Active terminal">
+      <div class="active-terminal-toolbar">
+        <button
+          type="button"
+          class="shortcuts-toggle"
+          aria-expanded={shortcutsOpen}
+          onclick={() => (shortcutsOpen = !shortcutsOpen)}
+        >
+          <span class="toggle-caret" aria-hidden="true">{shortcutsOpen ? '▾' : '▸'}</span>
+          CLIs / Shortcuts
+        </button>
+      </div>
       {#key activeId}
         <TerminalCard
           terminalId={activeId}
           userName={activeName}
+          showShortcuts={shortcutsOpen}
           onKilled={async () => {
             const killedId = activeId;
             activeId = null;
+            shortcutsOpen = false;
             // Per JWPK delete-on-kill: remove the record from local
             // state; loadTerminals reconciles with backend (which now
             // deletes the row server-side via S6 delta-3).
@@ -787,7 +803,30 @@
   }
   .chip-kill:hover { color: var(--accent, #c63b3b); border-color: var(--accent, #c63b3b); background: var(--bg); opacity: 1; }
   .error { margin: 0; color: var(--accent); font-weight: 800; }
-  .terminal-mount { border-radius: 0.85rem; }
+  .terminal-mount { display: grid; gap: 0.45rem; border-radius: 0.85rem; }
+  .active-terminal-toolbar { display: flex; justify-content: flex-end; align-items: center; }
+  .shortcuts-toggle {
+    width: fit-content;
+    min-height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.7rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    background: var(--surface-card);
+    color: var(--ink-strong);
+    font-family: ui-monospace, monospace;
+    font-size: 0.78rem;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  .shortcuts-toggle:hover,
+  .shortcuts-toggle[aria-expanded='true'] {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .toggle-caret { font-size: 0.8rem; line-height: 1; }
   .modal-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; padding: 1rem; }
   .modal-card { background: var(--surface-card); border: 1px solid var(--line-soft); border-radius: 0.8rem; padding: 1.25rem; max-width: 28rem; width: 100%; display: grid; gap: 0.55rem; }
   .modal-card h2 { margin: 0; color: var(--ink-strong); }
