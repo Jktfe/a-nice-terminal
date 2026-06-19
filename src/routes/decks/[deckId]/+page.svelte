@@ -50,10 +50,10 @@
   }
   // Stage Validation UX (JWPK feedback msg_pub8alsnxf 2026-05-24 + screenshot):
   // when toggle ON, render a lens dropdown + visible "Claim N" numbering on
-  // each paragraph/bullet in slide content. Click-to-overlay is a follow-up
-  // slice; v1 ships the toggle + lens selection + visual numbering.
+  // each paragraph/bullet in slide content. Clicking a claim opens the
+  // verifier-run overlay keyed by a stable claim anchor.
   let showValidation = $state(false);
-  let selectedClaimForOverlay = $state<{index: number; text: string} | null>(null);
+  let selectedClaimForOverlay = $state<{index: number; claimAnchor: string; text: string} | null>(null);
   let activeLensId = $state<string | null>(null);
   let lenses = $state<{ id: string; name: string }[]>([]);
 
@@ -251,14 +251,30 @@
   // committed artefacts; we mirror its shape here for live deck preview so
   // the Stage Validation UX can render numbered claims without a server
   // round-trip per slide.
-  const slideClaims = $derived.by<{ index: number; text: string }[]>(() => {
+  function stableClaimHash(input: string): string {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < input.length; i += 1) {
+      hash ^= input.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+  }
+
+  function claimAnchorForSlideClaim(slide: StagePresentedSlide, claimIndex: number, text: string): string {
+    const slidePointer = slide.source === 'alternative'
+      ? `alternative:${slide.sourceAlternativeRef ?? slide.id}`
+      : `slide:${slide.id}`;
+    return `claim_${stableClaimHash(`${deck.id}\n${slidePointer}\n${claimIndex}\n${text}`)}`;
+  }
+
+  const slideClaims = $derived.by<{ index: number; id: string; text: string }[]>(() => {
     if (!activeSlide) return [];
     // Use displayedSlideContent so when an alternative slide is being viewed
     // (visibleSlideAlternative ≠ null), claim extraction reflects THAT
     // slide's content rather than the original. Keeps validation honest
     // when the presenter is toggling between original and Version B.
     const lines = displayedSlideContent.split('\n');
-    const out: { index: number; text: string }[] = [];
+    const out: { index: number; id: string; text: string }[] = [];
     let inFence = false;
     let n = 0;
     for (const raw of lines) {
@@ -273,7 +289,7 @@
       const cleaned = line.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '').trim();
       if (cleaned.length === 0) continue;
       n += 1;
-      out.push({ index: n, text: cleaned });
+      out.push({ index: n, id: claimAnchorForSlideClaim(activeSlide, n, cleaned), text: cleaned });
     }
     return out;
   });
@@ -798,7 +814,7 @@
               <ol class="claims-list">
                 {#each slideClaims as claim}
                   <li class="claim-row">
-                    <button type="button" class="claim-btn" onclick={() => (selectedClaimForOverlay = {index: claim.index, text: claim.text})} title="Click to view validation runs.">
+                    <button type="button" class="claim-btn" onclick={() => (selectedClaimForOverlay = {index: claim.index, claimAnchor: claim.id, text: claim.text})} title="Click to view validation runs.">
                       <span class="claim-num">Claim {claim.index}</span>
                       <span class="claim-text">{claim.text}</span>
                       <span class="claim-status">unverified</span>
@@ -806,12 +822,13 @@
                   </li>
                 {/each}
               </ol>
-              <p class="claims-note">Click-to-overlay (per-claim verifier runs) lands in a follow-up slice. v1: visible enumeration + active lens label so the presenter can see what's making claim-shaped statements.</p>
+              <p class="claims-note">Click a claim to inspect its verifier runs. Claim IDs stay stable for the deck, slide, claim position, and text.</p>
             </aside>
             </Explainable>
             {#if selectedClaimForOverlay}
               <ClaimValidationOverlay
                 claimIndex={selectedClaimForOverlay.index}
+                claimAnchor={selectedClaimForOverlay.claimAnchor}
                 claimText={selectedClaimForOverlay.text}
                 onClose={() => (selectedClaimForOverlay = null)}
               />

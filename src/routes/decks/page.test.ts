@@ -68,4 +68,12 @@ describe('/decks/[deckId] page source', () => {
     expect(pageSource).toContain('Delete');
     expect(pageSource).toContain('Move');
   });
+
+  it('uses stable claim anchors for the Stage validation overlay', () => {
+    expect(pageSource).toContain('function claimAnchorForSlideClaim');
+    expect(pageSource).toContain('id: claimAnchorForSlideClaim(activeSlide, n, cleaned)');
+    expect(pageSource).toContain('claimAnchor: claim.id');
+    expect(pageSource).toContain('claimAnchor={selectedClaimForOverlay.claimAnchor}');
+    expect(pageSource).toContain('Click a claim to inspect its verifier runs.');
+  });
 });

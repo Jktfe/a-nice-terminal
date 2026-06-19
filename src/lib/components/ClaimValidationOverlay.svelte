@@ -20,11 +20,12 @@
 
   type Props = {
     claimIndex: number;
+    claimAnchor: string;
     claimText: string;
     onClose: () => void;
   };
 
-  let { claimIndex, claimText, onClose }: Props = $props();
+  let { claimIndex, claimAnchor, claimText, onClose }: Props = $props();
 
   let runs = $state<ValidationRun[]>([]);
   let loading = $state(false);
@@ -34,7 +35,7 @@
     loading = true;
     errorMsg = '';
     try {
-      const res = await fetch(`/api/validation-runs/by-claim?claimAnchor=${encodeURIComponent(claimText)}`);
+      const res = await fetch(`/api/validation-runs/by-claim?claimAnchor=${encodeURIComponent(claimAnchor)}`);
       if (!res.ok) {
         errorMsg = `HTTP ${res.status}`;
         return;
@@ -74,6 +75,7 @@
   <div class="overlay-panel" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()} tabindex="0" role="dialog" aria-label={`Validation for Claim ${claimIndex}`}>
     <header class="overlay-header">
       <span class="claim-label">Claim {claimIndex}</span>
+      <span class="claim-anchor">{claimAnchor}</span>
       <button type="button" class="close-btn" onclick={onClose} aria-label="Close overlay">✕</button>
     </header>
 
@@ -127,6 +129,16 @@
     margin-bottom: 0.6rem;
   }
   .claim-label { font-weight: 800; font-size: 0.9rem; color: var(--accent); }
+  .claim-anchor {
+    margin-left: 0.45rem;
+    padding: 0.12rem 0.4rem;
+    border-radius: 999px;
+    background: var(--surface-card);
+    color: var(--ink-soft);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.68rem;
+    font-weight: 750;
+  }
   .close-btn {
     padding: 0.2rem 0.5rem; border: none; background: transparent;
     color: var(--ink-soft); font-size: 1.1rem; cursor: pointer; border-radius: 0.3rem;
