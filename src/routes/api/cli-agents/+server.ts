@@ -25,6 +25,7 @@ import {
 } from '$lib/server/cliAgentRegistry';
 import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 import { serialiseCliAgent } from '$lib/server/cliAgentSerialise';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 function rejectRemoteBridgeBearer(request: Request): void {
   const auth = request.headers.get('authorization') ?? '';
@@ -42,6 +43,7 @@ export const GET: RequestHandler = ({ request }) => {
 
 export const POST: RequestHandler = async ({ request }) => {
   rejectRemoteBridgeBearer(request);
+  requireOperatorLikeAuth(request);
 
   let body: Record<string, unknown>;
   try {

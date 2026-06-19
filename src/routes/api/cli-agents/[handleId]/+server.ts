@@ -23,6 +23,8 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getCliAgent } from '$lib/server/cliAgentRegistry';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 function serialiseAgent(handle: NonNullable<ReturnType<typeof getCliAgent>>) {
   return {
@@ -34,13 +36,15 @@ function serialiseAgent(handle: NonNullable<ReturnType<typeof getCliAgent>>) {
   };
 }
 
-export const GET: RequestHandler = ({ params }) => {
+export const GET: RequestHandler = ({ params, request }) => {
+  requireAggregateReadAuth(request, `/api/cli-agents/${params.handleId ?? ''}`);
   const handle = getCliAgent(params.handleId ?? '');
   if (!handle) throw error(404, 'unknown agent handle');
   return json(serialiseAgent(handle));
 };
 
-export const DELETE: RequestHandler = async ({ params }) => {
+export const DELETE: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const handle = getCliAgent(params.handleId ?? '');
   if (!handle) throw error(404, 'unknown agent handle');
   await handle.stop();

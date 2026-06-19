@@ -121,10 +121,21 @@ describe('/api/cli-agents endpoints', () => {
     expect(response.status).toBe(403);
   });
 
-  it('POST /api/cli-agents rejects unknown cli kind with 400', async () => {
+  it('POST /api/cli-agents rejects anonymous spawn attempts', async () => {
     const response = await runHandler(
       listPost as unknown as AnyHandler,
       eventFor('POST', '/api/cli-agents', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cli: 'codex' })
+      })
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it('POST /api/cli-agents rejects unknown cli kind with 400', async () => {
+    const response = await runHandler(
+      listPost as unknown as AnyHandler,
+      adminEventFor('POST', '/api/cli-agents', {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ cli: 'gemini' })
       })
@@ -135,7 +146,7 @@ describe('/api/cli-agents endpoints', () => {
   it('POST /api/cli-agents with missing cli field returns 400', async () => {
     const response = await runHandler(
       listPost as unknown as AnyHandler,
-      eventFor('POST', '/api/cli-agents', {
+      adminEventFor('POST', '/api/cli-agents', {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({})
       })
@@ -147,7 +158,7 @@ describe('/api/cli-agents endpoints', () => {
     registerCliAgentForTests(fakeHandle({ cli: 'codex', handleId: 'found', sessionId: 'thread-found' }));
     const response = await runHandler(
       oneGet as unknown as AnyHandler,
-      eventFor('GET', '/api/cli-agents/found', undefined, { handleId: 'found' })
+      adminEventFor('GET', '/api/cli-agents/found', undefined, { handleId: 'found' })
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as { sessionId: string };
@@ -157,7 +168,7 @@ describe('/api/cli-agents endpoints', () => {
   it('GET /api/cli-agents/<handleId> returns 404 for unknown id', async () => {
     const response = await runHandler(
       oneGet as unknown as AnyHandler,
-      eventFor('GET', '/api/cli-agents/phantom', undefined, { handleId: 'phantom' })
+      adminEventFor('GET', '/api/cli-agents/phantom', undefined, { handleId: 'phantom' })
     );
     expect(response.status).toBe(404);
   });
@@ -167,7 +178,7 @@ describe('/api/cli-agents endpoints', () => {
     registerCliAgentForTests(handle);
     const response = await runHandler(
       oneDelete as unknown as AnyHandler,
-      eventFor('DELETE', '/api/cli-agents/stop-me', undefined, { handleId: 'stop-me' })
+      adminEventFor('DELETE', '/api/cli-agents/stop-me', undefined, { handleId: 'stop-me' })
     );
     expect(response.status).toBe(200);
     expect(handle.__wasStopped()).toBe(true);
@@ -183,7 +194,7 @@ describe('/api/cli-agents endpoints', () => {
 
     const response = await runHandler(
       commandPost as unknown as AnyHandler,
-      eventFor('POST', '/api/cli-agents/send/command', {
+      adminEventFor('POST', '/api/cli-agents/send/command', {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ type: 'compact', customInstructions: 'keep architecture decisions' })
       }, { handleId: 'send' })
@@ -204,7 +215,7 @@ describe('/api/cli-agents endpoints', () => {
     }));
     const response = await runHandler(
       commandPost as unknown as AnyHandler,
-      eventFor('POST', '/api/cli-agents/err/command', {
+      adminEventFor('POST', '/api/cli-agents/err/command', {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ method: 'thread/start', params: {} })
       }, { handleId: 'err' })
@@ -215,7 +226,7 @@ describe('/api/cli-agents endpoints', () => {
   it('DELETE on unknown handle returns 404 (idempotent semantics)', async () => {
     const response = await runHandler(
       oneDelete as unknown as AnyHandler,
-      eventFor('DELETE', '/api/cli-agents/phantom', undefined, { handleId: 'phantom' })
+      adminEventFor('DELETE', '/api/cli-agents/phantom', undefined, { handleId: 'phantom' })
     );
     expect(response.status).toBe(404);
   });

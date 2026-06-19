@@ -20,8 +20,10 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getCliAgent } from '$lib/server/cliAgentRegistry';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 export const POST: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const handle = getCliAgent(params.handleId ?? '');
   if (!handle) throw error(404, 'unknown agent handle');
 
