@@ -15,6 +15,9 @@ import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoom
 import { createTask as createLegacyTask } from '$lib/server/taskStore';
 import { createSession } from '$lib/server/antSessionStore';
 import { resetIdentityDbForTests } from '$lib/server/db';
+import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
 
 const ADMIN_TOKEN_FOR_TESTS = 'plan-insights-scoping-admin-token';
 const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
@@ -37,11 +40,12 @@ beforeEach(() => {
   resetChatRoomStoreForTests();
 });
 
-function eventFor(opts: { admin?: boolean; sessionId?: string } = {}): AnyEvent {
+function eventFor(opts: { admin?: boolean; sessionId?: string; cookie?: string } = {}): AnyEvent {
   const url = new URL('http://localhost/api/plans/insights');
   const headers: Record<string, string> = {};
   if (opts.admin) headers.authorization = `Bearer ${ADMIN_TOKEN_FOR_TESTS}`;
   if (opts.sessionId) headers['x-ant-session-id'] = opts.sessionId;
+  if (opts.cookie) headers.cookie = opts.cookie;
   return {
     request: new Request(url.toString(), { headers }),
     params: {},
@@ -74,6 +78,15 @@ function seed() {
   return { room, sessionA };
 }
 
+function operatorCookie(): string {
+  const room = createChatRoom({ name: 'operator insights', whoCreatedIt: '@JWPK' });
+  const terminal = upsertTerminal({ pid: 82_001, pid_start: 'plans-insights-operator', name: 'plans-insights-operator' });
+  addMembership({ room_id: room.id, handle: '@JWPK', terminal_id: terminal.id });
+  const session = createBrowserSession({ roomId: room.id, authorHandle: '@JWPK' });
+  if (!session) throw new Error('createBrowserSession returned null');
+  return `ant_browser_session=${session.browserSessionSecret}`;
+}
+
 describe('GET /api/plans/insights containment', () => {
   it('rejects a non-admin room caller (no global aggregate leak)', async () => {
     const { sessionA } = seed();
@@ -88,6 +101,12 @@ describe('GET /api/plans/insights containment', () => {
   it('admin-bearer still gets insights (containment)', async () => {
     seed();
     const res = await run(eventFor({ admin: true }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).insights).toBeTruthy();
+  });
+  it('configured operator browser session gets insights for the UI dashboard', async () => {
+    seed();
+    const res = await run(eventFor({ cookie: operatorCookie() }));
     expect(res.status).toBe(200);
     expect((await res.json()).insights).toBeTruthy();
   });

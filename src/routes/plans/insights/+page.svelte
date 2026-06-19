@@ -21,7 +21,12 @@
 >
   <a class="back" href="/plans">← All plans</a>
 
-  {#if data.insightsFetchFailed}
+  {#if data.insightsLocked}
+    <section class="load-alert" role="status" aria-live="polite">
+      <strong>Insights are operator-only.</strong>
+      <p>Sign in as the operator to view the server-wide plan analytics dashboard.</p>
+    </section>
+  {:else if data.insightsFetchFailed}
     <section class="load-alert" role="alert" aria-live="polite">
       <strong>Insights did not load.</strong>
       <p>{data.insightsFetchMessage}</p>
