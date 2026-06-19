@@ -12,11 +12,12 @@ import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { listTerminals } from '$lib/server/ptyClient';
 import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle';
-import { getTerminalById } from '$lib/server/terminalsStore';
+import { getTerminalById, listTerminalClassByIds, setTerminalAgentKind } from '$lib/server/terminalsStore';
 import {
   socketBackedTerminalAlive,
   terminalSocketBindingFromMeta
 } from '$lib/server/terminalSocketMetadata';
+import { buildTerminalDeskReadModel } from '$lib/server/terminalDeskReadModel';
 
 export const GET: RequestHandler = async ({ params }) => {
   const sessionId = params.id ?? '';
@@ -27,11 +28,21 @@ export const GET: RequestHandler = async ({ params }) => {
   const socketBinding = terminalSocketBindingFromMeta(terminalRow?.meta);
   const alive = (await listTerminals()).includes(sessionId)
     || (socketBinding ? socketBackedTerminalAlive(terminalRow?.meta, record.tmux_target_pane) : false);
+  const agentKind = terminalRow?.agent_kind ?? record.agent_kind;
+  const classInfo = listTerminalClassByIds([sessionId]).get(sessionId);
+  const deskModel = buildTerminalDeskReadModel({
+    record,
+    terminalRow,
+    alive,
+    agentKind,
+    accountType: classInfo?.accountType ?? null,
+    modelFamily: classInfo?.modelFamily ?? null
+  });
   return json({
     sessionId, name: record.name,
     autoForwardRoomId: record.auto_forward_room_id,
     autoForwardChat: record.auto_forward_chat,
-    agentKind: record.agent_kind,
+    agentKind,
     tmuxTargetPane: record.tmux_target_pane,
     linkedChatRoomId: record.linked_chat_room_id,
     createdBy: record.created_by,
@@ -41,6 +52,11 @@ export const GET: RequestHandler = async ({ params }) => {
     bootCommand: record.boot_command,
     tmuxSocketPath: socketBinding?.tmuxSocketPath ?? null,
     tmuxSessionName: socketBinding?.tmuxSessionName ?? null,
+    desk: deskModel.desk,
+    antHandleClaim: deskModel.antHandleClaim,
+    paneBinding: deskModel.paneBinding,
+    cliProfile: deskModel.cliProfile,
+    terminalConfig: deskModel.terminalConfig,
     createdAtMs: record.created_at_ms, updatedAtMs: record.updated_at_ms,
     alive
   });
@@ -109,11 +125,15 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   }
   const updated = updateTerminalRecord(sessionId, patch);
   if (!updated) throw error(404, 'terminal not found');
+  if (Object.prototype.hasOwnProperty.call(patch, 'agentKind')) {
+    setTerminalAgentKind(sessionId, patch.agentKind as string | null);
+  }
+  const terminalRow = getTerminalById(sessionId);
   return json({
     sessionId, name: updated.name,
     autoForwardRoomId: updated.auto_forward_room_id,
     autoForwardChat: updated.auto_forward_chat,
-    agentKind: updated.agent_kind,
+    agentKind: terminalRow?.agent_kind ?? updated.agent_kind,
     createdBy: updated.created_by,
     allowlist: parseAllowlist(updated.allowlist),
     handle: updated.handle,

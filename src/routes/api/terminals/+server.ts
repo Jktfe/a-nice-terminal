@@ -37,6 +37,7 @@ import {
   terminalSocketBindingFromMeta
 } from '$lib/server/terminalSocketMetadata';
 import { isTerminalDeliveryTargetMode } from '$lib/server/terminalDeliveryMode';
+import { buildTerminalDeskReadModel } from '$lib/server/terminalDeskReadModel';
 
 function makeSessionId(): string {
   return 't_' + Math.random().toString(36).slice(2, 12);
@@ -81,16 +82,27 @@ export const GET: RequestHandler = async () => {
   } catch { /* status/room enrichment is best-effort; chips degrade gracefully */ }
   const records = rawRecords.map((r) => {
     const terminalRow = terminalRowsById.get(r.session_id);
+    const classInfo = classById.get(r.session_id);
     const socketBinding = terminalSocketBindingFromMeta(terminalRow?.meta);
     const socketAlive = socketBinding
       ? socketBackedTerminalAlive(terminalRow?.meta, r.tmux_target_pane)
       : false;
+    const alive = aliveSet.has(r.session_id) || socketAlive;
+    const agentKind = terminalRow?.agent_kind ?? r.agent_kind;
+    const deskModel = buildTerminalDeskReadModel({
+      record: r,
+      terminalRow,
+      alive,
+      agentKind,
+      accountType: classInfo?.accountType ?? null,
+      modelFamily: classInfo?.modelFamily ?? null
+    });
     return {
       sessionId: r.session_id,
       name: r.name,
       autoForwardRoomId: r.auto_forward_room_id,
       autoForwardChat: r.auto_forward_chat,
-      agentKind: terminalRow?.agent_kind ?? r.agent_kind,
+      agentKind,
       tmuxTargetPane: r.tmux_target_pane,
       tmuxSocketPath: socketBinding?.tmuxSocketPath ?? null,
       tmuxSessionName: socketBinding?.tmuxSessionName ?? null,
@@ -102,11 +114,16 @@ export const GET: RequestHandler = async () => {
       bootCommand: r.boot_command,
       agentStatus: statusById.get(r.session_id) ?? null,
       roomCount: roomCountById.get(r.session_id) ?? 0,
-      accountType: classById.get(r.session_id)?.accountType ?? null,
-      modelFamily: classById.get(r.session_id)?.modelFamily ?? null,
+      accountType: classInfo?.accountType ?? null,
+      modelFamily: classInfo?.modelFamily ?? null,
+      desk: deskModel.desk,
+      antHandleClaim: deskModel.antHandleClaim,
+      paneBinding: deskModel.paneBinding,
+      cliProfile: deskModel.cliProfile,
+      terminalConfig: deskModel.terminalConfig,
       createdAtMs: r.created_at_ms,
       updatedAtMs: r.updated_at_ms,
-      alive: aliveSet.has(r.session_id) || socketAlive
+      alive
     };
   });
   // JWPK two-tier dogfood spec (2026-05-14): split daemon-active sessions

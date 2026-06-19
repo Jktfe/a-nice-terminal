@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getIdentityDb, resetIdentityDbForTests } from '\$lib/server/db';
 import { createTerminalRecord } from '\$lib/server/terminalRecordsStore';
+import { bindHandle, ensureHandleOwnedBy } from '\$lib/server/handleBindingsStore';
 import { GET, PATCH } from './+server';
 
 vi.mock('\$lib/server/ptyClient', () => ({
@@ -41,6 +42,15 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
   }
 }
 
+function seedLiveTerminal(id: string, agentKind: string | null): void {
+  getIdentityDb()
+    .prepare(
+      `INSERT INTO terminals (id, pid, pid_start, name, agent_kind, source, meta, created_at, updated_at)
+       VALUES (?, 1, 'test', ?, ?, 'test', '{}', 1, 1)`
+    )
+    .run(id, `live-${id}`, agentKind);
+}
+
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
   resetIdentityDbForTests();
@@ -64,6 +74,100 @@ describe('/api/terminals/:id', () => {
     expect(body.name).toBe('Alpha');
     expect(body.handle).toBe('@alpha');
     expect(body.alive).toBe(false);
+  });
+
+  it('GET uses live terminals.agent_kind when the record projection is stale', async () => {
+    createTerminalRecord({ sessionId: 't-drift', name: 'Drift', agentKind: 'claude' });
+    seedLiveTerminal('t-drift', 'codex');
+    const res = await run(GET as unknown as AnyHandler, eventFor('t-drift', 'GET'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.agentKind).toBe('codex');
+  });
+
+  it('GET includes the canonical Desk/claim/binding/profile read model', async () => {
+    createTerminalRecord({
+      sessionId: 't-focused-model',
+      name: 'Focused Model',
+      handle: '@focused-model',
+      createdBy: '@JWPK',
+      allowlist: ['@JWPK'],
+      agentKind: 'claude',
+      bootCommand: 'codex',
+      cliSessionId: 'codex-session-1',
+      cliSessionSource: 'codex'
+    });
+    seedLiveTerminal('t-focused-model', 'codex');
+    getIdentityDb()
+      .prepare(
+        `UPDATE terminals
+            SET meta = ?, account_type = ?, model_family = ?, last_path = ?,
+                agent_status = 'thinking', pane_status = 'verified'
+          WHERE id = ?`
+      )
+      .run(
+        JSON.stringify({ deliveryMode: 'queue_summarise', deliveryTargetMode: 'room_flow' }),
+        'team',
+        'gpt-5',
+        '/tmp/focused',
+        't-focused-model'
+      );
+    bindHandle({
+      handle: '@focused-model',
+      pane: 't-focused-model:0.0',
+      pid: 2222,
+      pidStart: '2026-06-19T01:00:00.000Z',
+      spawnedBy: '@JWPK',
+      terminalId: 't-focused-model',
+      atMs: 2_000
+    });
+    ensureHandleOwnedBy('@focused-model', '@JWPK', {
+      actor: '@JWPK',
+      reason: 'test-owner',
+      atMs: 2_001
+    });
+
+    const res = await run(GET as unknown as AnyHandler, eventFor('t-focused-model', 'GET'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      sessionId: 't-focused-model',
+      desk: {
+        id: 't-focused-model',
+        name: 'Focused Model',
+        lifecycle: 'active',
+        ownerHandles: ['@JWPK']
+      },
+      antHandleClaim: {
+        handle: '@focused-model',
+        lifecycle: 'active',
+        owners: ['@JWPK'],
+        source: 'handles'
+      },
+      paneBinding: {
+        state: 'bound',
+        witnessed: true,
+        tmuxPane: 't-focused-model:0.0',
+        pid: 2222,
+        terminalId: 't-focused-model'
+      },
+      cliProfile: {
+        cliType: 'codex',
+        accountType: 'team',
+        cliFamily: 'gpt-5',
+        rootFolder: '/tmp/focused',
+        bootCommand: 'codex',
+        cliSessionId: 'codex-session-1',
+        cliSessionSource: 'codex'
+      },
+      terminalConfig: {
+        coOwners: ['@JWPK'],
+        messageDeliveryType: 'queue_summarise',
+        deliveryTargetType: 'room_flow',
+        currentStatus: 'thinking',
+        paneStatus: 'verified'
+      }
+    });
   });
 
   it('GET 400 on empty id', async () => {
@@ -90,6 +194,25 @@ describe('/api/terminals/:id', () => {
     expect(body.autoForwardRoomId).toBe('room-1');
     expect(body.autoForwardChat).toBe(1);
     expect(body.handle).toBe('@beta');
+  });
+
+  it('PATCH agentKind keeps terminal_records and terminals in sync', async () => {
+    createTerminalRecord({ sessionId: 't-cli-sync', name: 'Sync', agentKind: 'claude' });
+    seedLiveTerminal('t-cli-sync', 'claude');
+    const res = await run(PATCH as unknown as AnyHandler, eventFor('t-cli-sync', 'PATCH', {
+      agentKind: 'codex'
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.agentKind).toBe('codex');
+    const row = getIdentityDb()
+      .prepare(
+        `SELECT tr.agent_kind AS record_kind, t.agent_kind AS live_kind
+           FROM terminal_records tr JOIN terminals t ON t.id = tr.session_id
+          WHERE tr.session_id = ?`
+      )
+      .get('t-cli-sync') as { record_kind: string | null; live_kind: string | null };
+    expect(row).toEqual({ record_kind: 'codex', live_kind: 'codex' });
   });
 
   it('PATCH 400 on empty id', async () => {

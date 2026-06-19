@@ -25,11 +25,12 @@ vi.mock('$lib/server/ptyClient', () => ({
   listTerminals: vi.fn(async () => [])
 }));
 
-import { POST as terminalsPost } from './+server';
+import { GET as terminalsGet, POST as terminalsPost } from './+server';
 import { spawnTerminal } from '$lib/server/ptyClient';
 import * as terminalsStore from '$lib/server/terminalsStore';
 import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
-import { getHandleRow, getLiveBinding } from '$lib/server/handleBindingsStore';
+import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
+import { bindHandle, ensureHandleOwnedBy, getHandleRow, getLiveBinding } from '$lib/server/handleBindingsStore';
 import type { TerminalRow } from '$lib/server/terminalsStore';
 
 let tmpDir: string;
@@ -38,10 +39,19 @@ const previousAdminToken = process.env.ANT_ADMIN_TOKEN;
 
 type AnyHandler = (event: unknown) => unknown;
 
-function eventFor(method: 'POST', path: string, init: RequestInit): unknown {
+function eventFor(method: 'GET' | 'POST', path: string, init: RequestInit = {}): unknown {
   const url = new URL(`http://localhost${path}`);
   const request = new Request(url.toString(), { method, ...init });
   return { request, params: {}, url };
+}
+
+function seedLiveTerminal(id: string, agentKind: string | null): void {
+  getIdentityDb()
+    .prepare(
+      `INSERT INTO terminals (id, pid, pid_start, name, agent_kind, source, meta, created_at, updated_at)
+       VALUES (?, 1, 'test', ?, ?, 'test', '{}', 1, 1)`
+    )
+    .run(id, `live-${id}`, agentKind);
 }
 
 async function runHandler(handler: AnyHandler, event: unknown): Promise<Response> {
@@ -133,6 +143,126 @@ describe('/api/terminals POST SPAWN-LOCALITY-GATE', () => {
       })
     );
     expect(response.status).not.toBe(403);
+  });
+});
+
+describe('/api/terminals GET terminal CLI projection', () => {
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ant-terminals-get-'));
+    process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+    resetIdentityDbForTests();
+  });
+
+  afterEach(() => {
+    resetIdentityDbForTests();
+    rmSync(tmpDir, { recursive: true, force: true });
+    if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
+    else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
+    if (previousAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = previousAdminToken;
+  });
+
+  it('returns live terminals.agent_kind over stale terminal_records.agent_kind', async () => {
+    createTerminalRecord({ sessionId: 't_cli_drift', name: 'drift', agentKind: 'claude' });
+    seedLiveTerminal('t_cli_drift', 'codex');
+    const response = await runHandler(terminalsGet as unknown as AnyHandler, eventFor('GET', '/api/terminals'));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.terminals).toEqual([
+      expect.objectContaining({ sessionId: 't_cli_drift', agentKind: 'codex' })
+    ]);
+  });
+
+  it('adds the canonical Desk/claim/binding/profile read model without removing legacy fields', async () => {
+    createTerminalRecord({
+      sessionId: 't_desk_model',
+      name: 'Desk Model',
+      handle: '@desk-model',
+      createdBy: '@JWPK',
+      allowlist: ['@JWPK', '@reviewer'],
+      agentKind: 'claude',
+      bootCommand: 'claude --remote-control',
+      cliSessionId: 'cli-session-1',
+      cliSessionSource: 'claude-code'
+    });
+    seedLiveTerminal('t_desk_model', 'codex');
+    getIdentityDb()
+      .prepare(
+        `UPDATE terminals
+            SET meta = ?, account_type = ?, model_family = ?, last_path = ?,
+                agent_status = 'working', pane_status = 'verified'
+          WHERE id = ?`
+      )
+      .run(
+        JSON.stringify({ deliveryMode: 'queue_raw', deliveryTargetMode: 'handle_only' }),
+        'pro',
+        'opus',
+        '/Users/jamesking/CascadeProjects/a-nice-terminal',
+        't_desk_model'
+      );
+    bindHandle({
+      handle: '@desk-model',
+      pane: 't_desk_model:0.0',
+      pid: 1234,
+      pidStart: '2026-06-19T00:00:00.000Z',
+      spawnedBy: '@JWPK',
+      terminalId: 't_desk_model',
+      atMs: 1_000
+    });
+    ensureHandleOwnedBy('@desk-model', '@JWPK', {
+      actor: '@JWPK',
+      reason: 'test-owner',
+      atMs: 1_001
+    });
+
+    const response = await runHandler(terminalsGet as unknown as AnyHandler, eventFor('GET', '/api/terminals'));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const terminal = body.terminals.find((row: { sessionId: string }) => row.sessionId === 't_desk_model');
+
+    expect(terminal).toMatchObject({
+      sessionId: 't_desk_model',
+      handle: '@desk-model',
+      agentKind: 'codex',
+      desk: {
+        id: 't_desk_model',
+        name: 'Desk Model',
+        lifecycle: 'active',
+        ownerHandles: ['@JWPK']
+      },
+      antHandleClaim: {
+        handle: '@desk-model',
+        lifecycle: 'active',
+        owners: ['@JWPK'],
+        source: 'handles'
+      },
+      paneBinding: {
+        state: 'bound',
+        witnessed: true,
+        handle: '@desk-model',
+        tmuxPane: 't_desk_model:0.0',
+        pid: 1234,
+        pidStart: '2026-06-19T00:00:00.000Z',
+        terminalId: 't_desk_model',
+        boundAtMs: 1_000
+      },
+      cliProfile: {
+        cliType: 'codex',
+        accountType: 'pro',
+        cliFamily: 'opus',
+        rootFolder: '/Users/jamesking/CascadeProjects/a-nice-terminal',
+        bootCommand: 'claude --remote-control',
+        cliSessionId: 'cli-session-1',
+        cliSessionSource: 'claude-code'
+      },
+      terminalConfig: {
+        coOwners: ['@JWPK', '@reviewer'],
+        messageDeliveryType: 'queue_raw',
+        deliveryTargetType: 'handle_only',
+        currentStatus: 'working',
+        paneStatus: 'verified'
+      }
+    });
   });
 });
 
