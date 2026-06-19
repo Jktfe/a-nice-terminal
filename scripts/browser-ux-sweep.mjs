@@ -595,7 +595,7 @@ function findFreshCandidate(elements, candidate, options) {
   return matches[0] || null;
 }
 
-function wireBrowserEventCapture(page, browserEvents, log) {
+export function wireBrowserEventCapture(page, browserEvents, log) {
   page.on('console', (message) => {
     const event = {
       kind: 'console',
@@ -630,6 +630,22 @@ function wireBrowserEventCapture(page, browserEvents, log) {
     };
     browserEvents.push(event);
     log(`Browser request failed: ${event.method} ${event.url} - ${event.failure}`);
+  });
+
+  page.on('response', (response) => {
+    const status = response.status();
+    if (status < 400) return;
+    const request = response.request();
+    const event = {
+      kind: 'response',
+      method: request.method(),
+      url: redactForLog(response.url()),
+      status,
+      statusText: response.statusText(),
+      pageUrl: page.url()
+    };
+    browserEvents.push(event);
+    log(`Browser HTTP ${event.status}: ${event.method} ${event.url}`);
   });
 }
 

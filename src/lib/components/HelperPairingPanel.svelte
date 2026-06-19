@@ -6,8 +6,6 @@
   // and the expiry, then mints a single-use code to hand over. Below, every live
   // lease is listed with a Revoke button. Operator-gated: these endpoints accept
   // the operator browser session, which this page already carries.
-  import { onMount } from 'svelte';
-
   type Role = 'reader' | 'agent';
   type Lease = {
     id: string;
@@ -50,6 +48,7 @@
 
   // Collapsed by default — it's a lot of real estate to keep open (JWPK).
   let expanded = $state(false);
+  let loaded = $state(false);
   // The pairable list = the LIVE ANThandles in the colony (JWPK 2026-06-13:
   // "the ones on the terminals page AND the CLIs / MCPs that are live"). Server
   // computes it at /api/helper/handles from the same live-session source the
@@ -110,6 +109,17 @@
     }
   }
 
+  async function ensureLoaded() {
+    if (loaded) return;
+    loaded = true;
+    await Promise.all([loadLeases(), loadHandles(), loadInvites()]);
+  }
+
+  function toggleExpanded() {
+    expanded = !expanded;
+    if (expanded) void ensureLoaded();
+  }
+
   async function mint() {
     mintError = null;
     minted = null;
@@ -157,11 +167,10 @@
     return `expires ${new Date(ms).toLocaleString()}`;
   }
 
-  onMount(() => { void loadLeases(); void loadHandles(); void loadInvites(); });
 </script>
 
 <section class="anthandles">
-  <button type="button" class="head toggle" aria-expanded={expanded} onclick={() => (expanded = !expanded)}>
+  <button type="button" class="head toggle" aria-expanded={expanded} onclick={toggleExpanded}>
     <span class="chev" class:open={expanded} aria-hidden="true">▸</span>
     <span class="head-text">
       <strong>Pair an app</strong>

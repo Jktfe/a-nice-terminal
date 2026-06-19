@@ -7,7 +7,8 @@ import {
   isSafeNavigationCandidate,
   makeRouteSlug,
   normalizeRouteInput,
-  rectIntersectsViewport
+  rectIntersectsViewport,
+  wireBrowserEventCapture
 } from './browser-ux-sweep.mjs';
 
 const baseUrl = 'http://127.0.0.1:6174';
@@ -133,5 +134,43 @@ describe('browser-ux-sweep safe click rules', () => {
       { baseUrl, currentUrl: `${baseUrl}/`, maxClicksPerRoute: 0 }
     );
     expect(candidates).toEqual([]);
+  });
+});
+
+describe('browser-ux-sweep event capture', () => {
+  it('records failing HTTP responses with the resource URL', () => {
+    const handlers = new Map();
+    const page = {
+      on: (eventName, handler) => handlers.set(eventName, handler),
+      url: () => `${baseUrl}/terminals`
+    };
+    const events = [];
+    const logs = [];
+    wireBrowserEventCapture(page, events, (line) => logs.push(line));
+
+    handlers.get('response')({
+      status: () => 401,
+      statusText: () => 'Unauthorized',
+      url: () => `${baseUrl}/api/terminals`,
+      request: () => ({ method: () => 'GET' })
+    });
+    handlers.get('response')({
+      status: () => 200,
+      statusText: () => 'OK',
+      url: () => `${baseUrl}/rooms`,
+      request: () => ({ method: () => 'GET' })
+    });
+
+    expect(events).toEqual([
+      {
+        kind: 'response',
+        method: 'GET',
+        url: `${baseUrl}/api/terminals`,
+        status: 401,
+        statusText: 'Unauthorized',
+        pageUrl: `${baseUrl}/terminals`
+      }
+    ]);
+    expect(logs).toEqual([`Browser HTTP 401: GET ${baseUrl}/api/terminals`]);
   });
 });
