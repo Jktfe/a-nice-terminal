@@ -15,6 +15,7 @@
  * for authority yet — that is the Step 2 read-flip.
  */
 
+import { spawnSync } from 'node:child_process';
 import { getIdentityDb } from './db';
 import { appendLedger } from './identityLedgerStore';
 
@@ -59,6 +60,43 @@ function canonicalHandle(raw: string): string {
   return '@' + raw.trim().replace(/^@+/, '');
 }
 
+type PaneResolver = (pane: string) => string | null | undefined;
+
+let paneResolverForTests: PaneResolver | null = null;
+
+export function setPaneResolverForTests(resolver: PaneResolver | null): void {
+  paneResolverForTests = resolver;
+}
+
+function normalisePaneForBinding(rawPane: string | null): string | null {
+  if (!rawPane) return null;
+  const pane = rawPane.trim();
+  if (!pane) return null;
+  if (pane.startsWith('%')) return pane;
+  const resolvedByTest = paneResolverForTests?.(pane);
+  if (typeof resolvedByTest === 'string') {
+    const resolved = resolvedByTest.trim();
+    return resolved.startsWith('%') ? resolved : pane;
+  }
+  const childEnv = { ...process.env } as Record<string, string | undefined>;
+  delete childEnv.TMUX;
+  delete childEnv.TMUX_PANE;
+  try {
+    const result = spawnSync('tmux', ['display-message', '-p', '-t', pane, '#{pane_id}'], {
+      env: childEnv as NodeJS.ProcessEnv,
+      encoding: 'utf8'
+    });
+    if (result.status === 0 && typeof result.stdout === 'string') {
+      const resolved = result.stdout.trim();
+      if (resolved.startsWith('%')) return resolved;
+    }
+  } catch {
+    // Fall back to the caller's value; a failed tmux lookup must not block a
+    // witness write from a path that already has separate process evidence.
+  }
+  return pane;
+}
+
 type RawHandleRow = Omit<HandleRow, 'owners'> & { owners: string | null };
 
 export function getHandleRow(rawHandle: string): HandleRow | null {
@@ -84,10 +122,11 @@ export function getLiveBinding(rawHandle: string): HandleBindingRow | null {
  */
 export function getLiveBindingByPane(pane: string): HandleBindingRow | null {
   const db = getIdentityDb();
+  const canonicalPane = normalisePaneForBinding(pane);
   const row = db.prepare(
     `SELECT * FROM handle_bindings WHERE pane = ? AND tombstoned_at_ms IS NULL
      ORDER BY bound_at_ms DESC LIMIT 1`
-  ).get(pane) as HandleBindingRow | undefined;
+  ).get(canonicalPane) as HandleBindingRow | undefined;
   return row ?? null;
 }
 
@@ -194,6 +233,7 @@ export function ensureHandleOwnedBy(
 export function bindHandle(input: BindHandleInput): HandleBindingRow {
   const db = getIdentityDb();
   const handle = canonicalHandle(input.handle);
+  const pane = normalisePaneForBinding(input.pane);
   const nowMs = input.atMs ?? Date.now();
   const run = db.transaction((): HandleBindingRow => {
     const prior = db.prepare(
@@ -207,7 +247,7 @@ export function bindHandle(input: BindHandleInput): HandleBindingRow {
       ).run(nowMs, prior.id);
       appendLedger({
         kind: 'binding.superseded', handle, actor: 'daemon', atMs: nowMs,
-        detail: { superseded_binding_id: prior.id, new_pane: input.pane }
+        detail: { superseded_binding_id: prior.id, new_pane: pane }
       });
     }
     // Contract step 5 (blessed msg_6dtpw2o4pn): claims are LOUD. Reclaiming a
@@ -226,7 +266,7 @@ export function bindHandle(input: BindHandleInput): HandleBindingRow {
       if (owners.length > 0) {
         appendLedger({
           kind: 'owner.notified', handle, actor: 'daemon', atMs: nowMs,
-          detail: { reason: 'vacant-claim', owners, pane: input.pane, pid: input.pid }
+          detail: { reason: 'vacant-claim', owners, pane, pid: input.pid }
         });
       }
     }
@@ -235,13 +275,13 @@ export function bindHandle(input: BindHandleInput): HandleBindingRow {
          (handle, pane, pid, pid_start, spawned_by, terminal_id, bound_at_ms)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      handle, input.pane, input.pid, input.pidStart,
+      handle, pane, input.pid, input.pidStart,
       input.spawnedBy ?? null, input.terminalId ?? null, nowMs
     );
     appendLedger({
       kind: 'binding.claimed', handle, actor: 'daemon', atMs: nowMs,
       lineage: input.spawnedBy ?? null,
-      detail: { pane: input.pane, pid: input.pid, terminal_id: input.terminalId ?? null }
+      detail: { pane, pid: input.pid, terminal_id: input.terminalId ?? null }
     });
     return db.prepare(`SELECT * FROM handle_bindings WHERE id = ?`)
       .get(info.lastInsertRowid) as HandleBindingRow;

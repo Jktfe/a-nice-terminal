@@ -7,8 +7,10 @@ import {
   bindHandle,
   getHandleRow,
   getLiveBinding,
+  getLiveBindingByPane,
   listLiveBindings,
   listHandlesOwnedBy,
+  setPaneResolverForTests,
   tombstoneBinding,
   tombstoneBindingsForPane, sweepExpiredProxyBindings } from './handleBindingsStore';
 import { listLedger } from './identityLedgerStore';
@@ -23,6 +25,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setPaneResolverForTests(null);
   resetIdentityDbForTests();
   rmSync(tmpDir, { recursive: true, force: true });
   if (prev === undefined) delete process.env.ANT_FRESH_DB_PATH;
@@ -64,6 +67,20 @@ describe('handleBindingsStore — bind', () => {
     const live = getLiveBinding('@dave');
     expect(live?.pane).toBe('%9');
     expect(live?.spawned_by).toBe('@extracheck');
+  });
+
+  it('stores canonical tmux pane ids when a writer passes a target alias', () => {
+    setPaneResolverForTests((pane) => (pane === 't_antqwen:0.0' ? '%81' : null));
+    const row = bindHandle({
+      handle: '@antqwen',
+      pane: 't_antqwen:0.0',
+      pid: 19100,
+      pidStart: '2026-06-19T15:00:31.000Z',
+      terminalId: 't_oxls01slci'
+    });
+    expect(row.pane).toBe('%81');
+    expect(getLiveBinding('@antqwen')?.pane).toBe('%81');
+    expect(getLiveBindingByPane('t_antqwen:0.0')?.handle).toBe('@antqwen');
   });
 
   it('@-normalises the handle on bind and lookup', () => {
