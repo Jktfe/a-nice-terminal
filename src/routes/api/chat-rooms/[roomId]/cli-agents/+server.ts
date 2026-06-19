@@ -33,6 +33,8 @@ import {
 } from '$lib/server/cliAgentRegistry';
 import { serialiseCliAgent } from '$lib/server/cliAgentSerialise';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
+import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
+import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 
 function rejectRemoteBridgeBearer(request: Request): void {
   const auth = request.headers.get('authorization') ?? '';
@@ -41,10 +43,12 @@ function rejectRemoteBridgeBearer(request: Request): void {
   }
 }
 
-export const GET: RequestHandler = ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
   const roomId = params.roomId ?? '';
   if (!roomId) throw error(400, 'roomId required');
-  if (!findChatRoomById(roomId)) throw error(404, 'room not found');
+  const room = findChatRoomById(roomId);
+  if (!room) throw error(404, 'room not found');
+  await requireChatRoomReadAccess(request, room);
   const agents = listCliAgentsForRoom(roomId).map(serialiseCliAgent);
   return json({ agents });
 };
@@ -67,6 +71,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
     if ((cause as { status?: number } | null)?.status === 400) throw cause;
     throw error(400, 'Body must be valid JSON.');
   }
+
+  requireChatRoomMutationAuth(roomId, request, body);
 
   const cli = body.cli;
   if (cli !== 'codex' && cli !== 'pi') {
