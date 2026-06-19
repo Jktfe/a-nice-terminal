@@ -356,6 +356,7 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_messages_room_post_order ON chat_messages (room_id, post_order ASC)`,
   `CREATE INDEX IF NOT EXISTS idx_chat_messages_parent ON chat_messages (parent_message_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_messages_author_posted_at ON chat_messages (author_handle, posted_at)`,
   `CREATE TABLE IF NOT EXISTS message_read_receipts (
     message_id     TEXT NOT NULL,
     reader_handle  TEXT NOT NULL,

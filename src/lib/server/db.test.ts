@@ -40,6 +40,20 @@ describe('getIdentityDb', () => {
     expect(db.pragma('busy_timeout', { simple: true })).toBe(15_000);
   });
 
+  it('indexes chat message author activity for fleet dashboards', () => {
+    const db = getIdentityDb();
+    const indexes = db
+      .prepare(`PRAGMA index_list(chat_messages)`)
+      .all() as Array<{ name: string }>;
+    expect(indexes.some((index) => index.name === 'idx_chat_messages_author_posted_at')).toBe(true);
+
+    const columns = db
+      .prepare(`PRAGMA index_info(idx_chat_messages_author_posted_at)`)
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(columns).toEqual(['author_handle', 'posted_at']);
+  });
+
   it('returns the SAME instance on subsequent calls (globalThis singleton)', () => {
     const first = getIdentityDb();
     const second = getIdentityDb();
