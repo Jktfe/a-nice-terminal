@@ -5,33 +5,42 @@ import { resetIdentityDbForTests, getIdentityDb } from '$lib/server/db';
 // alive. Tests run without the daemon socket, so stub listTerminals to
 // return whichever ids each test wants to mark "alive".
 const liveSessionIds: string[] = [];
+let listTerminalsCallCount = 0;
 function setLiveSessions(ids: string[]) {
   liveSessionIds.length = 0;
   liveSessionIds.push(...ids);
 }
 vi.mock('$lib/server/ptyClient', () => ({
-  listTerminals: async () => liveSessionIds.slice(),
+  listTerminals: async () => {
+    listTerminalsCallCount += 1;
+    return liveSessionIds.slice();
+  },
 }));
 
 import { createChatRoom, inviteAgentToRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { postMessage, resetChatMessageStoreForTests } from '$lib/server/chatMessageStore';
 import { addReactionToMessage, resetMessageReactionStoreForTests } from '$lib/server/messageReactionStore';
 import { openAskInRoom, resetAskStoreForTests } from '$lib/server/askStore';
-import { GET } from './+server';
+import { GET, _resetAgentsLiveSessionCacheForTests } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+const PREV_CACHE_MS = process.env.ANT_AGENTS_LIVE_SESSION_CACHE_MS;
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_AGENTS_LIVE_SESSION_CACHE_MS = '3000';
   resetIdentityDbForTests();
   resetChatRoomStoreForTests();
   resetChatMessageStoreForTests();
   resetMessageReactionStoreForTests();
   resetAskStoreForTests();
   setLiveSessions([]);
+  listTerminalsCallCount = 0;
+  _resetAgentsLiveSessionCacheForTests();
 });
 
 afterEach(() => {
+  _resetAgentsLiveSessionCacheForTests();
   resetAskStoreForTests();
   resetMessageReactionStoreForTests();
   resetChatMessageStoreForTests();
@@ -39,6 +48,8 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_CACHE_MS === undefined) delete process.env.ANT_AGENTS_LIVE_SESSION_CACHE_MS;
+  else process.env.ANT_AGENTS_LIVE_SESSION_CACHE_MS = PREV_CACHE_MS;
 });
 
 function req(url: string): Parameters<typeof GET>[0] {
@@ -162,6 +173,29 @@ describe('GET /api/agents?view=fleet', () => {
     });
     expect(alpha.sparkline).toHaveLength(24);
     expect(alpha.heatmap).toHaveLength(7);
+  });
+
+  it('reuses the live tmux session lookup briefly across fleet reads', async () => {
+    const room = createChatRoom({ name: 'cache-room', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@alpha', agentDisplayName: 'Alpha' });
+    attachTerminal('@alpha', room.id, 'sess-alpha');
+    setLiveSessions(['sess-alpha']);
+
+    const first = await (await GET(req('http://x/api/agents?view=fleet'))).json();
+    setLiveSessions([]);
+    const second = await (await GET(req('http://x/api/agents?view=fleet'))).json();
+
+    expect(listTerminalsCallCount).toBe(1);
+    expect(first.agents[0]).toMatchObject({
+      handle: '@alpha',
+      sessionId: 'sess-alpha',
+      status: { state: 'idle', atMs: 0 }
+    });
+    expect(second.agents[0]).toMatchObject({
+      handle: '@alpha',
+      sessionId: 'sess-alpha',
+      status: { state: 'idle', atMs: 0 }
+    });
   });
 
   it('aggregates messages, reactions, tasks, plans, and open asks per handle', async () => {

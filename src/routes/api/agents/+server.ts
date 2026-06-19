@@ -18,6 +18,10 @@ import { listFleetAgents } from '$lib/server/agentFleetStore';
 import { doesChatRoomExist } from '$lib/server/chatRoomStore';
 import { listTerminals } from '$lib/server/ptyClient';
 
+const DEFAULT_FLEET_LIVE_SESSION_CACHE_MS = 3_000;
+let liveSessionCache: { sessionIds: string[]; expiresAtMs: number } | null = null;
+let liveSessionRefresh: Promise<string[]> | null = null;
+
 function serialize(agent: ReturnType<typeof getAgent>) {
   if (!agent) return null;
   return {
@@ -30,6 +34,40 @@ function serialize(agent: ReturnType<typeof getAgent>) {
   };
 }
 
+function fleetLiveSessionCacheMs(): number {
+  const raw = Number(process.env.ANT_AGENTS_LIVE_SESSION_CACHE_MS);
+  if (Number.isInteger(raw) && raw >= 0) return raw;
+  return DEFAULT_FLEET_LIVE_SESSION_CACHE_MS;
+}
+
+async function liveSessionIdsForFleet(): Promise<Set<string>> {
+  const nowMs = Date.now();
+  if (liveSessionCache && liveSessionCache.expiresAtMs > nowMs) {
+    return new Set(liveSessionCache.sessionIds);
+  }
+
+  if (!liveSessionRefresh) {
+    liveSessionRefresh = listTerminals()
+      .then((sessionIds) => {
+        liveSessionCache = {
+          sessionIds,
+          expiresAtMs: Date.now() + fleetLiveSessionCacheMs()
+        };
+        return sessionIds;
+      })
+      .finally(() => {
+        liveSessionRefresh = null;
+      });
+  }
+
+  return new Set(await liveSessionRefresh);
+}
+
+export function _resetAgentsLiveSessionCacheForTests(): void {
+  liveSessionCache = null;
+  liveSessionRefresh = null;
+}
+
 export const GET: RequestHandler = async ({ url }) => {
   const roomId = url.searchParams.get('roomId');
   if (roomId) {
@@ -38,7 +76,7 @@ export const GET: RequestHandler = async ({ url }) => {
     }
   }
   if (url.searchParams.get('view') === 'fleet') {
-    const liveSessionIds = new Set(await listTerminals());
+    const liveSessionIds = await liveSessionIdsForFleet();
     return json({ agents: listFleetAgents(liveSessionIds) });
   }
   const agents = listAgents(roomId ?? undefined);
