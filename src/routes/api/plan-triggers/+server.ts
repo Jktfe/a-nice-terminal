@@ -6,12 +6,14 @@
  * POST          → create a trigger. Admin. Body:
  *                   { event, action, actionConfig?, planId?, createdBy? }
  *
- *   event:  plan.completed | plan.archived | plan.deleted | plan.restored
- *   action: room.message | console.log
+ *   event:  PLAN_TRIGGER_EVENTS from $lib/server/planTriggerStore
+ *   action: PLAN_TRIGGER_ACTIONS from $lib/server/planTriggerStore
  *
  *   actionConfig per action:
  *     room.message → { messageTemplate: string, authorHandle?: string }
  *     console.log  → { message: string }
+ *     webhook.post → { url: string, bodyTemplate?: string, headers?: object }
+ *     task.create  → { subject?: string, description?: string, planId?: string }
  *
  *   planId null/omitted = wildcard (any plan).
  */
@@ -23,10 +25,15 @@ import {
   addTrigger,
   isPlanTriggerAction,
   isPlanTriggerEvent,
+  PLAN_TRIGGER_ACTIONS,
+  PLAN_TRIGGER_EVENTS,
   listTriggers,
   type PlanTrigger,
   type PlanTriggerEvent
 } from '$lib/server/planTriggerStore';
+
+const EVENT_ERROR = `event must be ${Array.from(PLAN_TRIGGER_EVENTS).sort().join('|')}.`;
+const ACTION_ERROR = `action must be ${Array.from(PLAN_TRIGGER_ACTIONS).sort().join('|')}.`;
 
 function readableTrigger(trigger: PlanTrigger, includeConfig: boolean): PlanTrigger & { actionConfigRedacted?: boolean } {
   if (includeConfig) return trigger;
@@ -40,7 +47,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
   if (planIdParam !== null) opts.planId = planIdParam.length === 0 ? null : planIdParam;
   if (eventParam) {
     if (!isPlanTriggerEvent(eventParam)) {
-      throw error(400, 'event must be plan.completed|plan.archived|plan.deleted|plan.restored.');
+      throw error(400, EVENT_ERROR);
     }
     opts.event = eventParam;
   }
@@ -56,10 +63,10 @@ export const POST: RequestHandler = async ({ request }) => {
   }
   const b = body as Record<string, unknown>;
   if (!isPlanTriggerEvent(b.event)) {
-    throw error(400, 'event must be plan.completed|plan.archived|plan.deleted|plan.restored.');
+    throw error(400, EVENT_ERROR);
   }
   if (!isPlanTriggerAction(b.action)) {
-    throw error(400, 'action must be room.message|console.log.');
+    throw error(400, ACTION_ERROR);
   }
   const actionConfig =
     b.actionConfig && typeof b.actionConfig === 'object' && !Array.isArray(b.actionConfig)

@@ -122,6 +122,24 @@ describe('/api/plan-triggers', () => {
     expect(body.trigger.action).toBe('room.message');
   });
 
+  it('POST accepts every action exposed by the trigger builder option set', async () => {
+    const webhook = await run(POST as unknown as AnyHandler, postReq({
+      event: 'plan.completed',
+      action: 'webhook.post',
+      actionConfig: { url: 'https://example.test/hook/{planId}' }
+    }));
+    expect(webhook.status).toBe(201);
+    expect((await webhook.json()).trigger.action).toBe('webhook.post');
+
+    const task = await run(POST as unknown as AnyHandler, postReq({
+      event: 'task.blocked',
+      action: 'task.create',
+      actionConfig: { subject: 'Follow-up for {taskSubject}', planId: 'same' }
+    }));
+    expect(task.status).toBe(201);
+    expect((await task.json()).trigger.action).toBe('task.create');
+  });
+
   it('POST 401 without admin bearer', async () => {
     const res = await run(POST as unknown as AnyHandler, postReq({
       event: 'plan.completed',
@@ -136,6 +154,8 @@ describe('/api/plan-triggers', () => {
       action: 'console.log'
     }));
     expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).toContain('task.created');
   });
 
   it('POST 400 on invalid action', async () => {
@@ -144,5 +164,8 @@ describe('/api/plan-triggers', () => {
       action: 'not_real'
     }));
     expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).toContain('webhook.post');
+    expect(text).toContain('task.create');
   });
 });
