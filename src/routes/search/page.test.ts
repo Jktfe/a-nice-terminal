@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { load } from './+page';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { postMessage, resetChatMessageStoreForTests } from '$lib/server/chatMessageStore';
 
 type LoadEvent = Parameters<typeof load>[0];
 type LoadResult = Exclude<Awaited<ReturnType<typeof load>>, void>;
+const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const SEARCH_ADMIN_TOKEN = 'search-page-test-admin';
 
 function buildLoadEvent(rawUrl: string, fetchImpl: typeof fetch): LoadEvent {
   return {
@@ -34,8 +36,14 @@ function jsonResponse(payload: unknown, status = 200): Response {
 
 describe('/search +page.ts load', () => {
   beforeEach(() => {
+    process.env.ANT_ADMIN_TOKEN = SEARCH_ADMIN_TOKEN;
     resetChatRoomStoreForTests();
     resetChatMessageStoreForTests();
+  });
+
+  afterEach(() => {
+    if (ORIGINAL_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = ORIGINAL_ADMIN_TOKEN;
   });
 
   it('returns an empty state when no ?q= is provided', async () => {
@@ -114,7 +122,9 @@ describe('/search +page.ts load', () => {
       const { GET } = await import('../api/search-messages/+server');
       const fullUrl = new URL(`http://localhost${url}`);
       const event = {
-        request: new Request(fullUrl),
+        request: new Request(fullUrl, {
+          headers: { authorization: `Bearer ${SEARCH_ADMIN_TOKEN}` }
+        }),
         params: {},
         url: fullUrl
       } as unknown as Parameters<typeof GET>[0];

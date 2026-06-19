@@ -246,10 +246,10 @@ function routeQueuedRoomMessage(terminal: { id: string; meta?: string | null }, 
 
 function shouldDeliverToTerminalTarget(input: {
   terminal: { meta?: string | null };
-  hasBareMention: boolean;
+  isAddressedToRecipient: boolean;
 }): boolean {
   if (readTerminalDeliveryTargetMode(input.terminal.meta) !== 'handle_only') return true;
-  return input.hasBareMention;
+  return input.isAddressedToRecipient;
 }
 
 function recipientSessionIdFor(q: QueuedItem): string {
@@ -547,7 +547,6 @@ export function fanoutMessageToRoomTerminals(
   // room) so newly-idle agents get a one-shot directed nudge. Best-effort.
   maybeRunIdleMonitor(roomId, message.authorHandle);
   const memberships = listDeliveryMembershipsForRoom(roomId);
-  const hasBareMention = listBareMentionHandles(message.body).length > 0;
   const targetedHandles = resolveBareMentionsToGlobalHandles(roomId, message.body);
   const containsInformationalMention = hasBracketedMention(message.body);
   // Reply-parent fetched ONCE here; reused for the implied-mention enrichment
@@ -592,9 +591,9 @@ export function fanoutMessageToRoomTerminals(
     }
   }
   const everyoneBroadcast = hasBareEveryoneMention(message.body);
+  const explicitBroadcastToAll = options.forceBroadcastToAll === true || everyoneBroadcast;
   let broadcastToAll =
-    options.forceBroadcastToAll === true ||
-    everyoneBroadcast ||
+    explicitBroadcastToAll ||
     (isOperatorBroadcastAuthor(message.authorHandle) && targetedHandles.size === 0);
   // Heads-down responder routing (JWPK msg_eshm5ekuh8):
   // Try ordered responder list first. If a verified non-sender
@@ -737,7 +736,8 @@ export function fanoutMessageToRoomTerminals(
     if (isBrowserTerminalSource(terminal.source)) continue;
     if (!shouldDeliverToTerminalTarget({
       terminal,
-      hasBareMention
+      isAddressedToRecipient:
+        explicitBroadcastToAll || membershipIsTargeted(membership, targetedHandles)
     })) continue;
     const rk = routedKey(room.id, message.id, membership.handle);
     if (routedForMessage.has(rk)) continue;
@@ -778,7 +778,7 @@ export function fanoutMessageToRoomTerminals(
     if (targetedHandles.size > 0 && !broadcastToAll && !targetedHandles.has(linkedHandle)) continue;
     if (!shouldDeliverToTerminalTarget({
       terminal,
-      hasBareMention
+      isAddressedToRecipient: explicitBroadcastToAll || targetedHandles.has(linkedHandle)
     })) continue;
     if (!activeClaimAllowsRecipient(message, linkedHandle)) continue;
     const rk = routedKey(room.id, message.id, linkedHandle);

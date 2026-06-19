@@ -427,6 +427,37 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
     expect(q.pendingCountForTests(`${room.id}::${target.id}`)).toBe(2);
   });
 
+  it('handle_only delivery target accepts no-@ replies resolved through the parent thread', () => {
+    const room = createChatRoom({ name: 'handle-only-reply-room', whoCreatedIt: '@JWPK' });
+    const operator = upsertTerminal({ pid: 1, pid_start: 'p1', name: 'operator-term' });
+    const target = upsertTerminal({
+      pid: 2,
+      pid_start: 'p2',
+      name: 'handle-only-target',
+      meta: { deliveryTargetMode: 'handle_only' }
+    });
+    updatePaneTarget(target.id, '%handle-only', 'codex_cli');
+    addMembership({ room_id: room.id, handle: '@JWPK', terminal_id: operator.id });
+    addMembership({ room_id: room.id, handle: '@agent1', terminal_id: target.id });
+
+    const parent = postMessage({
+      roomId: room.id,
+      authorHandle: '@agent1',
+      body: 'Parent message from the handle-only agent',
+      kind: 'agent'
+    });
+    const reply = postMessage({
+      roomId: room.id,
+      authorHandle: '@JWPK',
+      body: 'No explicit mention, but this is a thread reply',
+      kind: 'human',
+      parentMessageId: parent.id
+    });
+    fanoutMessageToRoomTerminals(room.id, reply);
+
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${target.id}`)).toBe(1);
+  });
+
   it('skips members whose terminal has no tmux_target_pane', () => {
     const { roomId, terminalId } = setupRoomAndMember('no-pane-room', '@nopane', null);
     const message = postMessage({ roomId, authorHandle: '@sender', body: 'hi', kind: 'human' });
