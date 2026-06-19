@@ -775,7 +775,7 @@ export function fanoutMessageToRoomTerminals(
     const rk = routedKey(room.id, message.id, linkedHandle);
     if (routedForMessage.has(rk)) continue;
     routedForMessage.add(rk);
-    queue.enqueue(queueKeyFor(room.id, terminal.id), {
+    routeQueuedRoomMessage(terminal, {
       roomId: room.id,
       roomName: room.name,
       messageId: message.id,

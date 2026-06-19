@@ -805,6 +805,45 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
     expect(q.pendingCountForTests(`${room.id}::linked-other`)).toBe(1);
   });
 
+  it('linked-room direct path respects queue_raw delivery mode', () => {
+    const room = createChatRoom({ name: 'linked-queue-raw-room', whoCreatedIt: '@test' });
+    const terminal = upsertTerminal({
+      pid: 23,
+      pid_start: 'p23',
+      name: 'linked-queue-raw-terminal',
+      meta: { deliveryMode: 'queue_raw' }
+    });
+    updatePaneTarget(terminal.id, '%linked-queue-raw', 'pi');
+    createTerminalRecord({
+      sessionId: terminal.id,
+      name: 'linked queue raw',
+      linkedChatRoomId: room.id,
+      tmuxTargetPane: '%linked-queue-raw',
+      agentKind: 'pi',
+      handle: '@linked-raw'
+    });
+
+    const message = postMessage({
+      roomId: room.id,
+      authorHandle: '@sender',
+      body: '@linked-raw queue this linked-room update',
+      kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, message);
+
+    const q = getFanoutQueueForTests();
+    expect(q.pendingCountForTests(`${room.id}::${terminal.id}`)).toBe(0);
+    const durable = listQueue(room.id, '@linked-raw', { status: 'pending' });
+    expect(durable).toHaveLength(1);
+    expect(durable[0]).toMatchObject({
+      roomId: room.id,
+      targetHandle: '@linked-raw',
+      curatedText: '@linked-raw queue this linked-room update',
+      kind: 'mention',
+      sourceMessageIds: [message.id]
+    });
+  });
+
   it('queue_raw terminal mode diverts targeted messages into the durable queue instead of PTY injection', () => {
     const room = createChatRoom({ name: 'queue-raw-room', whoCreatedIt: '@you' });
     const terminal = upsertTerminal({

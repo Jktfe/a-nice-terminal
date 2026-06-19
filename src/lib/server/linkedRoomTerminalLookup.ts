@@ -20,6 +20,7 @@ type LinkedRow = {
   session_id: string;
   tmux_target_pane: string | null;
   agent_kind: string | null;
+  meta: string | null;
 };
 
 function rowToTerminal(r: LinkedRow): TerminalRow {
@@ -34,7 +35,7 @@ function rowToTerminal(r: LinkedRow): TerminalRow {
     pane_stale_since: null,
     source: 'terminal-record-linked-room',
     expires_at: null,
-    meta: '{}',
+    meta: r.meta ?? '{}',
     created_at: 0,
     updated_at: 0
   };
@@ -50,11 +51,12 @@ export function listLinkedTerminalRowsForRoom(roomId: string): TerminalRow[] {
   // PTY-injected with a xenoChat message because the prior @xenocc
   // record on her pane was still being walked here.
   const rows = db.prepare(
-    `SELECT session_id, tmux_target_pane, agent_kind
-       FROM terminal_records
-      WHERE linked_chat_room_id = ?
-        AND tmux_target_pane IS NOT NULL
-        AND superseded_at_ms IS NULL`
+    `SELECT tr.session_id, tr.tmux_target_pane, tr.agent_kind, t.meta
+       FROM terminal_records tr
+       LEFT JOIN terminals t ON t.id = tr.session_id
+      WHERE tr.linked_chat_room_id = ?
+        AND tr.tmux_target_pane IS NOT NULL
+        AND tr.superseded_at_ms IS NULL`
   ).all(roomId) as LinkedRow[];
   return rows.map(rowToTerminal);
 }
@@ -63,11 +65,12 @@ export function getLinkedTerminalRowBySessionId(sessionId: string): TerminalRow 
   const db = getIdentityDb();
   // Supersession filter — see listLinkedTerminalRowsForRoom comment.
   const row = db.prepare(
-    `SELECT session_id, tmux_target_pane, agent_kind
-       FROM terminal_records
-      WHERE session_id = ?
-        AND tmux_target_pane IS NOT NULL
-        AND superseded_at_ms IS NULL`
+    `SELECT tr.session_id, tr.tmux_target_pane, tr.agent_kind, t.meta
+       FROM terminal_records tr
+       LEFT JOIN terminals t ON t.id = tr.session_id
+      WHERE tr.session_id = ?
+        AND tr.tmux_target_pane IS NOT NULL
+        AND tr.superseded_at_ms IS NULL`
   ).get(sessionId) as LinkedRow | undefined;
   return row ? rowToTerminal(row) : null;
 }
