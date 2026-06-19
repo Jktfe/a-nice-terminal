@@ -403,6 +403,55 @@ describe('ant chat state wrappers', () => {
     });
   });
 
+  it('S2b2: reply recovers daemon-witnessed POST wedges by minting a browser-session cookie', async () => {
+    const { runtime, captured } = makeRuntime((callIndex, { url }) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === '/api/chat-rooms/messages/msg_parent') {
+        return okJson({ message: { id: 'msg_parent', roomId: 'room-a', authorHandle: '@you', body: 'Question?' } });
+      }
+      if (callIndex === 2 && url === 'http://remote.test/api/chat-rooms/room-a/messages') {
+        return failure(403, 'No daemon-witnessed binding for this terminal.');
+      }
+      if (callIndex === 3 && url === 'http://remote.test/api/chat-rooms/room-a/browser-session') {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'set-cookie': 'ant_browser_session=session-reply; Path=/api/chat-rooms/room-a' }
+        });
+      }
+      if (callIndex === 4 && url === 'http://remote.test/api/chat-rooms/room-a/messages') {
+        return okJson({ message: { id: 'msg_reply_retry', authorHandle: '@serverlaptop' } }, 201);
+      }
+      return failure(404, 'unexpected path');
+    });
+    runtime.config = {
+      tokens: {
+        'room-a': {
+          token: 'room-token-1',
+          handle: '@serverlaptop',
+          server_url: 'http://remote.test'
+        }
+      }
+    };
+    runtime.fs = { readFileSync: () => 'Reply after identity retry.\n' };
+
+    await handleChatVerb('reply', ['msg_parent', '--stdin'], runtime, { CliInputError });
+
+    expect(captured.requests).toHaveLength(4);
+    expect(captured.requests[1].url).toBe('http://remote.test/api/chat-rooms/room-a/messages');
+    expect(captured.requests[2].url).toBe('http://remote.test/api/chat-rooms/room-a/browser-session');
+    expect(captured.requests[2].init.headers.authorization).toBe('Bearer room-token-1');
+    expect(bodyAt(captured, 2)).toMatchObject({ authorHandle: '@serverlaptop' });
+    expect(captured.requests[3].url).toBe('http://remote.test/api/chat-rooms/room-a/messages');
+    expect(captured.requests[3].init.headers.cookie).toBe('ant_browser_session=session-reply');
+    expect(bodyAt(captured, 3)).toMatchObject({
+      body: 'Reply after identity retry.\n',
+      parentMessageId: 'msg_parent'
+    });
+    expect(bodyAt(captured, 3).pidChain).toBeUndefined();
+    expect(bodyAt(captured, 3).sessionId).toBeUndefined();
+    expect(captured.stdout.join('\n')).toContain('Replied msg_reply_retry as @serverlaptop into room-a.');
+  });
+
   it('S2c: reply lookup auth failure tells the agent how to post with an explicit parent', async () => {
     const { runtime } = makeRuntime(() => failure(401, '{"message":"Authentication required."}'));
     runtime.fs = { readFileSync: () => 'Reply body.\n' };

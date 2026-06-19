@@ -408,14 +408,31 @@ async function runReply(flags, runtime, CliInputError) {
     payload.kind = flags.kind;
   }
   const roomServerUrl = resolveRoomServerUrl(runtime, parent.roomId);
-  const result = await sendJson(
-    runtime,
-    `/api/chat-rooms/${encodeURIComponent(parent.roomId)}/messages`,
-    'POST',
-    payload,
-    roomServerUrl,
-    { ...attachmentHeaders(flags), ...durableSessionHeaders(runtime, parent.roomId) }
-  );
+  const messagesPath = `/api/chat-rooms/${encodeURIComponent(parent.roomId)}/messages`;
+  let result;
+  try {
+    result = await sendJson(
+      runtime,
+      messagesPath,
+      'POST',
+      payload,
+      roomServerUrl,
+      { ...attachmentHeaders(flags), ...durableSessionHeaders(runtime, parent.roomId) }
+    );
+  } catch (firstAttemptError) {
+    const isIdentityWedge = isPostIdentityWedge(firstAttemptError);
+    if (!isIdentityWedge) throw firstAttemptError;
+    const mintedCookie = await mintAntCliBrowserSessionCookie(runtime, parent.roomId, flags.handle);
+    if (!mintedCookie) throw firstAttemptError;
+    result = await sendJsonWithCookie(
+      runtime,
+      messagesPath,
+      'POST',
+      browserSessionRetryPayload(payload),
+      mintedCookie,
+      roomServerUrl
+    );
+  }
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
   } else {

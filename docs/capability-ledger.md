@@ -83,6 +83,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Message popups | audit blockers | CHANGE | Codex | Toasts and notification settings. |
 | Replies | v5 chat/room lane | CHANGE | Claude | Reply polish: sender, quote, auto-mention. |
 | Inline reply drafting | ANT delivery msg_mp3cpmcesr, 2026-06-16 | CHANGE | Codex | Added a room-message "Reply in line" drafting panel: source messages become block-level clickable HTML, comments are editable before send, full replies include stable inline markers, and bare-mentioned agents receive separate local-context notes while the full reply keeps those handles bracketed/informational. |
+| CLI reply identity recovery | ANT fixes overnight UX sweep / auth-path audit, 2026-06-19 | CHANGE | Codex | `ant chat reply` now mirrors `ant chat send` when the parent lookup succeeds but the reply POST hits a daemon-witnessed identity wedge: it mints the room browser-session cookie, retries the POST through that verified cookie path, and strips pid/session facts from the retry payload. Parent lookup failures still surface the explicit `ant chat send <roomId> --parent-message ... --stdin` fallback. |
 | Interviews | v5 interview lane | CHANGE | Claude | Ask for context, options, chat escalation. |
 | Play / pause / speaker mode | v5 interview lane | CHANGE | Claude | Voice state visible and controllable. |
 | Read receipts | audit blockers | CHANGE | Claude | Zero-token receipt model. |
