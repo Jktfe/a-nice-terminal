@@ -18,7 +18,24 @@ export type DiagnosticsSummary = {
   };
   sse: {
     totalSubscribers: number;
-    rooms: { roomId: string; roomName: string; count: number }[];
+    totalBroadcasts: number;
+    totalSubscriberDeliveries: number;
+    totalSubscriberDrops: number;
+    rooms: {
+      roomId: string;
+      roomName: string;
+      count: number;
+      currentSeq: number;
+      eventsBroadcast: number;
+      subscriberDeliveries: number;
+      subscriberDrops: number;
+      backpressureDrops: number;
+      enqueueErrorDrops: number;
+      lastBroadcastAtMs: number | null;
+      lastBroadcastSeq: number | null;
+      lastDropAtMs: number | null;
+      lastDropReason: 'backpressure' | 'enqueue_error' | null;
+    }[];
   };
   log500s: {
     allTime: number;

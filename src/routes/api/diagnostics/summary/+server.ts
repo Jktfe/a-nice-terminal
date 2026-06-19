@@ -8,7 +8,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getIdentityDb, getDbFilePath } from '$lib/server/db';
-import { subscriberCountForRoom } from '$lib/server/eventBroadcast';
+import { eventBroadcastStatsForRoom } from '$lib/server/eventBroadcast';
 import { listChatRooms } from '$lib/server/chatRoomStore';
 import { statSync, readFileSync } from 'node:fs';
 
@@ -76,10 +76,28 @@ export const GET: RequestHandler = async () => {
   catch (cause) { dbError = cause instanceof Error ? cause.message : 'db probe failed'; }
 
   const rooms = listChatRooms();
-  const sseSubscribers = rooms.map((r) => ({
-    roomId: r.id, roomName: r.name, count: subscriberCountForRoom(r.id)
-  }));
-  const totalSseSubscribers = sseSubscribers.reduce((sum, s) => sum + s.count, 0);
+  const sseRooms = rooms.map((r) => {
+    const stats = eventBroadcastStatsForRoom(r.id);
+    return {
+      roomId: r.id,
+      roomName: r.name,
+      count: stats.subscriberCount,
+      currentSeq: stats.currentSeq,
+      eventsBroadcast: stats.eventsBroadcast,
+      subscriberDeliveries: stats.subscriberDeliveries,
+      subscriberDrops: stats.subscriberDrops,
+      backpressureDrops: stats.backpressureDrops,
+      enqueueErrorDrops: stats.enqueueErrorDrops,
+      lastBroadcastAtMs: stats.lastBroadcastAtMs,
+      lastBroadcastSeq: stats.lastBroadcastSeq,
+      lastDropAtMs: stats.lastDropAtMs,
+      lastDropReason: stats.lastDropReason
+    };
+  });
+  const totalSseSubscribers = sseRooms.reduce((sum, s) => sum + s.count, 0);
+  const totalSseBroadcasts = sseRooms.reduce((sum, s) => sum + s.eventsBroadcast, 0);
+  const totalSseSubscriberDeliveries = sseRooms.reduce((sum, s) => sum + s.subscriberDeliveries, 0);
+  const totalSseSubscriberDrops = sseRooms.reduce((sum, s) => sum + s.subscriberDrops, 0);
 
   const log500s = analyze500s();
   const hookLag = cliHookLagDistribution();
@@ -96,7 +114,13 @@ export const GET: RequestHandler = async () => {
       walBytes: fileSizeBytes(`${dbPath}-wal`), walSize: formatBytes(fileSizeBytes(`${dbPath}-wal`)),
       shmBytes: fileSizeBytes(`${dbPath}-shm`), shmSize: formatBytes(fileSizeBytes(`${dbPath}-shm`))
     },
-    sse: { totalSubscribers: totalSseSubscribers, rooms: sseSubscribers },
+    sse: {
+      totalSubscribers: totalSseSubscribers,
+      totalBroadcasts: totalSseBroadcasts,
+      totalSubscriberDeliveries: totalSseSubscriberDeliveries,
+      totalSubscriberDrops: totalSseSubscriberDrops,
+      rooms: sseRooms
+    },
     log500s,
     cliHookLag: {
       latestSec: hookLag.latestMs >= 0 ? Math.round(hookLag.latestMs / 1000) : -1,

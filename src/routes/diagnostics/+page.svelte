@@ -57,10 +57,20 @@
       <div class="diag-card">
         <h2>SSE Subscribers</h2>
         <p>Total: {summary.sse?.totalSubscribers ?? 0}</p>
+        <p>Broadcasts: {summary.sse?.totalBroadcasts ?? 0}</p>
+        <p>Drops: {summary.sse?.totalSubscriberDrops ?? 0}</p>
         {#if summary.sse?.rooms?.length > 0}
           <ul>
             {#each summary.sse.rooms as r}
-              <li>{r.roomName}: {r.count}</li>
+              <li>
+                <span>{r.roomName}: {r.count} live</span>
+                <small>
+                  seq {r.currentSeq} · sent {r.eventsBroadcast} · delivered {r.subscriberDeliveries}
+                  {#if r.subscriberDrops > 0}
+                    · drops {r.subscriberDrops} ({r.lastDropReason ?? 'unknown'})
+                  {/if}
+                </small>
+              </li>
             {/each}
           </ul>
         {:else}
@@ -144,6 +154,16 @@
     margin: 0.25rem 0;
     font-size: 0.9rem;
     color: var(--ink-strong);
+  }
+  .diag-card li span,
+  .diag-card li small {
+    display: block;
+  }
+  .diag-card li small {
+    margin-top: 0.08rem;
+    color: var(--ink-soft);
+    font-size: 0.74rem;
+    line-height: 1.35;
   }
   .diag-card code {
     font-size: 0.78rem;

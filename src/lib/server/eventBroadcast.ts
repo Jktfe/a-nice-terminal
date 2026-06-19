@@ -8,21 +8,78 @@
 
 type Subscriber = ReadableStreamDefaultController<Uint8Array>;
 
+export type RoomEventBroadcastStats = {
+  roomId: string;
+  currentSeq: number;
+  subscriberCount: number;
+  eventsBroadcast: number;
+  subscriberDeliveries: number;
+  subscriberDrops: number;
+  backpressureDrops: number;
+  enqueueErrorDrops: number;
+  lastBroadcastAtMs: number | null;
+  lastBroadcastSeq: number | null;
+  lastDropAtMs: number | null;
+  lastDropReason: 'backpressure' | 'enqueue_error' | null;
+};
+
+type MutableRoomEventBroadcastStats = Omit<RoomEventBroadcastStats, 'roomId' | 'currentSeq' | 'subscriberCount'>;
+
 type Globals = {
   __antEventBroadcast?: {
     subscribers: Map<string, Set<Subscriber>>;
     seq: Map<string, number>;
+    stats: Map<string, MutableRoomEventBroadcastStats>;
   };
 };
 
 function getStore(): {
   subscribers: Map<string, Set<Subscriber>>;
   seq: Map<string, number>;
+  stats: Map<string, MutableRoomEventBroadcastStats>;
 } {
   const g = globalThis as unknown as Globals;
   if (!g.__antEventBroadcast)
-    g.__antEventBroadcast = { subscribers: new Map(), seq: new Map() };
+    g.__antEventBroadcast = { subscribers: new Map(), seq: new Map(), stats: new Map() };
+  if (!g.__antEventBroadcast.stats) g.__antEventBroadcast.stats = new Map();
   return g.__antEventBroadcast;
+}
+
+function emptyStats(): MutableRoomEventBroadcastStats {
+  return {
+    eventsBroadcast: 0,
+    subscriberDeliveries: 0,
+    subscriberDrops: 0,
+    backpressureDrops: 0,
+    enqueueErrorDrops: 0,
+    lastBroadcastAtMs: null,
+    lastBroadcastSeq: null,
+    lastDropAtMs: null,
+    lastDropReason: null
+  };
+}
+
+function mutableStatsForRoom(roomId: string): MutableRoomEventBroadcastStats {
+  const { stats } = getStore();
+  let record = stats.get(roomId);
+  if (!record) {
+    record = emptyStats();
+    stats.set(roomId, record);
+  }
+  return record;
+}
+
+function recordSubscriberDrop(
+  roomId: string,
+  reason: 'backpressure' | 'enqueue_error',
+  nowMs: number
+): void {
+  const stats = mutableStatsForRoom(roomId);
+  stats.subscriberDrops += 1;
+  if (reason === 'backpressure') stats.backpressureDrops += 1;
+  else stats.enqueueErrorDrops += 1;
+  stats.lastDropAtMs = nowMs;
+  stats.lastDropReason = reason;
 }
 
 // Per-room monotonic sequence counter (SSE consumer contract v0).
@@ -62,6 +119,11 @@ export function broadcastToRoom(roomId: string, event: Record<string, unknown>):
   // — keeps the connect-frame's latest_seq honest about what's happened
   // in the room, not what subscribers happened to be online for.
   const seq = nextSeqForRoom(roomId);
+  const nowMs = Date.now();
+  const stats = mutableStatsForRoom(roomId);
+  stats.eventsBroadcast += 1;
+  stats.lastBroadcastAtMs = nowMs;
+  stats.lastBroadcastSeq = seq;
   if (!roomSet || roomSet.size === 0) return;
   const eventWithSeq = { ...event, seq };
   // SSE `id:` header lets the browser EventSource set lastEventId so
@@ -86,14 +148,17 @@ export function broadcastToRoom(roomId: string, event: Record<string, unknown>):
       // more bytes get enqueued into a buffer that no one is draining.
       if (typeof controller.desiredSize === 'number' && controller.desiredSize <= 0) {
         try { controller.close(); } catch { /* already closed; fine */ }
+        recordSubscriberDrop(roomId, 'backpressure', nowMs);
         roomSet.delete(controller);
         continue;
       }
       controller.enqueue(bytes);
+      stats.subscriberDeliveries += 1;
     } catch {
       // The original close-detection path: enqueue throws when the
       // controller is already CLOSED (vs full). Retain it for that case
       // since desiredSize is null on a closed controller.
+      recordSubscriberDrop(roomId, 'enqueue_error', nowMs);
       roomSet.delete(controller);
     }
   }
@@ -101,6 +166,31 @@ export function broadcastToRoom(roomId: string, event: Record<string, unknown>):
 
 export function subscriberCountForRoom(roomId: string): number {
   return getStore().subscribers.get(roomId)?.size ?? 0;
+}
+
+export function eventBroadcastStatsForRoom(roomId: string): RoomEventBroadcastStats {
+  const stats = mutableStatsForRoom(roomId);
+  return {
+    roomId,
+    currentSeq: currentSeqForRoom(roomId),
+    subscriberCount: subscriberCountForRoom(roomId),
+    eventsBroadcast: stats.eventsBroadcast,
+    subscriberDeliveries: stats.subscriberDeliveries,
+    subscriberDrops: stats.subscriberDrops,
+    backpressureDrops: stats.backpressureDrops,
+    enqueueErrorDrops: stats.enqueueErrorDrops,
+    lastBroadcastAtMs: stats.lastBroadcastAtMs,
+    lastBroadcastSeq: stats.lastBroadcastSeq,
+    lastDropAtMs: stats.lastDropAtMs,
+    lastDropReason: stats.lastDropReason
+  };
+}
+
+export function resetEventBroadcastForTests(): void {
+  const store = getStore();
+  store.subscribers.clear();
+  store.seq.clear();
+  store.stats.clear();
 }
 
 /**

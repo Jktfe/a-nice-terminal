@@ -1,13 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   subscribeToRoom,
   unsubscribeFromRoom,
   broadcastToRoom,
   subscriberCountForRoom,
-  subscribeRoomEvents
+  subscribeRoomEvents,
+  eventBroadcastStatsForRoom,
+  resetEventBroadcastForTests
 } from './eventBroadcast';
 
 describe('eventBroadcast', () => {
+  beforeEach(() => {
+    resetEventBroadcastForTests();
+  });
+
   it('broadcasts events to subscribers', () => {
     const events: Record<string, unknown>[] = [];
     const controller = {
@@ -22,6 +28,13 @@ describe('eventBroadcast', () => {
     broadcastToRoom('room-1', { type: 'test', msg: 'hello' });
     expect(events.length).toBe(1);
     expect(events[0].type).toBe('test');
+    expect(eventBroadcastStatsForRoom('room-1')).toMatchObject({
+      currentSeq: 1,
+      subscriberCount: 1,
+      eventsBroadcast: 1,
+      subscriberDeliveries: 1,
+      subscriberDrops: 0
+    });
 
     unsubscribeFromRoom('room-1', controller);
     broadcastToRoom('room-1', { type: 'test', msg: 'again' });
@@ -43,6 +56,15 @@ describe('eventBroadcast', () => {
     // should not throw
     broadcastToRoom('empty-room', { type: 'test' });
     expect(subscriberCountForRoom('empty-room')).toBe(0);
+    expect(eventBroadcastStatsForRoom('empty-room')).toMatchObject({
+      currentSeq: 1,
+      subscriberCount: 0,
+      eventsBroadcast: 1,
+      subscriberDeliveries: 0,
+      subscriberDrops: 0,
+      lastBroadcastSeq: 1,
+      lastDropReason: null
+    });
   });
 
   it('subscribeRoomEvents forwards parsed events and unsubscribes cleanly', () => {
@@ -85,6 +107,15 @@ describe('eventBroadcast', () => {
     expect(enqueues).toHaveLength(0);
     expect(closes).toHaveLength(1);
     expect(subscriberCountForRoom('room-stalled')).toBe(0);
+    expect(eventBroadcastStatsForRoom('room-stalled')).toMatchObject({
+      eventsBroadcast: 1,
+      subscriberDeliveries: 0,
+      subscriberDrops: 1,
+      backpressureDrops: 1,
+      enqueueErrorDrops: 0,
+      lastDropReason: 'backpressure'
+    });
+    expect(eventBroadcastStatsForRoom('room-stalled').lastDropAtMs).toEqual(expect.any(Number));
 
     // A second broadcast must NOT touch the closed controller again.
     broadcastToRoom('room-stalled', { type: 'test' });
@@ -126,5 +157,13 @@ describe('eventBroadcast', () => {
     subscribeToRoom('room-closed', closedController);
     broadcastToRoom('room-closed', { type: 'test' });
     expect(subscriberCountForRoom('room-closed')).toBe(0);
+    expect(eventBroadcastStatsForRoom('room-closed')).toMatchObject({
+      eventsBroadcast: 1,
+      subscriberDeliveries: 0,
+      subscriberDrops: 1,
+      backpressureDrops: 0,
+      enqueueErrorDrops: 1,
+      lastDropReason: 'enqueue_error'
+    });
   });
 });
