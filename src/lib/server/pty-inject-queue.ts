@@ -25,13 +25,14 @@ type QueueEntry<T> = {
 
 export type FlushCallback<T> = (handle: string, batch: QueuedMessage<T>[]) => void;
 
-export type InjectQueueOptions = {
+export type InjectQueueOptions<T> = {
   flushDelayMs?: number;
   scheduler?: (cb: () => void, ms: number) => ScheduledHandle;
   cancelScheduler?: (id: ScheduledHandle) => void;
+  onFlushError?: (handle: string, batch: QueuedMessage<T>[], cause: unknown) => void;
 };
 
-export function makeInjectQueue<T>(onFlush: FlushCallback<T>, options: InjectQueueOptions = {}) {
+export function makeInjectQueue<T>(onFlush: FlushCallback<T>, options: InjectQueueOptions<T> = {}) {
   const flushDelay = options.flushDelayMs ?? DEFAULT_FLUSH_DELAY_MS;
   const scheduler = options.scheduler ?? ((cb: () => void, ms: number) => setTimeout(cb, ms) as ScheduledHandle);
   const cancel = options.cancelScheduler ?? ((id: ScheduledHandle) => clearTimeout(id as ReturnType<typeof setTimeout>));
@@ -53,7 +54,12 @@ export function makeInjectQueue<T>(onFlush: FlushCallback<T>, options: InjectQue
       entry.timer = null;
     }
     const batch = entry.pending.splice(0, entry.pending.length);
-    onFlush(handle, batch);
+    try {
+      onFlush(handle, batch);
+    } catch (cause) {
+      entry.pending.unshift(...batch);
+      try { options.onFlushError?.(handle, batch, cause); } catch { /* diagnostics hook only */ }
+    }
   }
 
   function enqueue(handle: string, message: QueuedMessage<T>): void {

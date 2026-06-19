@@ -84,6 +84,41 @@ describe('makeInjectQueue', () => {
     queue.resetForTests();
   });
 
+  it('keeps a batch pending when onFlush throws so it can be retried', () => {
+    const flushes: { handle: string; batch: string[] }[] = [];
+    const errors: { handle: string; batch: string[]; message: string }[] = [];
+    let attempts = 0;
+    const queue = makeInjectQueue<string>((handle, batch) => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('tmux write failed');
+      flushes.push({ handle, batch });
+    }, {
+      flushDelayMs: 1000,
+      scheduler: (cb) => ({ cb }) as any,
+      cancelScheduler: () => {},
+      onFlushError: (handle, batch, cause) => {
+        errors.push({
+          handle,
+          batch,
+          message: cause instanceof Error ? cause.message : String(cause)
+        });
+      }
+    });
+
+    queue.enqueue('@x', 'a');
+    queue.enqueue('@x', 'b');
+
+    queue.immediateFlush('@x');
+    expect(queue.pendingCountForTests('@x')).toBe(2);
+    expect(errors).toEqual([{ handle: '@x', batch: ['a', 'b'], message: 'tmux write failed' }]);
+    expect(flushes).toEqual([]);
+
+    queue.immediateFlush('@x');
+    expect(queue.pendingCountForTests('@x')).toBe(0);
+    expect(flushes).toEqual([{ handle: '@x', batch: ['a', 'b'] }]);
+    queue.resetForTests();
+  });
+
   it('flush on empty queue is a no-op', () => {
     const flushes: any[] = [];
     const queue = makeInjectQueue<string>((handle, batch) => flushes.push({ handle, batch }));

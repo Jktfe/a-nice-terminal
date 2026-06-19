@@ -213,7 +213,16 @@ function queueKeyFor(roomId: string, terminalId: string): string {
   return `${roomId}::${terminalId}`;
 }
 
-const queue = makeInjectQueue<QueuedItem>(onFlush);
+const queue = makeInjectQueue<QueuedItem>(onFlush, {
+  onFlushError: (queueKey, batch, cause) => {
+    console.error('[pty-inject] retained failed flush batch', {
+      queueKey,
+      batchSize: batch.length,
+      messageIds: batch.map((item) => item.messageId),
+      error: cause instanceof Error ? cause.message : String(cause)
+    });
+  }
+});
 
 function routeQueuedRoomMessage(terminal: { id: string; meta?: string | null }, item: QueuedItem): void {
   const deliveryMode = readTerminalDeliveryMode(terminal.meta);
