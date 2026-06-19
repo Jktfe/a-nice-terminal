@@ -234,6 +234,7 @@
   // the optimistic 'active' default and the room-mode fallback in the
   // toggle handles the visual state until the user picks a tier.
   let currentAwayTier = $state<AwayTier>('active');
+  let awayTierFetchError = $state('');
   let lastAwayTierFetchKey = $state('');
   $effect(() => {
     const handle = callerHandle.trim();
@@ -243,14 +244,18 @@
     void (async () => {
       try {
         const res = await fetch(`/api/away-modes/${encodeURIComponent(handle)}`);
-        if (!res.ok) return; // 401 → keep optimistic default
+        if (!res.ok) {
+          awayTierFetchError = `Away mode could not load (HTTP ${res.status}).`;
+          return;
+        }
         const body = await res.json();
         const tier = body?.mode?.tier as AwayTier | undefined;
         if (tier === 'active' || tier === 'away-desk' || tier === 'away-office' || tier === 'away-phone') {
           currentAwayTier = tier;
+          awayTierFetchError = '';
         }
       } catch {
-        /* network — leave default */
+        awayTierFetchError = 'Away mode could not load (network).';
       }
     })();
   });
@@ -552,6 +557,7 @@
     currentMode={roomMode}
     currentTier={currentAwayTier}
     callerHandle={callerHandle}
+    loadError={awayTierFetchError}
     onModeChange={(m) => invalidateAll()}
     onTierChange={(t) => (currentAwayTier = t)}
   />

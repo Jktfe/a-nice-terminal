@@ -167,6 +167,17 @@ describe('/rooms/[roomId] load', () => {
     expect(source).toContain('onManualRetry={remintBrowserSessionForCurrentRoom}');
   });
 
+  it('surfaces away-mode load and update failures instead of silently showing active', () => {
+    const roomPageSource = readFileSync('src/routes/rooms/[roomId]/+page.svelte', 'utf8');
+    const awayToggleSource = readFileSync('src/lib/components/AwayModeToggle.svelte', 'utf8');
+    expect(roomPageSource).toContain('awayTierFetchError');
+    expect(roomPageSource).toContain('Away mode could not load');
+    expect(roomPageSource).toContain('loadError={awayTierFetchError}');
+    expect(awayToggleSource).toContain('visibleError');
+    expect(awayToggleSource).toContain('Away mode update failed');
+    expect(awayToggleSource).toContain('role="alert"');
+  });
+
   it('threads room mode and roster-based agent identity into message claims', () => {
     const roomPageSource = readFileSync('src/routes/rooms/[roomId]/+page.svelte', 'utf8');
     const messageListSource = readFileSync('src/lib/components/MessageList.svelte', 'utf8');

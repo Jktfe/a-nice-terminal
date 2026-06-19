@@ -28,11 +28,12 @@
     currentMode: RoomMode;
     currentTier: AwayTier;
     callerHandle: string;
+    loadError?: string | null;
     onModeChange?: (mode: RoomMode) => void;
     onTierChange?: (tier: AwayTier) => void;
   };
 
-  let { roomId, currentMode, currentTier, callerHandle, onModeChange, onTierChange }: Props = $props();
+  let { roomId, currentMode, currentTier, callerHandle, loadError = null, onModeChange, onTierChange }: Props = $props();
 
   // Descriptions taken verbatim from docs/contracts/room-state-away-mode-v1.md
   // (JWPK flagged ad-hoc wording in yz4clwzvbm msg_jj50zw48fr — canonical text
@@ -44,12 +45,15 @@
   ];
 
   let switching = $state(false);
+  let switchError = $state('');
 
   const activeState = $derived(STATES.find(s => s.id === currentTier) ?? STATES[0]);
+  const visibleError = $derived(switchError || loadError || '');
 
   async function setState(state: typeof STATES[number]) {
     if (state.id === currentTier || switching) return;
     switching = true;
+    switchError = '';
     try {
       // Fan out two PUTs in parallel:
       // 1. Room mode (per-room state visible to all members).
@@ -71,7 +75,11 @@
       if (modeRes.ok && tierRes.ok) {
         onModeChange?.(state.roomMode);
         onTierChange?.(state.id);
+      } else {
+        switchError = `Away mode update failed (room HTTP ${modeRes.status}, tier HTTP ${tierRes.status}).`;
       }
+    } catch {
+      switchError = 'Away mode update failed (network).';
     } finally {
       switching = false;
     }
@@ -101,6 +109,9 @@
       </button>
     {/each}
   </div>
+  {#if visibleError}
+    <p class="away-mode-error" role="alert">{visibleError}</p>
+  {/if}
 </div>
 
 <style>
@@ -108,6 +119,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 0.75rem;
     padding: 0.4rem 0.75rem;
     border-bottom: 1px solid var(--line-soft, #ead8ca);
@@ -146,6 +158,13 @@
     display: flex;
     gap: 0.35rem;
     align-items: center;
+  }
+  .away-mode-error {
+    flex-basis: 100%;
+    margin: 0;
+    color: var(--danger, #b42318);
+    font-size: 0.78rem;
+    font-weight: 700;
   }
   .away-pill {
     padding: 0.25rem 0.6rem;
