@@ -214,8 +214,9 @@ export function makeRouteSlug(routePath) {
   return slug || 'root';
 }
 
-export function explainNavigationSafety(element, { baseUrl, currentUrl = baseUrl } = {}) {
+export function explainNavigationSafety(element, { baseUrl, currentUrl = baseUrl, viewport = DEFAULT_VIEWPORT } = {}) {
   if (!element || !element.visible) return { safe: false, reason: 'not visible' };
+  if (element.rect && !rectIntersectsViewport(element.rect, viewport)) return { safe: false, reason: 'outside viewport' };
   if (element.disabled) return { safe: false, reason: 'disabled' };
 
   const tagName = String(element.tagName || '').toLowerCase();
@@ -269,6 +270,16 @@ export function explainNavigationSafety(element, { baseUrl, currentUrl = baseUrl
   if (sameDocumentHash) return { safe: true, reason: 'same-page hash link' };
 
   return { safe: false, reason: 'not clearly navigational' };
+}
+
+export function rectIntersectsViewport(rect, viewport = DEFAULT_VIEWPORT) {
+  const width = Number(viewport?.width ?? DEFAULT_VIEWPORT.width);
+  const height = Number(viewport?.height ?? DEFAULT_VIEWPORT.height);
+  const x = Number(rect?.x ?? 0);
+  const y = Number(rect?.y ?? 0);
+  const rectWidth = Number(rect?.width ?? 0);
+  const rectHeight = Number(rect?.height ?? 0);
+  return rectWidth > 0 && rectHeight > 0 && x + rectWidth > 0 && y + rectHeight > 0 && x < width && y < height;
 }
 
 export function isSafeNavigationCandidate(element, options) {
@@ -487,6 +498,7 @@ async function visitRoute({ page, config, routePath, screenshotDir, routeSlugCou
     const safeCandidates = chooseSafeNavigationCandidates(visit.interactiveElements, {
       baseUrl: config.baseUrl,
       currentUrl: page.url(),
+      viewport: config.viewport,
       maxClicksPerRoute: config.maxClicksPerRoute
     });
     visit.safeCandidateCount = safeCandidates.length;
@@ -546,7 +558,8 @@ async function clickSafeCandidate({
     const freshElements = await collectInteractiveElements(page, config.maxElements);
     const fresh = findFreshCandidate(freshElements, candidate, {
       baseUrl: config.baseUrl,
-      currentUrl: page.url()
+      currentUrl: page.url(),
+      viewport: config.viewport
     });
     if (!fresh) {
       result.error = 'candidate no longer found';

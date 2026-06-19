@@ -6,7 +6,8 @@ import {
   explainNavigationSafety,
   isSafeNavigationCandidate,
   makeRouteSlug,
-  normalizeRouteInput
+  normalizeRouteInput,
+  rectIntersectsViewport
 } from './browser-ux-sweep.mjs';
 
 const baseUrl = 'http://127.0.0.1:6174';
@@ -24,6 +25,7 @@ function link(overrides = {}) {
     disabled: false,
     visible: true,
     navAncestor: true,
+    rect: { x: 20, y: 20, width: 100, height: 32 },
     ...overrides
   };
 }
@@ -100,6 +102,16 @@ describe('browser-ux-sweep safe click rules', () => {
     for (const element of blocked) {
       expect(isSafeNavigationCandidate(element, { baseUrl, currentUrl: `${baseUrl}/rooms` })).toBe(false);
     }
+  });
+
+  it('blocks links that are transformed outside the viewport', () => {
+    const decision = explainNavigationSafety(
+      link({ text: 'Skip to main content', href: `${baseUrl}/#main-content`, rect: { x: 12, y: -52, width: 150, height: 32 } }),
+      { baseUrl, currentUrl: `${baseUrl}/`, viewport: { width: 1280, height: 800 } }
+    );
+    expect(rectIntersectsViewport({ x: 12, y: -52, width: 150, height: 32 })).toBe(false);
+    expect(decision.safe).toBe(false);
+    expect(decision.reason).toBe('outside viewport');
   });
 
   it('deduplicates and limits safe candidates', () => {
