@@ -1326,12 +1326,18 @@ const SCHEMA_DDL_STATEMENTS = [
     updated_at_ms             INTEGER NOT NULL,
     last_fired_at_ms          INTEGER,
     next_fire_at_ms           INTEGER,
-    fire_count                INTEGER NOT NULL DEFAULT 0
+    fire_count                INTEGER NOT NULL DEFAULT 0,
+    last_outcome_status       TEXT,
+    last_outcome_message      TEXT,
+    last_outcome_at_ms        INTEGER
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cron_jobs_status_next
     ON cron_jobs (status, next_fire_at_ms)`,
   `CREATE INDEX IF NOT EXISTS idx_cron_jobs_created_by
     ON cron_jobs (created_by_handle, status)`,
+  `ALTER TABLE cron_jobs ADD COLUMN last_outcome_status TEXT`,
+  `ALTER TABLE cron_jobs ADD COLUMN last_outcome_message TEXT`,
+  `ALTER TABLE cron_jobs ADD COLUMN last_outcome_at_ms INTEGER`,
 
   // ─── Consent-gated impersonation (plan_consent_gate_2026_05_20) ───
   // owners: stable identity for every kind="human" member. The handle

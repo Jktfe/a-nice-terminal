@@ -27,6 +27,9 @@
     lastFiredAtMs: number | null;
     nextFireAtMs: number | null;
     fireCount: number;
+    lastOutcomeStatus: 'succeeded' | 'skipped' | 'blocked' | 'failed' | null;
+    lastOutcomeMessage: string | null;
+    lastOutcomeAtMs: number | null;
   };
 
   type Props = { data: { jobs: CronJob[]; fetchFailed: boolean } };
@@ -67,6 +70,11 @@
     const date = new Date(ms);
     if (Number.isNaN(date.getTime())) return '—';
     return date.toLocaleString();
+  }
+
+  function outcomeLabel(status: CronJob['lastOutcomeStatus']): string {
+    if (status === null) return 'not run';
+    return status;
   }
 
   async function createJob(event: SubmitEvent) {
@@ -209,6 +217,12 @@
               <span>last: {formatTimestamp(job.lastFiredAtMs)}</span>
               <span>next: {formatTimestamp(job.nextFireAtMs)}</span>
             </p>
+            <p class={`job-outcome outcome-${job.lastOutcomeStatus ?? 'none'}`}>
+              <strong>Last result:</strong> {outcomeLabel(job.lastOutcomeStatus)}
+              {#if job.lastOutcomeMessage}
+                · {job.lastOutcomeMessage}
+              {/if}
+            </p>
             {#if job.targetMessageTemplate}
               <p class="job-template" title={job.targetMessageTemplate}>↳ {job.targetMessageTemplate}</p>
             {/if}
@@ -243,6 +257,12 @@
               </header>
               <p class="job-meta">
                 <span>{formatInterval(job.intervalMs)} · {job.action} · fires: {job.fireCount}</span>
+              </p>
+              <p class={`job-outcome outcome-${job.lastOutcomeStatus ?? 'none'}`}>
+                <strong>Last result:</strong> {outcomeLabel(job.lastOutcomeStatus)}
+                {#if job.lastOutcomeMessage}
+                  · {job.lastOutcomeMessage}
+                {/if}
               </p>
               {#if job.status === 'stopped'}
                 <div class="job-actions">
@@ -292,6 +312,16 @@
   .status-pill.status-deleted { background: var(--bg); color: var(--ink-muted); border: 1px dashed var(--line-soft); text-decoration: line-through; }
   .job-meta { display: flex; flex-wrap: wrap; gap: 0.7rem; margin: 0.2rem 0; color: var(--ink-soft); font-size: 0.78rem; }
   .job-meta strong { color: var(--ink-strong); }
+  .job-outcome {
+    margin: 0.25rem 0;
+    color: var(--ink-soft);
+    font-size: 0.78rem;
+    line-height: 1.4;
+  }
+  .job-outcome strong { color: var(--ink-strong); }
+  .job-outcome.outcome-succeeded { color: var(--ok); }
+  .job-outcome.outcome-failed,
+  .job-outcome.outcome-blocked { color: var(--warn, #c92020); }
   .job-template {
     margin: 0.3rem 0;
     padding: 0.4rem 0.55rem;

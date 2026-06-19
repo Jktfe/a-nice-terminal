@@ -13,6 +13,9 @@ type CronJob = {
   lastFiredAtMs: number | null;
   nextFireAtMs: number | null;
   fireCount: number;
+  lastOutcomeStatus: 'succeeded' | 'skipped' | 'blocked' | 'failed' | null;
+  lastOutcomeMessage: string | null;
+  lastOutcomeAtMs: number | null;
 };
 
 export const load: PageLoad = async ({ fetch }) => {

@@ -18,11 +18,17 @@
  *   - task.create   → create a follow-up task. Uses tasksStore.
  *
  * Failures in any action are swallowed + logged — one broken job must
- * never block the rest of the queue. lastFiredAt advances either way so
- * the operator can see the row is still being processed.
+ * never block the rest of the queue. The scheduler still advances after
+ * each attempt, but the row records an explicit last-outcome status/message
+ * so a failed tick does not masquerade as a clean fire.
  */
 
-import { listDueCronJobs, recordCronJobFired, type CronJob } from './cronJobStore';
+import {
+  listDueCronJobs,
+  recordCronJobFired,
+  type CronJob,
+  type CronJobOutcome
+} from './cronJobStore';
 import { postSystemMessage } from './chatMessageStore';
 import { createTask } from './tasksStore';
 import { isWebhookUrlSafe, webhookFetchOptions } from './webhookSafety';
@@ -43,23 +49,30 @@ function logErr(prefix: string, err: unknown): void {
   console.error(`[cronJobTicker] ${prefix}: ${msg}`);
 }
 
-function runRoomMessageAction(job: CronJob): void {
+function runRoomMessageAction(job: CronJob): CronJobOutcome {
   const roomId = job.targetRoomId;
   const body = job.targetMessageTemplate;
   if (!roomId || !body || body.trim().length === 0) {
-    logErr(`job ${job.id} room.message skipped`, 'targetRoomId + targetMessageTemplate required');
-    return;
+    const message = 'targetRoomId + targetMessageTemplate required';
+    logErr(`job ${job.id} room.message skipped`, message);
+    return { status: 'skipped', message };
   }
   try {
     postSystemMessage({ roomId, body: `[cron · ${job.name}] ${body}` });
+    return { status: 'succeeded', message: `Posted cron message to room ${roomId}.` };
   } catch (cause) {
     logErr(`job ${job.id} room.message failed`, cause);
+    return {
+      status: 'failed',
+      message: cause instanceof Error ? cause.message : String(cause)
+    };
   }
 }
 
-function runConsoleLogAction(job: CronJob): void {
+function runConsoleLogAction(job: CronJob): CronJobOutcome {
   // eslint-disable-next-line no-console
   console.log(`[cron] ${job.name} fired (id=${job.id} count=${job.fireCount + 1})`);
+  return { status: 'succeeded', message: 'Logged cron fire to the server console.' };
 }
 
 /**
@@ -68,16 +81,17 @@ function runConsoleLogAction(job: CronJob): void {
  * pre-launch code review msg_53bpcfqe9j caught the unrelated dispatcher
  * missing the same guard).
  */
-async function runWebhookPostAction(job: CronJob): Promise<void> {
+async function runWebhookPostAction(job: CronJob): Promise<CronJobOutcome> {
   const url = typeof job.actionConfig.url === 'string' ? job.actionConfig.url : null;
   if (!url) {
-    logErr(`job ${job.id} webhook.post skipped`, 'actionConfig.url required');
-    return;
+    const message = 'actionConfig.url required';
+    logErr(`job ${job.id} webhook.post skipped`, message);
+    return { status: 'skipped', message };
   }
   const safetyCheck = isWebhookUrlSafe(url);
   if (!safetyCheck.ok) {
     logErr(`job ${job.id} webhook.post BLOCKED`, safetyCheck.reason);
-    return;
+    return { status: 'blocked', message: `Webhook URL blocked: ${safetyCheck.reason}` };
   }
   const { init, timeout } = webhookFetchOptions('cron');
   try {
@@ -90,17 +104,24 @@ async function runWebhookPostAction(job: CronJob): Promise<void> {
         actionConfig: job.actionConfig
       })
     });
-    if (!response.ok && response.status !== 0 && (response.status < 300 || response.status >= 400)) {
-      logErr(`job ${job.id} webhook.post non-2xx`, `${response.status} ${response.statusText}`);
+    if (!response.ok && response.status !== 0) {
+      const message = `${response.status} ${response.statusText}`.trim();
+      logErr(`job ${job.id} webhook.post non-2xx`, message);
+      return { status: 'failed', message: `Webhook POST failed: ${message}` };
     }
+    return { status: 'succeeded', message: `Webhook POST completed for ${url}.` };
   } catch (cause) {
     logErr(`job ${job.id} webhook.post failed`, cause);
+    return {
+      status: 'failed',
+      message: cause instanceof Error ? cause.message : String(cause)
+    };
   } finally {
     clearTimeout(timeout);
   }
 }
 
-function runTaskCreateAction(job: CronJob): void {
+function runTaskCreateAction(job: CronJob): CronJobOutcome {
   const title = typeof job.actionConfig.title === 'string'
     ? job.actionConfig.title
     : `[cron] ${job.name} — fired at ${new Date().toISOString()}`;
@@ -112,17 +133,22 @@ function runTaskCreateAction(job: CronJob): void {
       createdBy: job.createdByHandle ?? null,
       description: `Auto-created by cron job ${job.name} (${job.id}).`
     });
+    return { status: 'succeeded', message: `Created task: ${title}` };
   } catch (cause) {
     logErr(`job ${job.id} task.create failed`, cause);
+    return {
+      status: 'failed',
+      message: cause instanceof Error ? cause.message : String(cause)
+    };
   }
 }
 
-async function runAction(job: CronJob): Promise<void> {
+async function runAction(job: CronJob): Promise<CronJobOutcome> {
   switch (job.action) {
-    case 'room.message': runRoomMessageAction(job); break;
-    case 'console.log':  runConsoleLogAction(job); break;
-    case 'webhook.post': await runWebhookPostAction(job); break;
-    case 'task.create':  runTaskCreateAction(job); break;
+    case 'room.message': return runRoomMessageAction(job);
+    case 'console.log':  return runConsoleLogAction(job);
+    case 'webhook.post': return await runWebhookPostAction(job);
+    case 'task.create':  return runTaskCreateAction(job);
   }
 }
 
@@ -130,13 +156,18 @@ export async function tickCronJobsOnce(nowMs: number = Date.now()): Promise<numb
   const due = listDueCronJobs(nowMs, PER_TICK_LIMIT);
   let fired = 0;
   for (const job of due) {
+    let outcome: CronJobOutcome;
     try {
-      await runAction(job);
+      outcome = await runAction(job);
     } catch (cause) {
       logErr(`job ${job.id} action threw`, cause);
+      outcome = {
+        status: 'failed',
+        message: cause instanceof Error ? cause.message : String(cause)
+      };
     }
     try {
-      recordCronJobFired(job.id, nowMs);
+      recordCronJobFired(job.id, nowMs, outcome);
       fired += 1;
     } catch (cause) {
       logErr(`job ${job.id} recordFired failed`, cause);

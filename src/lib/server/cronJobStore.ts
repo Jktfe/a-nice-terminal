@@ -22,6 +22,12 @@ import { getIdentityDb } from './db';
 export type CronJobStatus = 'running' | 'paused' | 'stopped' | 'deleted';
 export type CronJobAction = 'room.message' | 'console.log' | 'webhook.post' | 'task.create';
 export type CronJobScheduleKind = 'interval' | 'cron';
+export type CronJobOutcomeStatus = 'succeeded' | 'skipped' | 'blocked' | 'failed';
+
+export type CronJobOutcome = {
+  status: CronJobOutcomeStatus;
+  message: string;
+};
 
 export type CronJob = {
   id: string;
@@ -40,6 +46,9 @@ export type CronJob = {
   lastFiredAtMs: number | null;
   nextFireAtMs: number | null;
   fireCount: number;
+  lastOutcomeStatus: CronJobOutcomeStatus | null;
+  lastOutcomeMessage: string | null;
+  lastOutcomeAtMs: number | null;
 };
 
 type CronJobRow = {
@@ -59,10 +68,14 @@ type CronJobRow = {
   last_fired_at_ms: number | null;
   next_fire_at_ms: number | null;
   fire_count: number;
+  last_outcome_status: string | null;
+  last_outcome_message: string | null;
+  last_outcome_at_ms: number | null;
 };
 
 const VALID_STATUS = new Set<CronJobStatus>(['running', 'paused', 'stopped', 'deleted']);
 const VALID_ACTION = new Set<CronJobAction>(['room.message', 'console.log', 'webhook.post', 'task.create']);
+const VALID_OUTCOME = new Set<CronJobOutcomeStatus>(['succeeded', 'skipped', 'blocked', 'failed']);
 
 function rowToJob(row: CronJobRow): CronJob {
   let parsedConfig: Record<string, unknown> = {};
@@ -88,7 +101,12 @@ function rowToJob(row: CronJobRow): CronJob {
     updatedAtMs: row.updated_at_ms,
     lastFiredAtMs: row.last_fired_at_ms,
     nextFireAtMs: row.next_fire_at_ms,
-    fireCount: row.fire_count
+    fireCount: row.fire_count,
+    lastOutcomeStatus: VALID_OUTCOME.has(row.last_outcome_status as CronJobOutcomeStatus)
+      ? (row.last_outcome_status as CronJobOutcomeStatus)
+      : null,
+    lastOutcomeMessage: row.last_outcome_message,
+    lastOutcomeAtMs: row.last_outcome_at_ms
   };
 }
 
@@ -221,7 +239,11 @@ export function renameCronJob(input: RenameCronJobInput): CronJob | null {
  * because we always anchor next-fire to `now + intervalMs` (drift is
  * acceptable for a polling-tick model).
  */
-export function recordCronJobFired(id: string, nowMs: number = Date.now()): CronJob | null {
+export function recordCronJobFired(
+  id: string,
+  nowMs: number = Date.now(),
+  outcome: CronJobOutcome = { status: 'succeeded', message: 'Job action completed.' }
+): CronJob | null {
   const db = getIdentityDb();
   const existing = getCronJob(id);
   if (!existing) return null;
@@ -233,9 +255,12 @@ export function recordCronJobFired(id: string, nowMs: number = Date.now()): Cron
         SET last_fired_at_ms = ?,
             next_fire_at_ms = ?,
             fire_count = fire_count + 1,
+            last_outcome_status = ?,
+            last_outcome_message = ?,
+            last_outcome_at_ms = ?,
             updated_at_ms = ?
       WHERE id = ?`
-  ).run(nowMs, nextFireAtMs, nowMs, id);
+  ).run(nowMs, nextFireAtMs, outcome.status, outcome.message, nowMs, nowMs, id);
   return getCronJob(id);
 }
 
