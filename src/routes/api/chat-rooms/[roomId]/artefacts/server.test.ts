@@ -226,3 +226,52 @@ describe('/api/chat-rooms/:roomId/artefacts', () => {
     expect(remove.status).toBe(401);
   });
 });
+
+describe('POST /api/chat-rooms/:roomId/artefacts — createdBy anti-spoof', () => {
+  beforeEach(() => {
+    resetChatRoomArtefactStoreForTests();
+    resetChatRoomStoreForTests();
+  });
+
+  it('a non-admin room member CANNOT attribute createdBy to another handle (403)', async () => {
+    const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
+    const terminal = upsertTerminal({ pid: 88_201, pid_start: 'artefact-spoof', name: 'agent-a', ttlSeconds: 3600 });
+    addMembership({ room_id: room.id, handle: '@a', terminal_id: terminal.id });
+    const res = await runHandler(
+      POST,
+      eventFor('POST', room.id, '', {
+        kind: 'other',
+        title: 'X',
+        createdBy: '@victim',
+        pidChain: [{ pid: 88_201, pid_start: 'artefact-spoof' }]
+      }, false)
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it('a non-admin member writing as THEMSELVES (or omitting) succeeds, attributed server-side', async () => {
+    const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
+    const terminal = upsertTerminal({ pid: 88_202, pid_start: 'artefact-self', name: 'agent-a', ttlSeconds: 3600 });
+    addMembership({ room_id: room.id, handle: '@a', terminal_id: terminal.id });
+    const res = await runHandler(
+      POST,
+      eventFor('POST', room.id, '', {
+        kind: 'other',
+        title: 'X',
+        pidChain: [{ pid: 88_202, pid_start: 'artefact-self' }]
+      }, false)
+    );
+    expect(res.status).toBe(201);
+    expect((await res.json()).createdBy).toBe('@a');
+  });
+
+  it('admin-bearer MAY attribute on behalf of another (automation path)', async () => {
+    const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
+    const res = await runHandler(
+      POST,
+      eventFor('POST', room.id, '', { kind: 'other', title: 'X', createdBy: '@speedycodex' })
+    );
+    expect(res.status).toBe(201);
+    expect((await res.json()).createdBy).toBe('@speedycodex');
+  });
+});
