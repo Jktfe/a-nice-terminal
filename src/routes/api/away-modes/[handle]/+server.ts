@@ -21,6 +21,9 @@ import { tryAdminBearer } from '$lib/server/chatRoomAuthGate';
 import { resolveBrowserSessionSecretIgnoringRoom } from '$lib/server/browserSessionStore';
 import { getCookieValuesFromRequest } from '$lib/server/authGate';
 import { canonicaliseOperatorHandle } from '$lib/server/operatorHandle';
+import { broadcastToRoom } from '$lib/server/eventBroadcast';
+import { listRoomsForHandle } from '$lib/server/membershipStore';
+import type { AwayMode } from '$lib/server/awayModeStore';
 
 type Auth = { kind: 'admin' | 'self'; setBy: string } | null;
 
@@ -37,6 +40,21 @@ function resolveAuth(handleParam: string, request: Request): Auth {
     }
   }
   return null;
+}
+
+function broadcastAwayModeChanged(handle: string, mode: AwayMode | null): void {
+  for (const roomId of listRoomsForHandle(handle)) {
+    try {
+      broadcastToRoom(roomId, {
+        type: 'away_mode_changed',
+        handle,
+        mode,
+        cleared: mode === null
+      });
+    } catch {
+      /* realtime broadcast is best-effort; away state already persisted */
+    }
+  }
 }
 
 export const GET: RequestHandler = async ({ params, request }) => {
@@ -92,6 +110,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
       : null,
     setBy: auth.setBy
   });
+  broadcastAwayModeChanged(handle, mode);
 
   return json({ mode });
 };
@@ -101,5 +120,6 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
   const auth = resolveAuth(handle, request);
   if (!auth) throw error(401, 'Authentication required.');
   clearAwayMode(handle);
+  broadcastAwayModeChanged(handle, null);
   return json({ ok: true });
 };

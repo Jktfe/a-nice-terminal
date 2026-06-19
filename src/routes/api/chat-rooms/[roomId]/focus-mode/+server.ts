@@ -32,6 +32,7 @@ import {
 } from '$lib/server/focusModeStore';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 import { deliverFocusExitDigest } from '$lib/server/pty-inject-fanout';
+import { broadcastToRoom } from '$lib/server/eventBroadcast';
 
 function assertRoomExists(roomId: string): void {
   if (!findChatRoomById(roomId)) {
@@ -135,6 +136,16 @@ export const PUT: RequestHandler = async ({ params, request }) => {
       durationMs,
       directMentionsOnly
     });
+    try {
+      broadcastToRoom(params.roomId, {
+        type: 'focus_mode_changed',
+        action: 'entered',
+        memberHandle: focusEntry.memberHandle,
+        focusEntry
+      });
+    } catch {
+      /* realtime broadcast is best-effort; focus state already persisted */
+    }
     return json({ focusEntry });
   } catch (causeOfFailure) {
     const message =
@@ -166,6 +177,16 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
       deliverFocusExitDigest(params.roomId, releasing);
     } catch {
       /* digest is decorative; the release already succeeded */
+    }
+    try {
+      broadcastToRoom(params.roomId, {
+        type: 'focus_mode_changed',
+        action: 'exited',
+        memberHandle: releasing.memberHandle,
+        focusEntry: releasing
+      });
+    } catch {
+      /* realtime broadcast is best-effort; focus state already cleared */
     }
   }
   return json({ wasActive });

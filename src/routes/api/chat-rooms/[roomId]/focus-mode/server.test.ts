@@ -19,6 +19,7 @@ import {
   resetFocusModeStoreForTests,
   FOCUS_REASON_MAX_LENGTH
 } from '$lib/server/focusModeStore';
+import { subscribeRoomEvents } from '$lib/server/eventBroadcast';
 
 // LAUNCH-BLOCKER CVE FIX D (2026-05-20): focus-mode PUT/DELETE now require
 // chatRoomAuthGate. Tests supply admin Bearer by default.
@@ -113,6 +114,28 @@ describe('/api/chat-rooms/:roomId/focus-mode', () => {
       );
       expect(response.status).toBe(200);
       expect(findFocus(room.id, '@you')?.reason).toBe('writing PR');
+    });
+
+    it('broadcasts focus_mode_changed when a member enters focus', async () => {
+      const room = createChatRoom({ name: 'put-live', whoCreatedIt: '@you' });
+      const events: Record<string, unknown>[] = [];
+      const unsubscribe = subscribeRoomEvents(room.id, (event) => events.push(event));
+      try {
+        const response = await callPut(
+          room.id,
+          JSON.stringify({ memberHandle: '@you', reason: 'deep work' })
+        );
+        expect(response.status).toBe(200);
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: 'focus_mode_changed',
+            action: 'entered',
+            memberHandle: '@you'
+          })
+        );
+      } finally {
+        unsubscribe();
+      }
     });
 
     it('returns 200 and saves the focus entry with no reason', async () => {
@@ -251,6 +274,26 @@ describe('/api/chat-rooms/:roomId/focus-mode', () => {
       const body = (await response.json()) as { wasActive: boolean };
       expect(body.wasActive).toBe(true);
       expect(findFocus(room.id, '@you')).toBeUndefined();
+    });
+
+    it('broadcasts focus_mode_changed when an active focus entry exits', async () => {
+      const room = createChatRoom({ name: 'delete-live', whoCreatedIt: '@you' });
+      await callPut(room.id, JSON.stringify({ memberHandle: '@you', reason: 'going' }));
+      const events: Record<string, unknown>[] = [];
+      const unsubscribe = subscribeRoomEvents(room.id, (event) => events.push(event));
+      try {
+        const response = await callDelete(room.id, JSON.stringify({ memberHandle: '@you' }));
+        expect(response.status).toBe(200);
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: 'focus_mode_changed',
+            action: 'exited',
+            memberHandle: '@you'
+          })
+        );
+      } finally {
+        unsubscribe();
+      }
     });
 
     it('returns 200 wasActive=false when nothing was set', async () => {

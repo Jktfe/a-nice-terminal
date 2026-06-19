@@ -7,6 +7,7 @@ import { resetIdentityDbForTests } from '$lib/server/db';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { canonicaliseOperatorHandle } from '$lib/server/operatorHandle';
+import { subscribeRoomEvents } from '$lib/server/eventBroadcast';
 
 const ADMIN_TOKEN = 'test-admin-token-away-modes';
 
@@ -46,7 +47,7 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
   }
 }
 
-async function makeSessionFor(handle: string): Promise<string> {
+async function makeSessionForWithRoom(handle: string): Promise<{ secret: string; roomId: string }> {
   const storageHandle = canonicaliseOperatorHandle(handle);
   const room = createChatRoom({ name: `test-room-${handle}`, whoCreatedIt: storageHandle });
   const db = (await import('$lib/server/db')).getIdentityDb();
@@ -61,7 +62,11 @@ async function makeSessionFor(handle: string): Promise<string> {
   ).run(`mem-${storageHandle}`, room.id, storageHandle, `t_${storageHandle}`, nowSec);
   const result = createBrowserSession({ roomId: room.id, authorHandle: handle, browserSessionId: `bs_${handle}` });
   if (!result) throw new Error(`Failed to create browser session for ${handle}`);
-  return result.browserSessionSecret;
+  return { secret: result.browserSessionSecret, roomId: room.id };
+}
+
+async function makeSessionFor(handle: string): Promise<string> {
+  return (await makeSessionForWithRoom(handle)).secret;
 }
 
 describe('GET/PUT/DELETE /api/away-modes/:handle auth', () => {
@@ -115,6 +120,29 @@ describe('GET/PUT/DELETE /api/away-modes/:handle auth', () => {
     expect(body.mode.setBy).toBe('@JWPK');
   });
 
+  it('PUT broadcasts away_mode_changed to rooms that contain the handle', async () => {
+    const { secret, roomId } = await makeSessionForWithRoom('@you');
+    const events: Record<string, unknown>[] = [];
+    const unsubscribe = subscribeRoomEvents(roomId, (event) => events.push(event));
+    try {
+      const res = await run(PUT as unknown as AnyHandler, eventFor('@you', 'PUT', {
+        cookie: `ant_browser_session=${secret}`,
+        body: { tier: 'away-office' }
+      }));
+      expect(res.status).toBe(200);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: 'away_mode_changed',
+          handle: '@JWPK',
+          cleared: false,
+          mode: expect.objectContaining({ tier: 'away-office' })
+        })
+      );
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it('browser-session cookie CANNOT set someone else\'s handle', async () => {
     const secret = await makeSessionFor('@you');
     const res = await run(PUT as unknown as AnyHandler, eventFor('@codex', 'PUT', {
@@ -135,6 +163,32 @@ describe('GET/PUT/DELETE /api/away-modes/:handle auth', () => {
       cookie: `ant_browser_session=${secret}`
     }));
     expect(res.status).toBe(200);
+  });
+
+  it('DELETE broadcasts away_mode_changed cleared to rooms that contain the handle', async () => {
+    const { secret, roomId } = await makeSessionForWithRoom('@you');
+    await run(PUT as unknown as AnyHandler, eventFor('@you', 'PUT', {
+      cookie: `ant_browser_session=${secret}`,
+      body: { tier: 'away-desk' }
+    }));
+    const events: Record<string, unknown>[] = [];
+    const unsubscribe = subscribeRoomEvents(roomId, (event) => events.push(event));
+    try {
+      const res = await run(DELETE as unknown as AnyHandler, eventFor('@you', 'DELETE', {
+        cookie: `ant_browser_session=${secret}`
+      }));
+      expect(res.status).toBe(200);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: 'away_mode_changed',
+          handle: '@JWPK',
+          cleared: true,
+          mode: null
+        })
+      );
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('PUT rejects invalid tier', async () => {
