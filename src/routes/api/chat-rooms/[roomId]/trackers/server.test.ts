@@ -21,6 +21,12 @@ function ev(params: Record<string,string>, body?: unknown): AnyEvent {
   const url = new URL('http://localhost/api/chat-rooms/x/trackers');
   return { request: new Request(url.toString(), { method: 'POST', headers, body: body!==undefined?JSON.stringify(body):undefined }), params, url } as unknown as AnyEvent;
 }
+function evNoAuth(params: Record<string,string>, body?: unknown, method = 'POST'): AnyEvent {
+  const headers: Record<string,string> = {};
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  const url = new URL('http://localhost/api/chat-rooms/x/trackers');
+  return { request: new Request(url.toString(), { method, headers, body: body!==undefined?JSON.stringify(body):undefined }), params, url } as unknown as AnyEvent;
+}
 const H = (h: unknown) => h as (e: AnyEvent) => unknown;
 async function run(h: (e: AnyEvent)=>unknown, e: AnyEvent): Promise<Response> {
   try { return (await h(e)) as Response; }
@@ -91,5 +97,55 @@ describe('tracker API', () => {
     const t = (await (await run(H(createPost), ev({ roomId: a.id }, { roomId: a.id, title: 'T', columnSpec: 'A' }))).json()).tracker;
     const res = await run(H(viewGet), ev({ roomId: b.id, trackerId: t.id }));
     expect(res.status).toBe(404);
+  });
+
+  it('view requires room read access', async () => {
+    const room = createChatRoom({ name: 'read-gated', whoCreatedIt: '@you' });
+    const tracker = (await (await run(H(createPost), ev({ roomId: room.id }, {
+      roomId: room.id,
+      title: 'Private tracker',
+      columnSpec: 'A'
+    }))).json()).tracker;
+
+    const res = await run(H(viewGet), evNoAuth({ roomId: room.id, trackerId: tracker.id }, undefined, 'GET'));
+
+    expect(res.status).toBe(401);
+  });
+
+  it('row creation requires room mutation auth', async () => {
+    const room = createChatRoom({ name: 'row-auth', whoCreatedIt: '@you' });
+    const tracker = (await (await run(H(createPost), ev({ roomId: room.id }, {
+      roomId: room.id,
+      title: 'Row auth tracker',
+      columnSpec: 'A'
+    }))).json()).tracker;
+
+    const res = await run(H(rowPost), evNoAuth({ roomId: room.id, trackerId: tracker.id }, {
+      roomId: room.id,
+      cells: { a: 'x' }
+    }));
+
+    expect(res.status).toBe(401);
+  });
+
+  it('cell edits require room mutation auth', async () => {
+    const room = createChatRoom({ name: 'cell-auth', whoCreatedIt: '@you' });
+    const tracker = (await (await run(H(createPost), ev({ roomId: room.id }, {
+      roomId: room.id,
+      title: 'Cell auth tracker',
+      columnSpec: 'A'
+    }))).json()).tracker;
+    const rowId = (await (await run(H(rowPost), ev({ roomId: room.id, trackerId: tracker.id }, {
+      roomId: room.id,
+      cells: { a: 'x' }
+    }))).json()).row.id;
+
+    const res = await run(H(cellPatch), evNoAuth({ roomId: room.id, trackerId: tracker.id, rowId }, {
+      roomId: room.id,
+      columnKey: 'a',
+      value: 'y'
+    }, 'PATCH'));
+
+    expect(res.status).toBe(401);
   });
 });
