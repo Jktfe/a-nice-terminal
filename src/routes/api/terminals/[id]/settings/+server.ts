@@ -22,6 +22,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { requireAdminAuth } from '$lib/server/chatInviteAuth';
 import { resolveCallerHandleAnyRoom } from '$lib/server/authGate';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 import { getTerminalById, upsertTerminal } from '$lib/server/terminalsStore';
 import { getTerminalRecord, parseAllowlist, updateTerminalRecord } from '$lib/server/terminalRecordsStore';
 import {
@@ -132,7 +133,8 @@ function settingsFromMeta(meta: Record<string, unknown>, recordAllowlist: string
   return { persistence, coOwners, writeGrants, killDefault, deliveryMode, deliveryTargetMode };
 }
 
-export const GET: RequestHandler = ({ params }) => {
+export const GET: RequestHandler = ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const id = params.id ?? '';
   if (!id) throw error(400, 'id required.');
   const terminal = getTerminalById(id);

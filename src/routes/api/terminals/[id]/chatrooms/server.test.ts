@@ -23,12 +23,15 @@ import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
 
 let tmpDir: string;
 const previousDbEnv = process.env.ANT_FRESH_DB_PATH;
+const previousAdminToken = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'terminal-chatrooms-test-token';
 
 type AnyHandler = (event: unknown) => unknown;
 
-function eventFor(path: string, params: Record<string, string>): unknown {
+function eventFor(path: string, params: Record<string, string>, withAuth = true): unknown {
   const url = new URL(`http://localhost${path}`);
-  const request = new Request(url.toString());
+  const headers = withAuth ? { authorization: `Bearer ${TEST_ADMIN_TOKEN}` } : undefined;
+  const request = new Request(url.toString(), { headers });
   return { request, params, url };
 }
 
@@ -49,10 +52,10 @@ function makeTerminal(name: string, pid: number) {
   return upsertTerminal({ pid, pid_start: `start-${pid}`, name });
 }
 
-async function callGet(terminalId: string): Promise<Response> {
+async function callGet(terminalId: string, withAuth = true): Promise<Response> {
   return runHandler(
     GET as unknown as AnyHandler,
-    eventFor(`/api/terminals/${terminalId}/chatrooms`, { id: terminalId })
+    eventFor(`/api/terminals/${terminalId}/chatrooms`, { id: terminalId }, withAuth)
   );
 }
 
@@ -60,6 +63,7 @@ describe('/api/terminals/[id]/chatrooms', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ant-terminal-chatrooms-'));
     process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+    process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
     resetIdentityDbForTests();
     resetChatRoomStoreForTests();
   });
@@ -70,6 +74,14 @@ describe('/api/terminals/[id]/chatrooms', () => {
     rmSync(tmpDir, { recursive: true, force: true });
     if (previousDbEnv === undefined) delete process.env.ANT_FRESH_DB_PATH;
     else process.env.ANT_FRESH_DB_PATH = previousDbEnv;
+    if (previousAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = previousAdminToken;
+  });
+
+  it('rejects anonymous reads before exposing terminal room memberships', async () => {
+    const terminal = makeTerminal('private-memberships', 9299);
+    const response = await callGet(terminal.id, false);
+    expect(response.status).toBe(401);
   });
 
   it('returns 404 when the terminal id does not exist', async () => {

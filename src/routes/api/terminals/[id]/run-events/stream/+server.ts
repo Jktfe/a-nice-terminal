@@ -9,11 +9,13 @@
 
 import type { RequestHandler } from './$types';
 import { error } from '@sveltejs/kit';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 import { subscribeTerminalEvents } from '$lib/server/terminalEventBroadcast';
 
 const HEARTBEAT_INTERVAL_MS = 25_000;
 
-export const GET: RequestHandler = ({ params, url }) => {
+export const GET: RequestHandler = ({ params, request, url }) => {
+  requireOperatorLikeAuth(request);
   const sessionId = params.id ?? '';
   if (sessionId.length === 0) throw error(400, 'sessionId required.');
   const kindsParam = url.searchParams.get('kinds');

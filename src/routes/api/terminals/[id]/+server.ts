@@ -18,8 +18,10 @@ import {
   terminalSocketBindingFromMeta
 } from '$lib/server/terminalSocketMetadata';
 import { buildTerminalDeskReadModel } from '$lib/server/terminalDeskReadModel';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const sessionId = params.id ?? '';
   if (sessionId.length === 0) throw error(400, 'sessionId required.');
   const record = getTerminalRecord(sessionId);

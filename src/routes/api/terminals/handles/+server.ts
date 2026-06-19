@@ -9,10 +9,12 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 import { listTerminals } from '$lib/server/ptyClient';
 import { listCurrentInvitePickerHandles } from '$lib/server/terminalRecordsStore';
 
-export const GET: RequestHandler = async () => {
+export const GET: RequestHandler = async ({ request }) => {
+  requireOperatorLikeAuth(request);
   const aliveSessionIds = await listTerminals();
   return json(listCurrentInvitePickerHandles(aliveSessionIds));
 };

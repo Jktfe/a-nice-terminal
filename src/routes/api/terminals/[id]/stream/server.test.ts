@@ -14,12 +14,15 @@ vi.mock('\$lib/server/tmuxPaneSnapshot', () => ({
 }));
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'terminal-stream-test-token';
 
 type AnyHandler = (event: unknown) => unknown;
 
-function eventFor(id: string) {
+function eventFor(id: string, withAuth = true) {
+  const headers = withAuth ? { authorization: `Bearer ${TEST_ADMIN_TOKEN}` } : undefined;
   return {
-    request: new Request(`http://localhost/api/terminals/${id}/stream`),
+    request: new Request(`http://localhost/api/terminals/${id}/stream`, { headers }),
     url: new URL(`http://localhost/api/terminals/${id}/stream`),
     params: { id }
   };
@@ -40,6 +43,7 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
   resetIdentityDbForTests();
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
@@ -49,9 +53,16 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
 describe('/api/terminals/:id/stream', () => {
+  it('GET rejects anonymous reads before opening the PTY output stream', async () => {
+    const res = await run(GET as unknown as AnyHandler, eventFor('t-1', false));
+    expect(res.status).toBe(401);
+  });
+
   it('GET returns SSE stream', async () => {
     const res = await run(GET as unknown as AnyHandler, eventFor('t-1'));
     expect(res.status).toBe(200);

@@ -12,6 +12,7 @@
 
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 import {
   listLatestTerminalRunEvents,
   listTerminalRunEventsSince,
@@ -40,7 +41,8 @@ function parseSince(since: string | null): number | null {
   return null;
 }
 
-export const GET: RequestHandler = ({ params, url }) => {
+export const GET: RequestHandler = ({ params, request, url }) => {
+  requireOperatorLikeAuth(request);
   const terminalId = params.id ?? '';
   if (terminalId.length === 0) throw error(400, 'terminal id required.');
 

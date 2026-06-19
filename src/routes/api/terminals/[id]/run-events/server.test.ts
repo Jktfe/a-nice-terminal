@@ -4,12 +4,15 @@ import { appendTerminalRunEvent } from '\$lib/server/terminalRunEventsStore';
 import { GET } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'terminal-run-events-test-token';
 
 type AnyHandler = (event: unknown) => unknown;
 
-function eventFor(id: string, search: string) {
+function eventFor(id: string, search: string, withAuth = true) {
+  const headers = withAuth ? { authorization: `Bearer ${TEST_ADMIN_TOKEN}` } : undefined;
   return {
-    request: new Request(`http://localhost/api/terminals/${id}/run-events${search}`),
+    request: new Request(`http://localhost/api/terminals/${id}/run-events${search}`, { headers }),
     url: new URL(`http://localhost/api/terminals/${id}/run-events${search}`),
     params: { id }
   };
@@ -30,6 +33,7 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
   resetIdentityDbForTests();
 });
 
@@ -37,9 +41,18 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
 describe('/api/terminals/:id/run-events', () => {
+  it('GET rejects anonymous reads before exposing transcript events', async () => {
+    appendTerminalRunEvent({ terminalId: 't-1', kind: 'output', text: 'SECRET_TOKEN=should-not-leak' });
+    const res = await run(GET as unknown as AnyHandler, eventFor('t-1', '', false));
+    expect(res.status).toBe(401);
+    await expect(res.text()).resolves.not.toContain('SECRET_TOKEN');
+  });
+
   it('GET lists latest events', async () => {
     appendTerminalRunEvent({ terminalId: 't-1', kind: 'command_block', text: 'ls' });
     appendTerminalRunEvent({ terminalId: 't-1', kind: 'output', text: 'file.txt' });

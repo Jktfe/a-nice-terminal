@@ -4,13 +4,16 @@ import { putMemory, resetMemoriesStoreForTests } from '\$lib/server/memoriesStor
 import { GET } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'terminal-memories-test-token';
 
 type AnyHandler = (event: unknown) => unknown;
 
-function eventFor(id: string) {
+function eventFor(id: string, withAuth = true) {
   const url = new URL(`http://localhost/api/terminals/${id}/memories`);
+  const headers = withAuth ? { authorization: `Bearer ${TEST_ADMIN_TOKEN}` } : undefined;
   return {
-    request: new Request(url),
+    request: new Request(url, { headers }),
     url,
     params: { id }
   };
@@ -31,6 +34,7 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
   resetIdentityDbForTests();
   resetMemoriesStoreForTests();
 });
@@ -40,9 +44,18 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
 describe('/api/terminals/:id/memories', () => {
+  it('GET rejects anonymous reads before exposing terminal memories', async () => {
+    putMemory({ key: 'secret-memory', value: 'do-not-leak', scope: 'terminal', scopeTarget: 'term-1' });
+    const res = await run(GET as unknown as AnyHandler, eventFor('term-1', false));
+    expect(res.status).toBe(401);
+    await expect(res.text()).resolves.not.toContain('do-not-leak');
+  });
+
   it('GET returns memories scoped to terminal', async () => {
     putMemory({ key: 't1/m1', value: 'v1', scope: 'terminal', scopeTarget: 'term-1' });
     putMemory({ key: 't1/m2', value: 'v2', scope: 'terminal', scopeTarget: 'term-1' });

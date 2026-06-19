@@ -49,6 +49,13 @@ function eventFor(method: string, id: string, body?: Record<string, unknown>, wi
 }
 
 describe('/api/terminals/[id]/settings deliveryMode', () => {
+  it('rejects anonymous reads before exposing terminal settings', async () => {
+    const terminal = upsertTerminal({ pid: 1000, pid_start: 'p', name: 'settings-private' });
+
+    const response = await runHandler(GET as AnyHandler, eventFor('GET', terminal.id, undefined, false));
+    expect(response.status).toBe(401);
+  });
+
   it('defaults deliveryMode to inject', async () => {
     const terminal = upsertTerminal({ pid: 1001, pid_start: 'p', name: 'mode-default' });
 

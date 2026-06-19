@@ -128,6 +128,54 @@ describe('/api/desks facade', () => {
     else process.env.ANT_TERMINAL_ARCHIVE_DIR = previousArchiveDir;
   });
 
+  it('rejects anonymous Desk inventory reads before exposing terminal metadata', async () => {
+    const response = await run(
+      LIST_DESKS as unknown as AnyHandler,
+      eventFor('GET', '/api/desks', {}, undefined, { withAuth: false })
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it('rejects anonymous Desk detail reads before exposing terminal metadata', async () => {
+    createTerminalRecord({
+      sessionId: 't_anon_detail',
+      name: 'Anonymous Detail Leak',
+      handle: '@anon-detail',
+      bootCommand: 'claude --dangerously-skip-permissions',
+      tmuxTargetPane: 't_anon_detail:0.0'
+    });
+
+    const response = await run(
+      GET_DESK as unknown as AnyHandler,
+      eventFor('GET', '/api/desks/t_anon_detail', { deskId: 't_anon_detail' }, undefined, { withAuth: false })
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it('rejects anonymous ANT View reads before exposing transcript scrollback', async () => {
+    createTerminalRecord({
+      sessionId: 't_anon_view',
+      name: 'Anonymous Transcript Leak',
+      handle: '@anon-view',
+      tmuxTargetPane: 't_anon_view:0.0'
+    });
+    appendTerminalRunEvent({
+      terminalId: 't_anon_view',
+      kind: 'raw',
+      text: 'SECRET_TOKEN=should-not-leak',
+      source: 'pty',
+      trust: 'raw',
+      tsMs: 1_000
+    });
+
+    const response = await run(
+      GET_ANT_VIEW as unknown as AnyHandler,
+      eventFor('GET', '/api/desks/t_anon_view/ant-view?raw=1', { deskId: 't_anon_view' }, undefined, { withAuth: false })
+    );
+    expect(response.status).toBe(401);
+    await expect(response.text()).resolves.not.toContain('SECRET_TOKEN');
+  });
+
   it('lists and fetches TerminalDesk documents in the antOS shape', async () => {
     createTerminalRecord({
       sessionId: 't_desk',

@@ -28,6 +28,7 @@ import {
 } from '$lib/server/agentStateReader';
 import { basename } from 'node:path';
 import { TMUX_BIN } from '$lib/server/tmuxBin';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 const AGENT_KIND_TO_CLI: Record<string, AgentCli> = {
   'claude': 'claude-code',
@@ -58,7 +59,8 @@ function tmuxPaneCurrentPath(pane: string): string | null {
   } catch { return null; }
 }
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const sessionId = params.id ?? '';
   if (sessionId.length === 0) throw error(400, 'sessionId required.');
   const record = getTerminalRecord(sessionId);

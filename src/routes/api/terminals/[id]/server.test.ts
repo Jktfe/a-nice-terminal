@@ -10,6 +10,7 @@ vi.mock('\$lib/server/ptyClient', () => ({
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
 const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TERMINAL_DETAIL_ADMIN_TOKEN = 'terminal-detail-admin-token';
 
 type AnyHandler = (event: unknown) => unknown;
 
@@ -27,6 +28,10 @@ function eventFor(id: string, method: 'GET' | 'PATCH', body?: unknown, headers: 
     url,
     params: { id }
   };
+}
+
+function adminHeaders(): Record<string, string> {
+  return { authorization: `Bearer ${TERMINAL_DETAIL_ADMIN_TOKEN}` };
 }
 
 async function run(handler: AnyHandler, event: unknown): Promise<Response> {
@@ -53,6 +58,7 @@ function seedLiveTerminal(id: string, agentKind: string | null): void {
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_ADMIN_TOKEN = TERMINAL_DETAIL_ADMIN_TOKEN;
   resetIdentityDbForTests();
 });
 
@@ -65,9 +71,21 @@ afterEach(() => {
 });
 
 describe('/api/terminals/:id', () => {
+  it('GET rejects anonymous reads before exposing terminal metadata', async () => {
+    createTerminalRecord({
+      sessionId: 't-anon-detail',
+      name: 'Anon Detail',
+      bootCommand: 'claude --dangerously-skip-permissions',
+      tmuxTargetPane: 't-anon-detail:0.0'
+    });
+    const res = await run(GET as unknown as AnyHandler, eventFor('t-anon-detail', 'GET'));
+    expect(res.status).toBe(401);
+    await expect(res.text()).resolves.not.toContain('dangerously-skip-permissions');
+  });
+
   it('GET returns terminal record', async () => {
     createTerminalRecord({ sessionId: 't-1', name: 'Alpha', handle: '@alpha' });
-    const res = await run(GET as unknown as AnyHandler, eventFor('t-1', 'GET'));
+    const res = await run(GET as unknown as AnyHandler, eventFor('t-1', 'GET', undefined, adminHeaders()));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.sessionId).toBe('t-1');
@@ -79,7 +97,7 @@ describe('/api/terminals/:id', () => {
   it('GET uses live terminals.agent_kind when the record projection is stale', async () => {
     createTerminalRecord({ sessionId: 't-drift', name: 'Drift', agentKind: 'claude' });
     seedLiveTerminal('t-drift', 'codex');
-    const res = await run(GET as unknown as AnyHandler, eventFor('t-drift', 'GET'));
+    const res = await run(GET as unknown as AnyHandler, eventFor('t-drift', 'GET', undefined, adminHeaders()));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.agentKind).toBe('codex');
@@ -127,7 +145,7 @@ describe('/api/terminals/:id', () => {
       atMs: 2_001
     });
 
-    const res = await run(GET as unknown as AnyHandler, eventFor('t-focused-model', 'GET'));
+    const res = await run(GET as unknown as AnyHandler, eventFor('t-focused-model', 'GET', undefined, adminHeaders()));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toMatchObject({
@@ -171,12 +189,12 @@ describe('/api/terminals/:id', () => {
   });
 
   it('GET 400 on empty id', async () => {
-    const res = await run(GET as unknown as AnyHandler, eventFor('', 'GET'));
+    const res = await run(GET as unknown as AnyHandler, eventFor('', 'GET', undefined, adminHeaders()));
     expect(res.status).toBe(400);
   });
 
   it('GET 404 for missing terminal', async () => {
-    const res = await run(GET as unknown as AnyHandler, eventFor('missing', 'GET'));
+    const res = await run(GET as unknown as AnyHandler, eventFor('missing', 'GET', undefined, adminHeaders()));
     expect(res.status).toBe(404);
   });
 
@@ -244,7 +262,10 @@ describe('/api/terminals/:id', () => {
       // Handle must remain NULL — proves the store write didn't fire.
       // (We re-GET to verify; the alternative is to query the store
       // directly but the route-level test is the more honest signal.)
-      const getRes = await run(GET as unknown as AnyHandler, eventFor('t-patch-admin', 'GET'));
+      const getRes = await run(
+        GET as unknown as AnyHandler,
+        eventFor('t-patch-admin', 'GET', undefined, adminHeaders())
+      );
       const body = await getRes.json();
       expect(body.handle).toBeNull();
     });
@@ -309,7 +330,10 @@ describe('/api/terminals/:id', () => {
         eventFor('t-patch-server-claim', 'PATCH', { handle: '@JWPK' })
       );
       expect(res.status).toBe(400);
-      const getRes = await run(GET as unknown as AnyHandler, eventFor('t-patch-server-claim', 'GET'));
+      const getRes = await run(
+        GET as unknown as AnyHandler,
+        eventFor('t-patch-server-claim', 'GET', undefined, adminHeaders())
+      );
       const body = await getRes.json();
       expect(body.handle).toBeNull();
     });
@@ -329,7 +353,10 @@ describe('/api/terminals/:id', () => {
         eventFor('t-patch-server-clear', 'PATCH', { handle: '@someone-else' })
       );
       expect(change.status).toBe(403);
-      const getRes = await run(GET as unknown as AnyHandler, eventFor('t-patch-server-clear', 'GET'));
+      const getRes = await run(
+        GET as unknown as AnyHandler,
+        eventFor('t-patch-server-clear', 'GET', undefined, adminHeaders())
+      );
       const body = await getRes.json();
       expect(body.handle).toBe('@JWPK');
     });
@@ -381,7 +408,10 @@ describe('/api/terminals/:id', () => {
         eventFor('t-exploit', 'PATCH', { handle: '@admin' })
       );
       expect(patchRes.status).toBe(400);
-      const after = await run(GET as unknown as AnyHandler, eventFor('t-exploit', 'GET'));
+      const after = await run(
+        GET as unknown as AnyHandler,
+        eventFor('t-exploit', 'GET', undefined, adminHeaders())
+      );
       const body = await after.json();
       expect(body.handle).toBeNull();
     });

@@ -1,8 +1,10 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 import { getTerminalRecord } from '$lib/server/terminalRecordsStore';
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const terminalId = params.id ?? '';
   if (terminalId.length === 0) throw error(400, 'terminal id required');
   const record = getTerminalRecord(terminalId);

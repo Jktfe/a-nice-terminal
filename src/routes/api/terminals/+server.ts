@@ -38,6 +38,7 @@ import {
 } from '$lib/server/terminalSocketMetadata';
 import { isTerminalDeliveryTargetMode } from '$lib/server/terminalDeliveryMode';
 import { buildTerminalDeskReadModel } from '$lib/server/terminalDeskReadModel';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 function makeSessionId(): string {
   return 't_' + Math.random().toString(36).slice(2, 12);
@@ -51,7 +52,8 @@ function requireOperatorForOperatorHandle(request: Request, handle: string | und
   }
 }
 
-export const GET: RequestHandler = async () => {
+export const GET: RequestHandler = async ({ request }) => {
+  requireOperatorLikeAuth(request);
   const aliveSessionIds = await listTerminals();
   const aliveSet = new Set(aliveSessionIds);
   const rawRecords = listTerminalRecords();

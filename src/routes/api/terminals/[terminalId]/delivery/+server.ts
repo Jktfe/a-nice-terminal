@@ -15,9 +15,11 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 import { getTerminalById } from '$lib/server/terminalsStore';
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const terminal = getTerminalById(params.terminalId);
   if (!terminal) {
     throw error(404, 'Terminal not found.');

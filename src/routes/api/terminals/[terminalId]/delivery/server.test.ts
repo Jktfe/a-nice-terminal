@@ -12,10 +12,13 @@ import {
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
+const previousAdminToken = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'terminal-delivery-test-token';
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-delivery-route-'));
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+  process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
   resetIdentityDbForTests();
 });
 
@@ -24,11 +27,14 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
   if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
+  if (previousAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = previousAdminToken;
 });
 
-async function callGet(terminalId: string): Promise<Response> {
+async function callGet(terminalId: string, withAuth = true): Promise<Response> {
   const url = new URL(`http://localhost/api/terminals/${terminalId}/delivery`);
-  const event = { request: new Request(url), params: { terminalId }, url } as unknown as Parameters<typeof GET>[0];
+  const headers = withAuth ? { authorization: `Bearer ${TEST_ADMIN_TOKEN}` } : undefined;
+  const event = { request: new Request(url, { headers }), params: { terminalId }, url } as unknown as Parameters<typeof GET>[0];
   try {
     return (await GET(event)) as Response;
   } catch (thrown) {
@@ -40,6 +46,14 @@ async function callGet(terminalId: string): Promise<Response> {
 }
 
 describe('GET /api/terminals/:terminalId/delivery', () => {
+  it('rejects anonymous reads before exposing delivery state', async () => {
+    const terminal = upsertTerminal({ pid: 3000, pid_start: 'p0', name: 'term-private' });
+    markPaneVerified(terminal.id);
+
+    const response = await callGet(terminal.id, false);
+    expect(response.status).toBe(401);
+  });
+
   it('returns 404 when the terminal is not registered', async () => {
     const response = await callGet('does-not-exist');
     expect(response.status).toBe(404);

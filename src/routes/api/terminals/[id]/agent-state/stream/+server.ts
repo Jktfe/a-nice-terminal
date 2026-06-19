@@ -26,6 +26,7 @@ import type { AgentStateSnapshot } from '$lib/server/agentStateReader';
 import { getAgentStatus, setAgentStatus, type AgentStatus } from '$lib/server/agentStatusStore';
 import { projectLiveAgentStateSnapshotToStatus, resolveAgentStateSnapshotForTerminal } from '$lib/server/agentStateProjection';
 import { TMUX_BIN } from '$lib/server/tmuxBin';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 // 1s server-side poll — 250ms was hammering the system because each tick
 // spawns a tmux subprocess + ps walk per open terminal stream. With N
@@ -99,7 +100,8 @@ function resolveSnapshot(terminalId: string): AgentStateSnapshot | null {
   return resolveAgentStateSnapshotForTerminal(record, cwd);
 }
 
-export const GET: RequestHandler = ({ params }) => {
+export const GET: RequestHandler = ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const sessionId = params.id ?? '';
   if (sessionId.length === 0) throw error(400, 'sessionId required.');
 

@@ -36,6 +36,7 @@ import type { TerminalRow } from '$lib/server/terminalsStore';
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
 const previousAdminToken = process.env.ANT_ADMIN_TOKEN;
+const TERMINALS_GET_ADMIN_TOKEN = 'terminals-get-admin-token';
 
 type AnyHandler = (event: unknown) => unknown;
 
@@ -43,6 +44,10 @@ function eventFor(method: 'GET' | 'POST', path: string, init: RequestInit = {}):
   const url = new URL(`http://localhost${path}`);
   const request = new Request(url.toString(), { method, ...init });
   return { request, params: {}, url };
+}
+
+function adminHeaders(): Record<string, string> {
+  return { authorization: `Bearer ${TERMINALS_GET_ADMIN_TOKEN}` };
 }
 
 function seedLiveTerminal(id: string, agentKind: string | null): void {
@@ -150,6 +155,7 @@ describe('/api/terminals GET terminal CLI projection', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ant-terminals-get-'));
     process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+    process.env.ANT_ADMIN_TOKEN = TERMINALS_GET_ADMIN_TOKEN;
     resetIdentityDbForTests();
   });
 
@@ -162,10 +168,27 @@ describe('/api/terminals GET terminal CLI projection', () => {
     else process.env.ANT_ADMIN_TOKEN = previousAdminToken;
   });
 
+  it('rejects anonymous terminal inventory reads before exposing tmux metadata', async () => {
+    createTerminalRecord({
+      sessionId: 't_anon_inventory',
+      name: 'anonymous inventory',
+      bootCommand: 'codex --yolo',
+      tmuxTargetPane: 't_anon_inventory:0.0'
+    });
+    seedLiveTerminal('t_anon_inventory', 'codex');
+
+    const response = await runHandler(terminalsGet as unknown as AnyHandler, eventFor('GET', '/api/terminals'));
+    expect(response.status).toBe(401);
+    await expect(response.text()).resolves.not.toContain('codex --yolo');
+  });
+
   it('returns live terminals.agent_kind over stale terminal_records.agent_kind', async () => {
     createTerminalRecord({ sessionId: 't_cli_drift', name: 'drift', agentKind: 'claude' });
     seedLiveTerminal('t_cli_drift', 'codex');
-    const response = await runHandler(terminalsGet as unknown as AnyHandler, eventFor('GET', '/api/terminals'));
+    const response = await runHandler(
+      terminalsGet as unknown as AnyHandler,
+      eventFor('GET', '/api/terminals', { headers: adminHeaders() })
+    );
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.terminals).toEqual([
@@ -215,7 +238,10 @@ describe('/api/terminals GET terminal CLI projection', () => {
       atMs: 1_001
     });
 
-    const response = await runHandler(terminalsGet as unknown as AnyHandler, eventFor('GET', '/api/terminals'));
+    const response = await runHandler(
+      terminalsGet as unknown as AnyHandler,
+      eventFor('GET', '/api/terminals', { headers: adminHeaders() })
+    );
     expect(response.status).toBe(200);
     const body = await response.json();
     const terminal = body.terminals.find((row: { sessionId: string }) => row.sessionId === 't_desk_model');

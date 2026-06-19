@@ -7,6 +7,7 @@
 
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 import { getTerminalDeskAntView } from '$lib/server/terminalDeskAntView';
 import { TerminalDeskError } from '$lib/server/terminalDeskFacade';
 
@@ -35,7 +36,8 @@ function parseLimit(raw: string | null): number | undefined {
   return Number.isFinite(numeric) ? numeric : undefined;
 }
 
-export const GET: RequestHandler = ({ params, url }) => {
+export const GET: RequestHandler = ({ params, request, url }) => {
+  requireOperatorLikeAuth(request);
   const deskId = params.deskId ?? '';
   if (!deskId) throw error(400, 'Desk id required.');
   try {

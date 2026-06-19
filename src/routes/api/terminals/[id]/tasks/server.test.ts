@@ -4,13 +4,16 @@ import { createTask, resetTasksStoreForTests } from '\$lib/server/tasksStore';
 import { GET } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'terminal-tasks-test-token';
 
 type AnyHandler = (event: unknown) => unknown;
 
-function eventFor(id: string) {
+function eventFor(id: string, withAuth = true) {
   const url = new URL(`http://localhost/api/terminals/${id}/tasks`);
+  const headers = withAuth ? { authorization: `Bearer ${TEST_ADMIN_TOKEN}` } : undefined;
   return {
-    request: new Request(url),
+    request: new Request(url, { headers }),
     url,
     params: { id }
   };
@@ -31,6 +34,7 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
   resetIdentityDbForTests();
   resetTasksStoreForTests();
 });
@@ -40,9 +44,18 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
 describe('/api/terminals/:id/tasks', () => {
+  it('GET rejects anonymous reads before exposing terminal task assignments', async () => {
+    createTask({ id: 'task-secret', title: 'Private task', assignedTerminalId: 't-1', status: 'todo' });
+    const res = await run(GET as unknown as AnyHandler, eventFor('t-1', false));
+    expect(res.status).toBe(401);
+    await expect(res.text()).resolves.not.toContain('Private task');
+  });
+
   it('GET returns tasks assigned to terminal', async () => {
     createTask({ id: 'task-1', title: 'T1', assignedTerminalId: 't-1', status: 'todo' });
     createTask({ id: 'task-2', title: 'T2', assignedTerminalId: 't-1', status: 'done' });

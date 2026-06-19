@@ -7,6 +7,7 @@
 
 import type { RequestHandler } from './$types';
 import { error } from '@sveltejs/kit';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 import { subscribeOutput, subscribeReset } from '$lib/server/ptyClient';
 import {
   capturePaneScrollback,
@@ -16,7 +17,8 @@ import {
 
 const HEARTBEAT_INTERVAL_MS = 25_000;
 
-export const GET: RequestHandler = ({ params }) => {
+export const GET: RequestHandler = ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const sessionId = params.id ?? '';
   if (sessionId.length === 0) throw error(400, 'sessionId required.');
 

@@ -3,7 +3,7 @@
  * JWPK file-refs / "flag" subsystem 2026-05-16.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { GET, POST } from './+server';
 import { GET as GET_ONE, DELETE as DELETE_ONE } from './[id]/+server';
 import { GET as GET_TERMINAL_FILES } from '../terminals/[id]/files/+server';
@@ -12,6 +12,9 @@ import {
   listFileRefsForScope,
   resetFileRefsStoreForTests
 } from '$lib/server/fileRefsStore';
+
+const TERMINAL_FILES_ADMIN_TOKEN = 'file-refs-terminal-files-test-token';
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
 
 function getEvent(searchParams: Record<string, string> = {}) {
   const url = new URL('http://localhost/api/file-refs');
@@ -44,7 +47,13 @@ async function callOrCaught<T extends (event: any) => any>(fn: T, event: Paramet
 
 describe('/api/file-refs endpoints', () => {
   beforeEach(() => {
+    process.env.ANT_ADMIN_TOKEN = TERMINAL_FILES_ADMIN_TOKEN;
     resetFileRefsStoreForTests();
+  });
+
+  afterEach(() => {
+    if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
   });
 
   it('POST creates a global file_ref and returns 201 with the new row', async () => {
@@ -137,7 +146,13 @@ describe('/api/file-refs endpoints', () => {
     addFileRef({ filePath: 'c.ts', scope: 'global', nowMs: 3 });
     const response = await callOrCaught(
       GET_TERMINAL_FILES,
-      { params: { id: 't_alpha' } } as unknown as Parameters<typeof GET_TERMINAL_FILES>[0]
+      {
+        params: { id: 't_alpha' },
+        request: new Request('http://localhost/api/terminals/t_alpha/files', {
+          headers: { authorization: `Bearer ${TERMINAL_FILES_ADMIN_TOKEN}` }
+        }),
+        url: new URL('http://localhost/api/terminals/t_alpha/files')
+      } as unknown as Parameters<typeof GET_TERMINAL_FILES>[0]
     );
     expect(response.status).toBe(200);
     const body = await response.json();

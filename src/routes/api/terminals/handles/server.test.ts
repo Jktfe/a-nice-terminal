@@ -10,14 +10,31 @@ vi.mock('$lib/server/ptyClient', () => ({
 }));
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'terminal-handles-test-token';
 const listTerminalsMock = vi.mocked(listTerminals);
 
-function eventFor() {
-  return { request: new Request('http://localhost/api/terminals/handles') };
+function eventFor(withAuth = true) {
+  const headers = withAuth ? { authorization: `Bearer ${TEST_ADMIN_TOKEN}` } : undefined;
+  return { request: new Request('http://localhost/api/terminals/handles', { headers }) };
+}
+
+async function callGet(withAuth = true): Promise<Response> {
+  try {
+    return (await GET(eventFor(withAuth) as any)) as Response;
+  } catch (thrown) {
+    if (thrown instanceof Response) return thrown;
+    const failure = thrown as { status?: number; body?: { message?: string } };
+    if (typeof failure?.status === 'number') {
+      return new Response(JSON.stringify(failure.body ?? {}), { status: failure.status });
+    }
+    throw thrown;
+  }
 }
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
   resetIdentityDbForTests();
   listTerminalsMock.mockReset();
   listTerminalsMock.mockResolvedValue([]);
@@ -27,11 +44,18 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
 describe('/api/terminals/handles', () => {
+  it('GET rejects anonymous reads before exposing terminal handle inventory', async () => {
+    const res = await callGet(false);
+    expect(res.status).toBe(401);
+  });
+
   it('GET returns empty arrays when no terminals exist', async () => {
-    const res = await GET(eventFor() as any);
+    const res = await callGet();
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.handles).toEqual([]);
@@ -45,7 +69,7 @@ describe('/api/terminals/handles', () => {
     createTerminalRecord({ sessionId: beta.id, name: 'beta', handle: null });
     listTerminalsMock.mockResolvedValue([alpha.id, beta.id]);
 
-    const res = await GET(eventFor() as any);
+    const res = await callGet();
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -61,7 +85,7 @@ describe('/api/terminals/handles', () => {
     createTerminalRecord({ sessionId: dead.id, name: 'dummyXenoData', handle: null });
     listTerminalsMock.mockResolvedValue([alive.id]);
 
-    const res = await GET(eventFor() as any);
+    const res = await callGet();
 
     expect(res.status).toBe(200);
     const body = await res.json();

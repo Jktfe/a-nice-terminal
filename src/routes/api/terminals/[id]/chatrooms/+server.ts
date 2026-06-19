@@ -10,10 +10,12 @@
  */
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 import { getTerminalById } from '$lib/server/terminalsStore';
 import { listChatRoomsForTerminal } from '$lib/server/roomMembershipsStore';
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const terminalId = params.id ?? '';
   if (terminalId.length === 0) throw error(400, 'terminal id required.');
   if (!getTerminalById(terminalId)) throw error(404, 'terminal not found');
