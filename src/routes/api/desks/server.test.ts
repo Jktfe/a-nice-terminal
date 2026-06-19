@@ -12,6 +12,10 @@ import { POST as BIND_PANE } from './[deskId]/binding/bind/+server';
 import { POST as TOMBSTONE_PANE } from './[deskId]/binding/tombstone/+server';
 import { POST as SWAP_CLI_PROFILE } from './[deskId]/cli-profile/swap/+server';
 import { PATCH as UPDATE_CONFIG } from './[deskId]/config/+server';
+import { POST as ARCHIVE_DESK } from './[deskId]/archive/+server';
+import { POST as MINE_DESK } from './[deskId]/mine/+server';
+import { POST as DELETE_DESK } from './[deskId]/delete/+server';
+import { POST as ADOPT_PANE } from './adopt-pane/+server';
 import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
 import { appendTerminalRunEvent } from '$lib/server/terminalRunEventsStore';
 import {
@@ -23,10 +27,12 @@ import {
   createTerminalRecord,
   getTerminalRecord
 } from '$lib/server/terminalRecordsStore';
+import { createChatRoom, findChatRoomById } from '$lib/server/chatRoomStore';
 
 let tmpDir: string;
 const previousDbPath = process.env.ANT_FRESH_DB_PATH;
 const previousAdminToken = process.env.ANT_ADMIN_TOKEN;
+const previousArchiveDir = process.env.ANT_TERMINAL_ARCHIVE_DIR;
 const TEST_ADMIN_TOKEN = 'test-admin-token-for-desks-facade';
 
 type AnyHandler = (event: unknown) => unknown;
@@ -104,6 +110,7 @@ describe('/api/desks facade', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ant-desks-facade-'));
     process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
     process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
+    process.env.ANT_TERMINAL_ARCHIVE_DIR = join(tmpDir, 'archives');
     resetIdentityDbForTests();
   });
 
@@ -114,6 +121,8 @@ describe('/api/desks facade', () => {
     else process.env.ANT_FRESH_DB_PATH = previousDbPath;
     if (previousAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
     else process.env.ANT_ADMIN_TOKEN = previousAdminToken;
+    if (previousArchiveDir === undefined) delete process.env.ANT_TERMINAL_ARCHIVE_DIR;
+    else process.env.ANT_TERMINAL_ARCHIVE_DIR = previousArchiveDir;
   });
 
   it('lists and fetches TerminalDesk documents in the antOS shape', async () => {
@@ -553,6 +562,191 @@ describe('/api/desks facade', () => {
       }
     });
     expect(getLiveBinding('@bind')).toBeNull();
+  });
+
+  it('archives a Desk as a parked lifecycle state without deleting history', async () => {
+    const linkedRoom = createChatRoom({ name: 'linked archive', whoCreatedIt: '@JWPK' });
+    createTerminalRecord({
+      sessionId: 't_archive',
+      name: 'Archive Desk',
+      handle: '@archive',
+      createdBy: '@JWPK',
+      tmuxTargetPane: 't_archive:0.0',
+      linkedChatRoomId: linkedRoom.id
+    });
+    seedTerminalRow({
+      id: 't_archive',
+      pid: 777,
+      pidStart: 'archive-start',
+      pane: 't_archive:0.0',
+      name: 'Archive Desk'
+    });
+    bindHandle({
+      handle: '@archive',
+      pane: 't_archive:0.0',
+      pid: 777,
+      pidStart: 'archive-start',
+      terminalId: 't_archive',
+      spawnedBy: '@JWPK'
+    });
+
+    const response = await run(
+      ARCHIVE_DESK as unknown as AnyHandler,
+      eventFor('POST', '/api/desks/t_archive/archive', { deskId: 't_archive' }, { reason: 'done' })
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      archived: true,
+      terminalStatusUpdated: true,
+      linkedChatArchived: true,
+      bindingTombstoned: true,
+      desk: {
+        deskId: 't_archive',
+        lifecycle: 'parked',
+        activeBinding: { state: 'missing' }
+      }
+    });
+    expect(findChatRoomById(linkedRoom.id)).toBeUndefined();
+    expect(getLiveBinding('@archive')).toBeNull();
+  });
+
+  it('mines a Desk without deleting the Desk', async () => {
+    createTerminalRecord({
+      sessionId: 't_mine',
+      name: 'Mine Desk',
+      handle: '@mine',
+      createdBy: '@JWPK',
+      tmuxTargetPane: 't_mine:0.0'
+    });
+    appendTerminalRunEvent({
+      terminalId: 't_mine',
+      kind: 'command_block',
+      text: 'npm test',
+      trust: 'high',
+      source: 'pty',
+      tsMs: 123
+    });
+
+    const response = await run(
+      MINE_DESK as unknown as AnyHandler,
+      eventFor('POST', '/api/desks/t_mine/mine', { deskId: 't_mine' }, { reason: 'preserve' })
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      terminalId: 't_mine',
+      mined: { eventsArchived: 1 },
+      desk: { deskId: 't_mine' }
+    });
+    expect(body.mined.archivedTo).toContain('/archives/');
+    expect(getTerminalRecord('t_mine')).not.toBeNull();
+  });
+
+  it('deletes an inactive Desk with mine-first truthfulness', async () => {
+    const linkedRoom = createChatRoom({ name: 'delete linked', whoCreatedIt: '@JWPK' });
+    createTerminalRecord({
+      sessionId: 't_delete',
+      name: 'Delete Desk',
+      handle: '@delete',
+      createdBy: '@JWPK',
+      tmuxTargetPane: 't_delete:0.0',
+      linkedChatRoomId: linkedRoom.id
+    });
+    appendTerminalRunEvent({
+      terminalId: 't_delete',
+      kind: 'output',
+      text: 'important output',
+      trust: 'medium',
+      source: 'pty',
+      tsMs: 234
+    });
+
+    const response = await run(
+      DELETE_DESK as unknown as AnyHandler,
+      eventFor(
+        'POST',
+        '/api/desks/t_delete/delete',
+        { deskId: 't_delete' },
+        { mode: 'mine-and-delete' }
+      )
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      mode: 'mine-and-delete',
+      deleted: true,
+      terminalId: 't_delete',
+      mined: { eventsArchived: 1 },
+      runEventsHidden: 1,
+      linkedChatDeleted: true,
+      deskBefore: { deskId: 't_delete', displayHandle: '@delete' }
+    });
+    expect(getTerminalRecord('t_delete')).toBeNull();
+    expect(findChatRoomById(linkedRoom.id)).toBeUndefined();
+  });
+
+  it('adopts a loose tmux pane into a witnessed Desk', async () => {
+    const response = await run(
+      ADOPT_PANE as unknown as AnyHandler,
+      eventFor(
+        'POST',
+        '/api/desks/adopt-pane',
+        {},
+        {
+          deskId: 't_adopted',
+          pane: 'loose:0.0',
+          handle: 'adopted',
+          name: 'Adopted Desk',
+          cli: 'claude',
+          bootCommand: 'claude --remote-control',
+          pid: 888,
+          pidStart: '2026-06-19T01:02:03.000Z'
+        }
+      )
+    );
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      adopted: {
+        deskId: 't_adopted',
+        handle: '@adopted',
+        pane: 'loose:0.0',
+        pid: 888,
+        pidStart: '2026-06-19T01:02:03.000Z'
+      },
+      desk: {
+        deskId: 't_adopted',
+        name: 'Adopted Desk',
+        displayHandle: '@adopted',
+        claim: { handle: '@adopted' },
+        activeBinding: {
+          state: 'bound',
+          source: 'handle_binding',
+          pane: 'loose:0.0',
+          pid: 888,
+          pidStart: '2026-06-19T01:02:03.000Z'
+        },
+        cliProfile: {
+          cli: 'claude',
+          bootCommand: 'claude --remote-control'
+        }
+      }
+    });
+    expect(getTerminalRecord('t_adopted')).toMatchObject({
+      handle: '@adopted',
+      tmux_target_pane: 'loose:0.0',
+      linked_chat_room_id: body.adopted.linkedChatRoomId
+    });
+    expect(getLiveBinding('@adopted')).toMatchObject({
+      terminal_id: 't_adopted',
+      pane: 'loose:0.0',
+      pid: 888
+    });
   });
 
   it('rejects unauthenticated Desk config writes', async () => {

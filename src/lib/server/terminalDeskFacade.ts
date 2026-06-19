@@ -3,12 +3,14 @@
  * codex/desk-core-model:src/lib/server/terminalDeskCore.ts lines 56-443
  * and 545-1000.
  * Verdict: CHANGE. vNext simplification: this file is only the deployed
- * /api/desks facade over today's terminal tables plus the atomic handle-move
- * verb; the branch-only lifecycle/config/binding verbs stay out until each
- * lands as a separate contract slice.
+ * /api/desks facade over today's terminal tables plus explicit Desk verbs.
+ * Each verb lands as a small contract slice, backed by deployed tables instead
+ * of a parallel Desk database.
  */
 
 import {
+  createTerminalRecord,
+  deleteTerminalRecord,
   deriveHandle,
   getTerminalRecord,
   listTerminalRecords,
@@ -27,10 +29,13 @@ import {
   getTerminalById,
   listTerminalClassByIds,
   listTerminalRowsByIds,
+  adoptExternalProcessForTerminal,
+  deleteTerminalById,
   setTerminalAccountType,
   setTerminalAgentKind,
   setTerminalLastPath,
   setTerminalModelFamily,
+  setTerminalStatus,
   type TerminalRow
 } from './terminalsStore';
 import {
@@ -50,6 +55,12 @@ import {
 } from './handleBindingsStore';
 import { appendLedger } from './identityLedgerStore';
 import { getIdentityDb } from './db';
+import { archiveTerminalRunEvents, type ArchiveResult } from './terminalArchiveExport';
+import { markSessionMined } from './firehoseMiningState';
+import { softDeleteTerminalRunEvents } from './terminalRunEventsStore';
+import { listTerminals } from './ptyClient';
+import { archiveChatRoom, createChatRoom, findChatRoomById, softDeleteChatRoom } from './chatRoomStore';
+import { validateHandleForRegistration } from './handleValidation';
 
 export type TerminalDeskLifecycle = 'active' | 'parked' | 'retired' | 'deleted';
 export type TerminalPaneBindingState = 'bound' | 'unwitnessed' | 'missing';
@@ -147,6 +158,46 @@ export type TerminalDeskConfigMutationResult = {
   config: TerminalDeskConfig;
   terminalRowUpdated: boolean;
   recordUpdated: boolean;
+};
+
+export type TerminalDeskArchiveResult = {
+  desk: TerminalDesk;
+  archived: boolean;
+  terminalStatusUpdated: boolean;
+  linkedChatArchived: boolean;
+  bindingTombstoned: boolean;
+};
+
+export type TerminalDeskMineResult = {
+  desk: TerminalDesk;
+  mined: ArchiveResult;
+  terminalId: string;
+};
+
+export type TerminalDeskDeleteMode = 'mine-and-delete' | 'delete-without-mining';
+
+export type TerminalDeskDeleteResult = {
+  mode: TerminalDeskDeleteMode;
+  mined: ArchiveResult | null;
+  deleted: boolean;
+  terminalId: string;
+  deskBefore: TerminalDesk;
+  runEventsHidden?: number;
+  linkedChatDeleted?: boolean;
+  error?: string;
+};
+
+export type TerminalDeskAdoptPaneResult = {
+  desk: TerminalDesk;
+  adopted: {
+    deskId: string;
+    handle: string;
+    pane: string;
+    pid: number | null;
+    pidStart: string | null;
+    movedFromDeskId: string | null;
+    linkedChatRoomId: string | null;
+  };
 };
 
 type TerminalClass = {
@@ -372,6 +423,13 @@ function optionalIntegerOrNull(rawValue: unknown, label: string): number | null 
   return Math.trunc(rawValue);
 }
 
+function positiveIntegerOrNull(rawValue: unknown, label: string): number | null {
+  const value = optionalIntegerOrNull(rawValue, label);
+  if (value === null) return null;
+  if (value <= 0) throw new TerminalDeskError(400, `${label} must be a positive number when supplied.`);
+  return value;
+}
+
 function optionalTextOrNull(rawValue: unknown, label: string): string | null {
   if (rawValue === undefined || rawValue === null) return null;
   if (typeof rawValue !== 'string') throw new TerminalDeskError(400, `${label} must be text when supplied.`);
@@ -490,6 +548,51 @@ function activeDeskRecordForPane(pane: string): TerminalRecord | null {
   return row ?? null;
 }
 
+function deleteModeOrThrow(rawMode: unknown): TerminalDeskDeleteMode {
+  if (rawMode === 'mine-and-delete' || rawMode === 'delete-without-mining') return rawMode;
+  throw new TerminalDeskError(400, 'mode must be mine-and-delete or delete-without-mining.');
+}
+
+function cleanDeskId(rawValue: unknown, fallback: string): string {
+  const value = typeof rawValue === 'string' && rawValue.trim().length > 0
+    ? rawValue.trim()
+    : fallback;
+  if (!/^[A-Za-z0-9_.:-]+$/.test(value)) {
+    throw new TerminalDeskError(400, 'deskId may contain only letters, numbers, dot, colon, underscore, and dash.');
+  }
+  return value;
+}
+
+function deskIdFromHandle(handle: string): string {
+  const slug = handle
+    .replace(/^@+/, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.:-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'pane';
+  return `t_adopt_${slug}_${Date.now().toString(36)}`;
+}
+
+function ensureDeskLinkedRoom(record: TerminalRecord, actor: string): TerminalRecord {
+  if (record.linked_chat_room_id && findChatRoomById(record.linked_chat_room_id)) return record;
+  const linkedRoom = createChatRoom({
+    name: `Terminal: ${record.name}`,
+    whoCreatedIt: actor
+  });
+  try {
+    const updated = updateTerminalRecord(record.session_id, { linkedChatRoomId: linkedRoom.id });
+    if (!updated) {
+      softDeleteChatRoom(linkedRoom.id);
+      throw new TerminalDeskError(500, 'Could not link terminal chat room.');
+    }
+    return updated;
+  } catch (cause) {
+    softDeleteChatRoom(linkedRoom.id);
+    throw cause;
+  }
+}
+
 export function projectTerminalRecordToDesk(
   record: TerminalRecord,
   options: {
@@ -552,13 +655,15 @@ export function moveTerminalDeskHandle(input: {
   handle: string;
   actor: string;
   reason?: string | null;
+  atMs?: number;
 }): TerminalDeskHandleMutationResult {
   try {
     const result = moveHandleClaimToTerminal({
       rawHandle: input.handle,
       targetTerminalId: input.deskId,
       actor: input.actor,
-      reason: input.reason ?? 'operator-handle-move'
+      reason: input.reason ?? 'operator-handle-move',
+      atMs: input.atMs
     });
     const desk = getTerminalDesk(input.deskId);
     if (!desk) throw new TerminalDeskError(404, 'Desk not found.');
@@ -814,4 +919,271 @@ export function updateDeskConfig(input: {
   const desk = getTerminalDesk(input.deskId);
   if (!desk) throw new TerminalDeskError(404, 'Desk not found.');
   return { desk, config: desk.config, terminalRowUpdated, recordUpdated };
+}
+
+export function archiveDesk(input: {
+  deskId: string;
+  actor: string;
+  reason?: unknown;
+  atMs?: number;
+}): TerminalDeskArchiveResult {
+  const record = requireRecord(input.deskId);
+  const nowMs = input.atMs ?? Date.now();
+  const reason = optionalTextOrNull(input.reason, 'reason') ?? 'desk-archive';
+  const bindingTombstoned = record.handle ? tombstoneBinding(record.handle, reason, nowMs) : false;
+  const linkedChatArchived = record.linked_chat_room_id
+    ? archiveChatRoom(record.linked_chat_room_id, nowMs)
+    : false;
+  const terminalStatusUpdated = setTerminalStatus(input.deskId, 'archived');
+  appendLedger({
+    kind: 'desk.archived',
+    handle: record.handle,
+    actor: input.actor,
+    atMs: nowMs,
+    detail: {
+      desk_id: input.deskId,
+      reason,
+      terminal_status_updated: terminalStatusUpdated,
+      linked_chat_archived: linkedChatArchived,
+      binding_tombstoned: bindingTombstoned
+    }
+  });
+  const desk = getTerminalDesk(input.deskId);
+  if (!desk) throw new TerminalDeskError(404, 'Desk not found.');
+  return { desk, archived: true, terminalStatusUpdated, linkedChatArchived, bindingTombstoned };
+}
+
+export function mineDesk(input: {
+  deskId: string;
+  actor: string;
+  reason?: unknown;
+  atMs?: number;
+}): TerminalDeskMineResult {
+  const record = requireRecord(input.deskId);
+  const nowMs = input.atMs ?? Date.now();
+  const reason = optionalTextOrNull(input.reason, 'reason') ?? 'desk-mine';
+  let mined: ArchiveResult;
+  try {
+    mined = archiveTerminalRunEvents(input.deskId, { nowMs });
+    markSessionMined({ terminalId: input.deskId, windowStartMs: 0, windowEndMs: nowMs });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : 'unknown error';
+    throw new TerminalDeskError(500, `mining failed: ${message}`);
+  }
+  appendLedger({
+    kind: 'desk.mined',
+    handle: record.handle,
+    actor: input.actor,
+    atMs: nowMs,
+    detail: {
+      desk_id: input.deskId,
+      reason,
+      archived_to: mined.archivedTo,
+      events_archived: mined.eventsArchived
+    }
+  });
+  const desk = getTerminalDesk(input.deskId);
+  if (!desk) throw new TerminalDeskError(404, 'Desk not found.');
+  return { desk, mined, terminalId: input.deskId };
+}
+
+export async function deleteDesk(input: {
+  deskId: string;
+  actor: string;
+  mode?: unknown;
+  atMs?: number;
+}): Promise<TerminalDeskDeleteResult> {
+  const record = requireRecord(input.deskId);
+  const deskBefore = projectTerminalRecordToDesk(record);
+  const mode = deleteModeOrThrow(input.mode);
+  const alive = (await listTerminals()).includes(input.deskId);
+  if (alive) throw new TerminalDeskError(409, 'Desk has a live pane; kill or tombstone it before deleting.');
+
+  const nowMs = input.atMs ?? Date.now();
+  let mined: ArchiveResult | null = null;
+  if (mode === 'mine-and-delete') {
+    try {
+      mined = archiveTerminalRunEvents(input.deskId, { nowMs });
+      markSessionMined({ terminalId: input.deskId, windowStartMs: 0, windowEndMs: nowMs });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'unknown error';
+      throw new TerminalDeskError(500, `mining failed — nothing was deleted: ${message}`);
+    }
+  }
+
+  try {
+    const runEventsHidden = softDeleteTerminalRunEvents(input.deskId, nowMs);
+    const linkedChatDeleted = record.linked_chat_room_id
+      ? softDeleteChatRoom(record.linked_chat_room_id, nowMs)
+      : false;
+    const terminalRowDeleted = deleteTerminalById(input.deskId);
+    if (!terminalRowDeleted) deleteTerminalRecord(input.deskId);
+    appendLedger({
+      kind: 'desk.deleted',
+      handle: record.handle,
+      actor: input.actor,
+      atMs: nowMs,
+      detail: {
+        desk_id: input.deskId,
+        mode,
+        mined: mined !== null,
+        run_events_hidden: runEventsHidden,
+        terminal_row_deleted: terminalRowDeleted,
+        linked_chat_deleted: linkedChatDeleted
+      }
+    });
+    return {
+      mode,
+      mined,
+      deleted: true,
+      terminalId: input.deskId,
+      deskBefore,
+      runEventsHidden,
+      linkedChatDeleted
+    };
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : 'unknown error';
+    appendLedger({
+      kind: 'desk.deleted',
+      handle: record.handle,
+      actor: input.actor,
+      atMs: nowMs,
+      detail: {
+        desk_id: input.deskId,
+        mode,
+        mined: mined !== null,
+        deleted: false,
+        error: message
+      }
+    });
+    return {
+      mode,
+      mined,
+      deleted: false,
+      terminalId: input.deskId,
+      deskBefore,
+      error: `deletion failed after mining: ${message}`
+    };
+  }
+}
+
+export function adoptPaneAsDesk(input: {
+  pane: unknown;
+  handle: unknown;
+  name?: unknown;
+  deskId?: unknown;
+  cli?: unknown;
+  bootCommand?: unknown;
+  pid?: unknown;
+  pidStart?: unknown;
+  actor: string;
+  atMs?: number;
+}): TerminalDeskAdoptPaneResult {
+  const pane = requiredTextOrThrow(input.pane, 'pane');
+  const rawHandle = requiredTextOrThrow(input.handle, 'handle');
+  const validation = validateHandleForRegistration(rawHandle);
+  if (!validation.ok) throw new TerminalDeskError(400, validation.message);
+  const handle = validation.canonicalHandle;
+  const deskId = cleanDeskId(input.deskId, deskIdFromHandle(handle));
+  const name = optionalTextOrNull(input.name, 'name') ?? handle;
+  const cli = optionalTextOrNull(input.cli, 'cli');
+  const bootCommand = optionalTextOrNull(input.bootCommand, 'bootCommand');
+  const pid = positiveIntegerOrNull(input.pid, 'pid');
+  const pidStart = optionalTextOrNull(input.pidStart, 'pidStart');
+  const nowMs = input.atMs ?? Date.now();
+
+  const boundPane = getLiveBindingByPane(pane);
+  if (boundPane && (boundPane.terminal_id !== deskId || boundPane.handle !== handle)) {
+    throw new TerminalDeskError(409, `Pane ${pane} is already bound to ${boundPane.handle}.`);
+  }
+  const existingPaneDesk = activeDeskRecordForPane(pane);
+  if (existingPaneDesk && existingPaneDesk.session_id !== deskId) {
+    throw new TerminalDeskError(409, `Pane ${pane} already belongs to Desk ${existingPaneDesk.session_id}.`);
+  }
+
+  let record = getTerminalRecord(deskId);
+  if (!record) {
+    record = createTerminalRecord({
+      sessionId: deskId,
+      name,
+      createdBy: input.actor,
+      tmuxTargetPane: pane,
+      agentKind: cli,
+      bootCommand
+    });
+  } else {
+    const patch: Parameters<typeof updateTerminalRecord>[1] = {};
+    if (record.tmux_target_pane !== pane) patch.tmuxTargetPane = pane;
+    if (!record.created_by) patch.createdBy = input.actor;
+    if (input.name !== undefined) patch.name = name;
+    if (input.cli !== undefined) patch.agentKind = cli;
+    if (input.bootCommand !== undefined) patch.bootCommand = bootCommand;
+    if (Object.keys(patch).length > 0) {
+      record = updateTerminalRecord(deskId, patch) ?? record;
+    }
+  }
+  record = ensureDeskLinkedRoom(record, input.actor);
+
+  if (pid !== null) {
+    adoptExternalProcessForTerminal({
+      record,
+      pid,
+      pidStart,
+      ttlSeconds: null,
+      reason: 'desk-adopt-pane',
+      adoptedBy: input.actor,
+      meta: {
+        origin: 'desk-adopt-pane',
+        pane,
+        cli,
+        bootCommand
+      }
+    });
+  }
+
+  const handleResult = moveTerminalDeskHandle({
+    deskId,
+    handle,
+    actor: input.actor,
+    reason: 'desk-adopt-pane',
+    atMs: nowMs
+  });
+  let desk = handleResult.desk;
+  if (desk.activeBinding.source !== 'handle_binding' || desk.activeBinding.pane !== pane) {
+    desk = bindDeskPane({
+      deskId,
+      pane,
+      pid,
+      pidStart,
+      actor: input.actor,
+      atMs: nowMs
+    }).desk;
+  }
+
+  appendLedger({
+    kind: 'desk.adopted',
+    handle,
+    actor: input.actor,
+    atMs: nowMs,
+    detail: {
+      desk_id: deskId,
+      pane,
+      pid,
+      pid_start: pidStart,
+      moved_from_desk_id: handleResult.movedFromDeskId,
+      linked_chat_room_id: desk.linkedChatRoomId
+    }
+  });
+  return {
+    desk,
+    adopted: {
+      deskId,
+      handle,
+      pane,
+      pid,
+      pidStart,
+      movedFromDeskId: handleResult.movedFromDeskId,
+      linkedChatRoomId: desk.linkedChatRoomId
+    }
+  };
 }
