@@ -185,19 +185,25 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
   const capabilitiesResponse = await fetch('/api/capabilities').catch(() => null);
   let bringInAppAvailable = false;
   // The operator's structural handle (configured server-side via
-  // ANT_OPERATOR_HANDLE). Threaded to the composer as `asHandle` so the
-  // browser mints + posts under the same handle the server stores — the
-  // client never hardcodes the `@you` sentinel. Falls back to @JWPK if
-  // capabilities is unreachable so user-facing identity stays clean.
+  // ANT_OPERATOR_HANDLE) is still surfaced for operator defaults, but browser
+  // actions should use the *viewer* handle when a browser-session cookie is
+  // present. Otherwise an agent viewing a room repeatedly tries to mint/post
+  // as @JWPK and correctly hits 403s. Falls back to @JWPK only when
+  // capabilities is unreachable and no viewer handle is known.
   let operatorHandle = '@JWPK';
+  let viewerHandle: string | null = null;
   if (capabilitiesResponse?.ok) {
     const body = (await capabilitiesResponse.json()) as {
       featureFlags?: Record<string, boolean>;
       operatorHandle?: string;
+      viewerHandle?: string | null;
     };
     bringInAppAvailable = body.featureFlags?.bring_in_app_ux === true;
     if (typeof body.operatorHandle === 'string' && body.operatorHandle.length > 0) {
       operatorHandle = body.operatorHandle;
+    }
+    if (typeof body.viewerHandle === 'string' && body.viewerHandle.length > 0) {
+      viewerHandle = body.viewerHandle;
     }
   }
 
@@ -226,6 +232,6 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
     responders: (respondersBody as ResponderFetchResult).responders,
     allRoomLabels,
     bringInAppAvailable,
-    asHandle: operatorHandle
+    asHandle: viewerHandle ?? operatorHandle
   };
 };

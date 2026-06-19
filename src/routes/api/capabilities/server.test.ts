@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { GET, OPTIONS } from './+server';
+import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+import { resetIdentityDbForTests } from '$lib/server/db';
+import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
 
 function req(path = 'http://test-host.invalid:6174/api/capabilities', headers?: HeadersInit): Parameters<typeof GET>[0] {
   return {
@@ -7,7 +12,18 @@ function req(path = 'http://test-host.invalid:6174/api/capabilities', headers?: 
   } as Parameters<typeof GET>[0];
 }
 
+function addBrowserMember(roomId: string, handle: string): void {
+  const terminal = upsertTerminal({ pid: 72_001, pid_start: 'capabilities-viewer', name: `term-${handle}` });
+  addMembership({ room_id: roomId, handle, terminal_id: terminal.id });
+}
+
 describe('/api/capabilities native discovery', () => {
+  beforeEach(() => {
+    process.env.ANT_FRESH_DB_PATH = ':memory:';
+    resetIdentityDbForTests();
+    resetChatRoomStoreForTests();
+  });
+
   it('returns tier discovery plus native client endpoint hints', async () => {
     const res = await GET(req());
     expect(res.status).toBe(200);
@@ -45,6 +61,30 @@ describe('/api/capabilities native discovery', () => {
       contentType: 'Content-Type'
     });
     expect(body.native.cors.allowedHeaders).toContain('Ant-Client-Version');
+  });
+
+  it('includes the current browser-session viewer handle when a valid cookie is present', async () => {
+    const room = createChatRoom({ name: 'capabilities identity', whoCreatedIt: '@agent' });
+    addBrowserMember(room.id, '@agent');
+    const session = createBrowserSession({ roomId: room.id, authorHandle: '@agent' });
+    expect(session).not.toBeNull();
+
+    const res = await GET(req('http://test-host.invalid:6174/api/capabilities', {
+      cookie: `ant_browser_session=${session?.browserSessionSecret}`
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.operatorHandle).toBe('@JWPK');
+    expect(body.viewerHandle).toBe('@agent');
+  });
+
+  it('keeps viewerHandle null when there is no valid browser session', async () => {
+    const res = await GET(req('http://test-host.invalid:6174/api/capabilities', {
+      cookie: 'ant_browser_session=not-real'
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.viewerHandle).toBeNull();
   });
 
   it('echoes native/Tauri origins and allows Ant-Client-Version preflight headers', async () => {

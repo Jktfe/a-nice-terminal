@@ -274,6 +274,55 @@ describe('/rooms/[roomId] load', () => {
     });
   });
 
+  it('prefers browser-session viewerHandle over structural operatorHandle for room actions', async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/chat-rooms/r_viewer') {
+        return jsonResponse({
+          chatRoom: {
+            id: 'r_viewer',
+            name: 'Viewer room',
+            summary: null,
+            attentionState: null,
+            lastUpdate: null,
+            whenItWasCreated: '2026-06-19T00:00:00.000Z',
+            whoCreatedIt: '@JWPK',
+            creationOrder: 1,
+            members: [
+              { handle: '@JWPK', displayName: '@JWPK', displayColor: '#dc2626', displayIcon: 'J' },
+              { handle: '@agent', displayName: '@agent', displayColor: '#2563eb', displayIcon: 'A', kind: 'agent' }
+            ]
+          }
+        });
+      }
+      if (url.includes('/messages')) return jsonResponse({ messages: [] });
+      if (url.includes('/aliases')) return jsonResponse({ aliases: [] });
+      if (url.includes('/agent-events')) return jsonResponse({ agentEvents: [] });
+      if (url.includes('/attachments')) return jsonResponse({ sharedFiles: [] });
+      if (url.includes('/api/asks')) return jsonResponse({ asks: [] });
+      if (url.includes('/plans')) return jsonResponse({ plans: [] });
+      if (url.includes('/tasks')) return jsonResponse({ tasks: [] });
+      if (url.includes('/api/votes')) return jsonResponse({ votes: [] });
+      if (url.includes('/focus-mode')) return jsonResponse({ focusedMembers: [] });
+      if (url.includes('/mode')) return jsonResponse({ roomId: 'r_viewer', mode: 'brainstorm' });
+      if (url.includes('/responders')) return jsonResponse({ responders: [] });
+      if (url === '/api/chat-rooms') return jsonResponse({ chatRooms: [] });
+      if (url === '/api/capabilities') {
+        return jsonResponse({ featureFlags: {}, operatorHandle: '@JWPK', viewerHandle: '@agent' });
+      }
+      return jsonResponse({}, 404);
+    });
+
+    const event = {
+      fetch,
+      params: { roomId: 'r_viewer' },
+      url: new URL('http://localhost/rooms/r_viewer')
+    } as unknown as Parameters<typeof load>[0];
+    const data = await load(event);
+
+    expect((data as { asHandle: string }).asHandle).toBe('@agent');
+  });
+
   it('keeps asks, plans, and tasks one-click reachable from the room menu', () => {
     const source = readFileSync('src/routes/rooms/[roomId]/+page.svelte', 'utf8');
     expect(source).toContain('class="discipline-links"');

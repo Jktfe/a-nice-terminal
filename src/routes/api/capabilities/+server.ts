@@ -23,6 +23,11 @@ import {
   getBranding,
 } from '$lib/server/featureGates';
 import { getOperatorHandle } from '$lib/server/operatorHandle';
+import { getCookieValuesFromRequest } from '$lib/server/authGate';
+import {
+  resolveBrowserSessionSecretIgnoringRoom,
+  touchBrowserSessionLastSeen
+} from '$lib/server/browserSessionStore';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -60,7 +65,19 @@ function nativeClientConfig(request: Request) {
   };
 }
 
+function viewerHandleFromBrowserSession(request: Request): string | null {
+  for (const secret of getCookieValuesFromRequest(request, 'ant_browser_session')) {
+    const resolved = resolveBrowserSessionSecretIgnoringRoom(secret);
+    if (resolved) {
+      touchBrowserSessionLastSeen(resolved.session_id);
+      return resolved.handle;
+    }
+  }
+  return null;
+}
+
 export const GET: RequestHandler = async ({ request }) => {
+  const viewerHandle = viewerHandleFromBrowserSession(request);
   const response = json({
     serverVersion: SERVER_VERSION,
     buildChannel: BUILD_CHANNEL,
@@ -74,6 +91,10 @@ export const GET: RequestHandler = async ({ request }) => {
     // composer mints + attributes posts under this handle so the client and
     // server agree end-to-end (no `@you` sentinel leaking into the UI).
     operatorHandle: getOperatorHandle(),
+    // The authenticated browser-session handle, when present. This is distinct
+    // from the structural operator: agent-owned browser views should post,
+    // react, read receipts, and away-mode fetch as the agent, not as @JWPK.
+    viewerHandle,
     native: nativeClientConfig(request),
   });
 
