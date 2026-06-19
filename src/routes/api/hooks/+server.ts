@@ -1,25 +1,34 @@
-// POST /api/hooks — no-op accept-and-drop endpoint.
-//
-// Diagnostic finding 2026-05-24 (Silent heroes yz4clwzvbm msg_awr2jtm2om):
-// 1854 hits in /tmp/ant-server.log were POSTing to /api/hooks → 404.
-// None of src/ or scripts/ POSTs here; the calls are from external
-// hook-system clients (probably a Claude Code or webhook integration)
-// pointing at a misconfigured URL. The 404 spam was making real signal
-// hard to find in the log during server-hang investigation.
-//
-// This endpoint accepts any POST body and returns 204 No Content. The
-// body is discarded — we don't trust unknown senders. If a future
-// integration actually needs to deliver hook events, replace this with
-// real handling + auth.
+/**
+ * /api/hooks — legacy compatibility shim for CLI hook senders.
+ *
+ * Older hook installers and third-party snippets sometimes posted to
+ * /api/hooks while ANT's real lifecycle receiver is /api/cli-hook. The old
+ * route returned 204 and dropped the body, which made misconfiguration look
+ * successful while ANT recorded nothing. Delegate POSTs to /api/cli-hook
+ * instead so valid events are captured and invalid events fail loudly.
+ */
 
+import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { POST as cliHookPost } from '../cli-hook/+server';
 
-export const POST: RequestHandler = async () => {
-  return new Response(null, { status: 204 });
+function legacyUrl(url: URL): URL {
+  const rewritten = new URL(url);
+  rewritten.pathname = '/api/cli-hook';
+  if (!rewritten.searchParams.has('source')) {
+    rewritten.searchParams.set('source', 'legacy-hooks');
+  }
+  return rewritten;
+}
+
+export const POST: RequestHandler = (event) => {
+  const cliHookEvent = { ...event, url: legacyUrl(event.url) } as unknown as Parameters<typeof cliHookPost>[0];
+  return cliHookPost(cliHookEvent);
 };
 
-// Allow GET probes too so a misconfigured caller doing GET-as-ping
-// doesn't add to the 404 noise.
-export const GET: RequestHandler = async () => {
-  return new Response(null, { status: 204 });
+export const GET: RequestHandler = () => {
+  return json({
+    message: '/api/hooks is a legacy alias. Configure hook clients to POST lifecycle JSON to /api/cli-hook.',
+    receiver: '/api/cli-hook'
+  });
 };
