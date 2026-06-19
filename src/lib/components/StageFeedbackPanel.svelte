@@ -16,6 +16,8 @@
 </script>
 
 <script lang="ts">
+  import { safeUrlForTrackerLink } from '$lib/chat/trackerRefs';
+
   let {
     pauseSnapshot,
     feedbackText = $bindable(''),
@@ -55,7 +57,12 @@
     <p class={feedbackNotice.kind === 'ok' ? 'feedback-ok' : 'feedback-err'} role="status">
       {feedbackNotice.text}
       {#if feedbackNotice.ref}
-        <a href={feedbackNotice.ref}>Open proposal</a>
+        {@const safeRef = safeUrlForTrackerLink(feedbackNotice.ref)}
+        {#if safeRef}
+          <a href={safeRef}>Open proposal</a>
+        {:else}
+          <code title="Not a safe URL">{feedbackNotice.ref}</code>
+        {/if}
       {/if}
     </p>
   {/if}
@@ -176,6 +183,12 @@
     margin-left: 0.5rem;
     color: var(--accent);
     font-weight: 700;
+  }
+  .feedback-ok code {
+    margin-left: 0.5rem;
+    color: var(--ink-soft);
+    font-size: 0.78rem;
+    word-break: break-all;
   }
   .pause-context {
     margin: 0.5rem 0 1rem;

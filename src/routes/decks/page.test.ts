@@ -76,4 +76,11 @@ describe('/decks/[deckId] page source', () => {
     expect(pageSource).toContain('claimAnchor={selectedClaimForOverlay.claimAnchor}');
     expect(pageSource).toContain('Click a claim to inspect its verifier runs.');
   });
+
+  it('renders Stage proposal refs through the safe link allowlist', () => {
+    expect(pageSource).toContain("from '$lib/chat/trackerRefs'");
+    expect(pageSource).toContain('safeUrlForTrackerLink(alternative.ref)');
+    expect(pageSource).toContain('href={safeAlternativeHref}');
+    expect(pageSource).not.toContain('href={alternative.ref}');
+  });
 });

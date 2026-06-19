@@ -19,6 +19,7 @@
   import Explainable from '$lib/components/Explainable.svelte';
   import ClaimValidationOverlay from '$lib/components/ClaimValidationOverlay.svelte';
   import { renderMarkdown } from '$lib/chat/renderMarkdown';
+  import { safeUrlForTrackerLink } from '$lib/chat/trackerRefs';
   import { externalDeckSourceFromTheme } from '$lib/externalDeckSubstrate';
   import { BrowserTTSProvider, ElevenLabsTTSProvider, type TTSHandle, type TTSProvider } from '$lib/voice/interview-tts';
   import type { PageData } from './$types';
@@ -895,7 +896,12 @@
                   <em>{alternative.ref === activeVersionRef ? 'Viewing' : 'View'}</em>
                 </button>
                 {#if alternative.kind === 'proposal'}
-                  <a href={alternative.ref} target="_blank" rel="noopener">Open comment track</a>
+                  {@const safeAlternativeHref = safeUrlForTrackerLink(alternative.ref)}
+                  {#if safeAlternativeHref}
+                    <a href={safeAlternativeHref} target="_blank" rel="noopener noreferrer">Open comment track</a>
+                  {:else}
+                    <code class="unsafe-ref" title="Not a safe URL">{alternative.ref}</code>
+                  {/if}
                 {:else}
                   <p>{alternative.rationale}</p>
                   {#if alternative.feedbackRef}
@@ -1412,6 +1418,13 @@
     color: var(--accent);
     font-size: 0.78rem;
     font-weight: 850;
+  }
+  .version-history-list .unsafe-ref {
+    display: inline-block;
+    margin: -0.15rem 0 0.65rem 0.68rem;
+    color: var(--ink-soft);
+    font-size: 0.78rem;
+    word-break: break-all;
   }
   .version-history-list p {
     margin: -0.15rem 0.68rem 0.65rem;
