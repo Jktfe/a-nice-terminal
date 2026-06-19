@@ -13,7 +13,7 @@ import { requireTerminalDeskMutationActor } from '$lib/server/terminalDeskMutati
 export const PATCH: RequestHandler = async ({ params, request }) => {
   const deskId = params.deskId ?? '';
   if (!deskId) throw error(400, 'Desk id required.');
-  const { actor } = requireTerminalDeskMutationActor(request, deskId);
+  const { actor } = await requireTerminalDeskMutationActor(request, deskId);
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) throw error(400, 'JSON body required.');
   try {

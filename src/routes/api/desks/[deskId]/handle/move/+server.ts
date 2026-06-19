@@ -10,6 +10,7 @@ import type { RequestHandler } from './$types';
 import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { getOperatorHandle } from '$lib/server/operatorHandle';
+import { resolveOperatorLikeActorHandle } from '$lib/server/operatorLikeAuth';
 import { getTerminalRecord } from '$lib/server/terminalRecordsStore';
 import {
   canMoveHandleClaim
@@ -25,7 +26,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const targetRecord = getTerminalRecord(deskId);
   if (!targetRecord) throw error(404, 'Desk not found.');
 
-  const actor = resolveTerminalCallerHandle(request);
+  const actor = (await resolveOperatorLikeActorHandle(request)) ?? resolveTerminalCallerHandle(request);
   if (!actor) throw error(401, 'browser-session or admin-bearer required.');
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,6 +30,7 @@ import {
 } from '$lib/server/terminalRecordsStore';
 import { createChatRoom, findChatRoomById } from '$lib/server/chatRoomStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
+import { resetAccountsBearerIdentityCacheForTests } from '$lib/server/accountsBearerIdentity';
 
 let tmpDir: string;
 const previousDbPath = process.env.ANT_FRESH_DB_PATH;
@@ -44,13 +45,14 @@ function eventFor(
   path: string,
   params: Record<string, string> = {},
   body?: Record<string, unknown>,
-  opts: { withAuth?: boolean; cookie?: string } = {}
+  opts: { withAuth?: boolean; cookie?: string; headers?: Record<string, string> } = {}
 ): unknown {
   const url = new URL(`http://localhost${path}`);
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (opts.withAuth !== false) headers.authorization = `Bearer ${TEST_ADMIN_TOKEN}`;
   if (opts.cookie) headers.cookie = opts.cookie;
+  if (opts.headers) Object.assign(headers, opts.headers);
   return {
     params,
     url,
@@ -119,6 +121,7 @@ describe('/api/desks facade', () => {
 
   afterEach(() => {
     resetIdentityDbForTests();
+    resetAccountsBearerIdentityCacheForTests();
     rmSync(tmpDir, { recursive: true, force: true });
     if (previousDbPath === undefined) delete process.env.ANT_FRESH_DB_PATH;
     else process.env.ANT_FRESH_DB_PATH = previousDbPath;
@@ -134,6 +137,45 @@ describe('/api/desks facade', () => {
       eventFor('GET', '/api/desks', {}, undefined, { withAuth: false })
     );
     expect(response.status).toBe(401);
+  });
+
+  it('accepts a cold accounts operator bearer for Desk inventory reads', async () => {
+    const previousOperatorEmail = process.env.ANT_OPERATOR_EMAIL;
+    const originalFetch = globalThis.fetch;
+    process.env.ANT_OPERATOR_EMAIL = 'operator@example.com';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      user: { email: 'operator@example.com', handle: '@operator' },
+      expiresAt: Date.now() + 60_000
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    createTerminalRecord({
+      sessionId: 't_accounts_desk',
+      name: 'Accounts Desk',
+      handle: '@accounts-desk',
+      createdBy: '@JWPK',
+      tmuxTargetPane: 't_accounts_desk:0.0'
+    });
+
+    try {
+      const response = await run(
+        LIST_DESKS as unknown as AnyHandler,
+        eventFor('GET', '/api/desks', {}, undefined, {
+          withAuth: false,
+          headers: { authorization: 'Bearer cold-accounts-token' }
+        })
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.desks).toEqual([
+        expect.objectContaining({
+          deskId: 't_accounts_desk',
+          displayHandle: '@accounts-desk'
+        })
+      ]);
+    } finally {
+      if (previousOperatorEmail === undefined) delete process.env.ANT_OPERATOR_EMAIL;
+      else process.env.ANT_OPERATOR_EMAIL = previousOperatorEmail;
+      vi.stubGlobal('fetch', originalFetch);
+    }
   });
 
   it('rejects anonymous Desk detail reads before exposing terminal metadata', async () => {

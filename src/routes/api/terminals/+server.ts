@@ -38,7 +38,7 @@ import {
 } from '$lib/server/terminalSocketMetadata';
 import { isTerminalDeliveryTargetMode } from '$lib/server/terminalDeliveryMode';
 import { buildTerminalDeskReadModel } from '$lib/server/terminalDeskReadModel';
-import { hasOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
+import { hasOperatorLikeAuthAsync } from '$lib/server/operatorLikeAuth';
 import { resolveOrNull } from '$lib/server/sessionResolver';
 
 function makeSessionId(): string {
@@ -65,7 +65,7 @@ export const GET: RequestHandler = async ({ request }) => {
   const authHeader = request.headers.get('authorization') ?? '';
   const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
   const authenticated =
-    hasOperatorLikeAuth(request) ||                       // admin / operator session / antchat-operator
+    await hasOperatorLikeAuthAsync(request) ||            // admin / operator session / antchat/accounts-operator
     resolveCallerHandleAnyRoom(request) !== null ||       // antchat bearer / browser-session cookie
     resolveOrNull(antSessionId) !== null ||               // x-ant-session-id durable session
     resolveOrNull(bearerToken) !== null;                  // Bearer durable session (antOS app's pattern)

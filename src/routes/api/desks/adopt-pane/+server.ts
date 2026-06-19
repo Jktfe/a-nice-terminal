@@ -9,10 +9,11 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 import { isOperatorHandle } from '$lib/server/operatorHandle';
+import { resolveOperatorLikeActorHandle } from '$lib/server/operatorLikeAuth';
 import { adoptPaneAsDesk, TerminalDeskError } from '$lib/server/terminalDeskFacade';
 
 export const POST: RequestHandler = async ({ request }) => {
-  const actor = resolveTerminalCallerHandle(request);
+  const actor = (await resolveOperatorLikeActorHandle(request)) ?? resolveTerminalCallerHandle(request);
   if (!actor) throw error(401, 'browser-session or admin-bearer required.');
   if (!isOperatorHandle(actor)) throw error(403, 'Only the operator can adopt local tmux panes.');
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;

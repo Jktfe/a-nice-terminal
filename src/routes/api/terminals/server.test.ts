@@ -31,6 +31,7 @@ import * as terminalsStore from '$lib/server/terminalsStore';
 import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
 import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
 import { bindHandle, ensureHandleOwnedBy, getHandleRow, getLiveBinding } from '$lib/server/handleBindingsStore';
+import { resetAccountsBearerIdentityCacheForTests } from '$lib/server/accountsBearerIdentity';
 import type { TerminalRow } from '$lib/server/terminalsStore';
 
 let tmpDir: string;
@@ -81,6 +82,7 @@ describe('/api/terminals POST SPAWN-LOCALITY-GATE', () => {
 
   afterEach(() => {
     resetIdentityDbForTests();
+    resetAccountsBearerIdentityCacheForTests();
     rmSync(tmpDir, { recursive: true, force: true });
     if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
     else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
@@ -161,6 +163,7 @@ describe('/api/terminals GET terminal CLI projection', () => {
 
   afterEach(() => {
     resetIdentityDbForTests();
+    resetAccountsBearerIdentityCacheForTests();
     rmSync(tmpDir, { recursive: true, force: true });
     if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
     else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
@@ -180,6 +183,44 @@ describe('/api/terminals GET terminal CLI projection', () => {
     const response = await runHandler(terminalsGet as unknown as AnyHandler, eventFor('GET', '/api/terminals'));
     expect(response.status).toBe(401);
     await expect(response.text()).resolves.not.toContain('codex --yolo');
+  });
+
+  it('accepts a cold accounts operator bearer for terminal inventory reads', async () => {
+    const previousOperatorEmail = process.env.ANT_OPERATOR_EMAIL;
+    const originalFetch = globalThis.fetch;
+    process.env.ANT_OPERATOR_EMAIL = 'operator@example.com';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      user: { email: 'operator@example.com', handle: '@operator' },
+      expiresAt: Date.now() + 60_000
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    createTerminalRecord({
+      sessionId: 't_accounts_inventory',
+      name: 'accounts inventory',
+      handle: '@accounts-inventory',
+      tmuxTargetPane: 't_accounts_inventory:0.0'
+    });
+    seedLiveTerminal('t_accounts_inventory', 'codex');
+
+    try {
+      const response = await runHandler(
+        terminalsGet as unknown as AnyHandler,
+        eventFor('GET', '/api/terminals', {
+          headers: { authorization: 'Bearer cold-accounts-token' }
+        })
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.terminals).toEqual([
+        expect.objectContaining({
+          sessionId: 't_accounts_inventory',
+          handle: '@accounts-inventory'
+        })
+      ]);
+    } finally {
+      if (previousOperatorEmail === undefined) delete process.env.ANT_OPERATOR_EMAIL;
+      else process.env.ANT_OPERATOR_EMAIL = previousOperatorEmail;
+      vi.stubGlobal('fetch', originalFetch);
+    }
   });
 
   it('returns live terminals.agent_kind over stale terminal_records.agent_kind', async () => {

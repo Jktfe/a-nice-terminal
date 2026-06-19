@@ -7,11 +7,11 @@
 
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
+import { requireOperatorLikeAuthAsync } from '$lib/server/operatorLikeAuth';
 import { getTerminalDesk } from '$lib/server/terminalDeskFacade';
 
-export const GET: RequestHandler = ({ params, request }) => {
-  requireOperatorLikeAuth(request);
+export const GET: RequestHandler = async ({ params, request }) => {
+  await requireOperatorLikeAuthAsync(request);
   const deskId = params.deskId ?? '';
   if (!deskId) throw error(400, 'Desk id required.');
   const desk = getTerminalDesk(deskId);

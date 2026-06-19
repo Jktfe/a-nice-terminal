@@ -1,9 +1,11 @@
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { writeFileSync, mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { tryAntchatOperatorBearer } from './chatRoomAuthGate';
-import { issueToken } from './antchatAuthStore';
+import { issueToken, resetAntchatAuthTokensForTests } from './antchatAuthStore';
+import { resetAccountsBearerIdentityCacheForTests } from './accountsBearerIdentity';
+import { hasOperatorLikeAuth, hasOperatorLikeAuthAsync } from './operatorLikeAuth';
 
 // Trust-tier regression for the operator-email anchor (@ecoantcodex audit on
 // e1c860e). The gate MUST decide operator status from the account email, never
@@ -46,12 +48,17 @@ describe('tryAntchatOperatorBearer — operator-email anchor', () => {
       })
     );
     process.env.ANTCHAT_DEV_USERS_PATH = usersPath;
+    resetAntchatAuthTokensForTests();
+    resetAccountsBearerIdentityCacheForTests();
   });
 
   afterEach(() => {
     restore('ANT_OPERATOR_EMAIL', prevOperatorEmail);
     restore('ANT_DEMO_EMAIL', prevDemoEmail);
     restore('ANTCHAT_DEV_USERS_PATH', prevDevUsers);
+    resetAntchatAuthTokensForTests();
+    resetAccountsBearerIdentityCacheForTests();
+    vi.restoreAllMocks();
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -99,5 +106,28 @@ describe('tryAntchatOperatorBearer — operator-email anchor', () => {
 
   test('rejects when no Authorization bearer is present', () => {
     expect(tryAntchatOperatorBearer(new Request('http://localhost/api/helper/pairing'))).toBe(false);
+  });
+
+  test('accepts a cold accounts bearer for the configured operator email', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      user: { email: OPERATOR_EMAIL, handle: '@operator-from-accounts' },
+      expiresAt: Date.now() + 60_000
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const request = bearerRequest('accounts-session-token');
+    expect(hasOperatorLikeAuth(request)).toBe(false);
+    await expect(hasOperatorLikeAuthAsync(request)).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(hasOperatorLikeAuth(request)).toBe(true);
+  });
+
+  test('rejects a cold accounts bearer for a non-operator email', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      user: { email: 'ordinary@example.com', handle: '@ordinary' },
+      expiresAt: Date.now() + 60_000
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+
+    await expect(hasOperatorLikeAuthAsync(bearerRequest('ordinary-accounts-session'))).resolves.toBe(false);
   });
 });

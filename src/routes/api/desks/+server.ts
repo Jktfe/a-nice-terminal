@@ -7,10 +7,10 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
+import { requireOperatorLikeAuthAsync } from '$lib/server/operatorLikeAuth';
 import { listTerminalDesks } from '$lib/server/terminalDeskFacade';
 
-export const GET: RequestHandler = ({ request }) => {
-  requireOperatorLikeAuth(request);
+export const GET: RequestHandler = async ({ request }) => {
+  await requireOperatorLikeAuthAsync(request);
   return json({ desks: listTerminalDesks() });
 };
