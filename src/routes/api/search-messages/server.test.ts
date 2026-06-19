@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { GET } from './+server';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import {
@@ -7,10 +7,17 @@ import {
   resetChatMessageStoreForTests
 } from '$lib/server/chatMessageStore';
 
-async function callGet(rawUrl: string): Promise<Response> {
+const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const ADMIN_TOKEN = 'search-test-admin-token';
+
+async function callGet(rawUrl: string, token: string | null = ADMIN_TOKEN): Promise<Response> {
   const fullUrl = new URL(`http://localhost${rawUrl}`);
+  const headers = new Headers();
+  if (token !== null) {
+    headers.set('authorization', `Bearer ${token}`);
+  }
   const event = {
-    request: new Request(fullUrl),
+    request: new Request(fullUrl, { headers }),
     params: {},
     url: fullUrl
   } as unknown as Parameters<typeof GET>[0];
@@ -30,8 +37,14 @@ async function callGet(rawUrl: string): Promise<Response> {
 
 describe('GET /api/search-messages', () => {
   beforeEach(() => {
+    process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN;
     resetChatRoomStoreForTests();
     resetChatMessageStoreForTests();
+  });
+
+  afterAll(() => {
+    if (ORIGINAL_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = ORIGINAL_ADMIN_TOKEN;
   });
 
   it('returns 200 with newest-first hits across rooms', async () => {
@@ -46,6 +59,14 @@ describe('GET /api/search-messages', () => {
     expect(body.hits).toHaveLength(2);
     expect(body.hits[0].message.body).toBe('leftover Pizza');
     expect(body.hits[0].roomName).toBe('B');
+  });
+
+  it('returns 401 for a valid cross-room search without a readable-room identity', async () => {
+    const room = createChatRoom({ name: 'Private', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'needle secret' });
+
+    const response = await callGet('/api/search-messages?query=needle', null);
+    expect(response.status).toBe(401);
   });
 
   it('returns 400 when query is missing', async () => {

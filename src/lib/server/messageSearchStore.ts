@@ -37,6 +37,7 @@ export function searchMessages(input: {
   roomId?: string;
   limit?: number;
   afterLatestBreakOnly?: boolean;
+  readableRoomIds?: Set<string>;
 }): MessageSearchHit[] {
   const trimmedQuery = input.query.trim();
   if (trimmedQuery.length === 0) {
@@ -46,7 +47,7 @@ export function searchMessages(input: {
   const effectiveLimit = clampLimit(input.limit);
   const queryInLowercase = trimmedQuery.toLowerCase();
 
-  const roomsToSearch = collectRoomsToSearch(input.roomId);
+  const roomsToSearch = collectRoomsToSearch(input.roomId, input.readableRoomIds);
   const allHits: MessageSearchHit[] = [];
 
   for (const room of roomsToSearch) {
@@ -78,9 +79,15 @@ export function searchMessagesInRoom(
   roomId: string,
   query: string,
   limit?: number,
-  options: { afterLatestBreakOnly?: boolean } = {}
+  options: { afterLatestBreakOnly?: boolean; readableRoomIds?: Set<string> } = {}
 ): MessageSearchHit[] {
-  return searchMessages({ query, roomId, limit, afterLatestBreakOnly: options.afterLatestBreakOnly });
+  return searchMessages({
+    query,
+    roomId,
+    limit,
+    afterLatestBreakOnly: options.afterLatestBreakOnly,
+    readableRoomIds: options.readableRoomIds
+  });
 }
 
 export function resetMessageSearchStoreForTests(): void {
@@ -95,13 +102,21 @@ function clampLimit(rawLimit: number | undefined): number {
   return Math.min(Math.floor(rawLimit), HIGHEST_ALLOWED_LIMIT);
 }
 
-function collectRoomsToSearch(roomIdOrUndefined: string | undefined): Array<{ id: string; name: string }> {
+function collectRoomsToSearch(
+  roomIdOrUndefined: string | undefined,
+  readableRoomIds: Set<string> | undefined
+): Array<{ id: string; name: string }> {
   if (roomIdOrUndefined === undefined) {
-    return listChatRooms().map((room) => ({ id: room.id, name: room.name }));
+    return listChatRooms()
+      .filter((room) => readableRoomIds === undefined || readableRoomIds.has(room.id))
+      .map((room) => ({ id: room.id, name: room.name }));
   }
   const oneRoom = findChatRoomById(roomIdOrUndefined);
   if (!oneRoom) {
     throw new Error(`No room found with id ${roomIdOrUndefined}.`);
+  }
+  if (readableRoomIds !== undefined && !readableRoomIds.has(oneRoom.id)) {
+    return [];
   }
   return [{ id: oneRoom.id, name: oneRoom.name }];
 }

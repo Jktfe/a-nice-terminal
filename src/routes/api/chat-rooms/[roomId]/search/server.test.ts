@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { GET } from './+server';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import {
@@ -7,10 +7,21 @@ import {
   resetChatMessageStoreForTests
 } from '$lib/server/chatMessageStore';
 
-async function callGet(roomId: string, rawQs: string): Promise<Response> {
+const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const ADMIN_TOKEN = 'room-search-test-admin-token';
+
+async function callGet(
+  roomId: string,
+  rawQs: string,
+  token: string | null = ADMIN_TOKEN
+): Promise<Response> {
   const fullUrl = new URL(`http://localhost/api/chat-rooms/${roomId}/search${rawQs}`);
+  const headers = new Headers();
+  if (token !== null) {
+    headers.set('authorization', `Bearer ${token}`);
+  }
   const event = {
-    request: new Request(fullUrl),
+    request: new Request(fullUrl, { headers }),
     params: { roomId },
     url: fullUrl
   } as unknown as Parameters<typeof GET>[0];
@@ -30,8 +41,14 @@ async function callGet(roomId: string, rawQs: string): Promise<Response> {
 
 describe('GET /api/chat-rooms/[roomId]/search', () => {
   beforeEach(() => {
+    process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN;
     resetChatRoomStoreForTests();
     resetChatMessageStoreForTests();
+  });
+
+  afterAll(() => {
+    if (ORIGINAL_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = ORIGINAL_ADMIN_TOKEN;
   });
 
   it('returns 400 when q is missing', async () => {
@@ -49,6 +66,13 @@ describe('GET /api/chat-rooms/[roomId]/search', () => {
   it('returns 404 when the room does not exist', async () => {
     const response = await callGet('no_such_room', '?q=hi');
     expect(response.status).toBe(404);
+  });
+
+  it('returns 401 for a valid room search without a readable-room identity', async () => {
+    const room = createChatRoom({ name: 'private', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'secret banana' });
+    const response = await callGet(room.id, '?q=banana', null);
+    expect(response.status).toBe(401);
   });
 
   it('returns 200 with empty matches when nothing in the room matches', async () => {

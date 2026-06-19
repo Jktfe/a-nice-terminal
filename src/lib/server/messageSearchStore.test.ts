@@ -51,6 +51,17 @@ describe('messageSearchStore', () => {
     expect(hits[0].roomId).toBe(roomA.id);
   });
 
+  it('limits cross-room results to the caller-readable room ids when provided', () => {
+    const roomA = createChatRoom({ name: 'A', whoCreatedIt: '@you' });
+    const roomB = createChatRoom({ name: 'B', whoCreatedIt: '@you' });
+    postMessage({ roomId: roomA.id, authorHandle: '@you', body: 'pizza in readable room' });
+    postMessage({ roomId: roomB.id, authorHandle: '@you', body: 'pizza in hidden room' });
+
+    const hits = searchMessages({ query: 'pizza', readableRoomIds: new Set([roomA.id]) });
+
+    expect(hits.map((hit) => hit.roomId)).toEqual([roomA.id]);
+  });
+
   it('can scope a room search to the current block after the latest break', () => {
     const room = createChatRoom({ name: 'Block Room', whoCreatedIt: '@you' });
     postMessage({ roomId: room.id, authorHandle: '@you', body: 'needle before break' });

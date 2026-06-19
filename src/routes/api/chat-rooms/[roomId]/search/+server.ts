@@ -4,8 +4,9 @@
  *   GET /api/chat-rooms/:roomId/search?q=<query>[&limit=<n>][&allContent=1]
  *     → 200 { matches: [{ id, postedAt, authorHandle, body, postOrder }] }
  *         newest-first, capped to limit (default 50, max 200).
+ *     → 401 no readable-room identity.
  *     → 400 q missing/blank.
- *     → 404 roomId unknown.
+ *     → 404 roomId unknown/unreadable.
  *
  * Backs the `ant terminal <name> search <q>` and `ant chat <name> search <q>`
  * CLI verbs (JWPK 2026-05-16 scope-add). Cross-room search lives at
@@ -21,10 +22,12 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { searchMessagesInRoom } from '$lib/server/messageSearchStore';
-import { doesChatRoomExist } from '$lib/server/chatRoomStore';
+import { findChatRoomById } from '$lib/server/chatRoomStore';
+import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 
-export const GET: RequestHandler = ({ params, url }) => {
-  if (!doesChatRoomExist(params.roomId)) {
+export const GET: RequestHandler = async ({ request, params, url }) => {
+  const room = findChatRoomById(params.roomId);
+  if (!room) {
     throw error(404, 'Room not found.');
   }
 
@@ -37,6 +40,8 @@ export const GET: RequestHandler = ({ params, url }) => {
   const allContent = parseBooleanParam(url.searchParams.get('allContent')) ||
     parseBooleanParam(url.searchParams.get('longMemory'));
   const afterLatestBreakOnly = !allContent;
+
+  await requireChatRoomReadAccess(request, room);
 
   try {
     const hits = searchMessagesInRoom(params.roomId ?? '', rawQuery, limit, { afterLatestBreakOnly });

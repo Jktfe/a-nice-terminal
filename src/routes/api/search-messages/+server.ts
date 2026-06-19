@@ -3,8 +3,9 @@
  *
  *   GET /api/search-messages?query=...[&roomId=...][&limit=...][&allContent=1]
  *     → 200 { hits: MessageSearchHit[] }   newest first, capped to limit
+ *     → 401                                 no readable-room identity
  *     → 400                                 query missing or blank
- *     → 404                                 roomId provided but unknown
+ *     → 404                                 roomId provided but unknown/unreadable
  *
  * Backs M14 search slice 1 — backend only. The /search page lands in
  * slice 2 and will hit this endpoint. Same fail-closed pattern as
@@ -17,8 +18,10 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { searchMessages } from '$lib/server/messageSearchStore';
+import { doesChatRoomExist } from '$lib/server/chatRoomStore';
+import { resolveReadableRoomScope } from '$lib/server/chatRoomReadGate';
 
-export const GET: RequestHandler = ({ url }) => {
+export const GET: RequestHandler = async ({ request, url }) => {
   const rawQuery = url.searchParams.get('query');
   if (rawQuery === null || rawQuery.trim().length === 0) {
     throw error(400, 'query parameter required.');
@@ -33,8 +36,23 @@ export const GET: RequestHandler = ({ url }) => {
     parseBooleanParam(url.searchParams.get('longMemory'));
   const afterLatestBreakOnly = roomId !== undefined && !allContent;
 
+  if (roomId !== undefined && !doesChatRoomExist(roomId)) {
+    throw error(404, 'Room not found.');
+  }
+
+  const readableScope = await resolveReadableRoomScope(request);
+  if (roomId !== undefined && !readableScope.roomIds.has(roomId)) {
+    throw error(404, 'Room not found.');
+  }
+
   try {
-    const hits = searchMessages({ query: rawQuery, roomId, limit, afterLatestBreakOnly });
+    const hits = searchMessages({
+      query: rawQuery,
+      roomId,
+      limit,
+      afterLatestBreakOnly,
+      readableRoomIds: readableScope.roomIds
+    });
     return json({ hits, allContent });
   } catch (causeOfFailure) {
     const reason =
