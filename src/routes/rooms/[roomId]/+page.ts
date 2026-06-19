@@ -12,6 +12,22 @@ import type { RoomMode } from '$lib/server/roomModesStore';
 
 type SharedFileMetadata = Omit<SharedFile, 'contentsBase64'>;
 type AsksFetchResult = { asks: Ask[]; asksFetchFailed: boolean };
+type PlansFetchResult = {
+  plans: {
+    planId: string;
+    attachedAtMs: number;
+    attachedBy: string | null;
+    completion: {
+      planId: string;
+      title: string | null;
+      total: number;
+      completed: number;
+      pct: number;
+    };
+  }[];
+  plansFetchFailed: boolean;
+};
+type TasksFetchResult = { tasks: TaskForRoom[]; tasksFetchFailed: boolean };
 type RoomModeFetchResult = { mode: RoomMode };
 type ResponderFetchResult = {
   responders: {
@@ -89,33 +105,28 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
       ),
       // M:N plan↔rooms bidirectional read. Returns plans attached to this
       // room with live completion rollup (planCompletion at read time).
-      // Soft-fails to empty list so the room page still loads if the
-      // junction-store probe fails.
+      // Soft-fails so the room page still loads if the junction-store probe
+      // fails, but threads a visible panel error instead of pretending the
+      // room has no attached plans.
       fetch(`/api/chat-rooms/${encodeURIComponent(params.roomId)}/plans`).then(
-        async (response) =>
+        async (response): Promise<PlansFetchResult> =>
           response.ok
-            ? ((await response.json()) as {
-                plans: {
-                  planId: string;
-                  attachedAtMs: number;
-                  attachedBy: string | null;
-                  completion: {
-                    planId: string;
-                    title: string | null;
-                    total: number;
-                    completed: number;
-                    pct: number;
-                  };
-                }[];
-              })
-            : { plans: [] }
+            ? {
+                plans: ((await response.json()) as { plans: PlansFetchResult['plans'] }).plans,
+                plansFetchFailed: false
+              }
+            : { plans: [], plansFetchFailed: true }
       ),
-      // #54 read-only tasks: plan-linked + standalone for this room.
+      // #54 read-only tasks: plan-linked + standalone for this room. Same
+      // explicit-failure contract as plans above.
       fetch(`/api/chat-rooms/${encodeURIComponent(params.roomId)}/tasks`).then(
-        async (response) =>
+        async (response): Promise<TasksFetchResult> =>
           response.ok
-            ? ((await response.json()) as { tasks: TaskForRoom[] })
-            : { tasks: [] as TaskForRoom[] }
+            ? {
+                tasks: ((await response.json()) as { tasks: TaskForRoom[] }).tasks,
+                tasksFetchFailed: false
+              }
+            : { tasks: [] as TaskForRoom[], tasksFetchFailed: true }
       ),
       // #78 focus mode: active focused members in this room.
       fetch(`/api/chat-rooms/${encodeURIComponent(params.roomId)}/focus-mode`).then(
@@ -191,7 +202,9 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
     asks: asksBody.asks,
     asksFetchFailed: asksBody.asksFetchFailed,
     plansForRoom: plansBody.plans,
-    tasksForRoom: (tasksBody as { tasks: TaskForRoom[] }).tasks,
+    plansFetchFailed: plansBody.plansFetchFailed,
+    tasksForRoom: tasksBody.tasks,
+    tasksFetchFailed: tasksBody.tasksFetchFailed,
     focusedMembers: (focusBody as { focusedMembers: FocusEntry[] }).focusedMembers,
     roomMode: roomModeBody.mode,
     responders: (respondersBody as ResponderFetchResult).responders,

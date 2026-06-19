@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import VotesRoomPanel from './VotesRoomPanel.svelte';
@@ -53,5 +54,12 @@ describe('VotesRoomPanel', () => {
 
     expect(body).toContain('No votes in this room yet.');
     expect(body).toContain('ant vote create --room room_alpha');
+  });
+
+  it('does not treat vote auth or room-read failures as an empty vote list', () => {
+    const source = readFileSync('src/lib/components/VotesRoomPanel.svelte', 'utf8');
+    expect(source).toContain('response.status === 401 || response.status === 403 || response.status === 404');
+    expect(source).toContain('Could not load votes for this room. Try refreshing in a moment.');
+    expect(source).not.toContain('liveVotes = [];\n        return;');
   });
 });

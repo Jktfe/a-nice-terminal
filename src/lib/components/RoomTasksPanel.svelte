@@ -6,8 +6,8 @@
   import type { TaskForRoom } from '$lib/server/taskStore';
   import ValidationBadge from './ValidationBadge.svelte';
 
-  type Props = { tasks: TaskForRoom[] };
-  let { tasks }: Props = $props();
+  type Props = { tasks: TaskForRoom[]; tasksFetchFailed?: boolean };
+  let { tasks, tasksFetchFailed = false }: Props = $props();
 
   // JWPK msg_uz34yby2qc (2026-05-19): "tasks need to drop off once complete -
   // this room alone does not have 312 open tasks". Filter out terminal-state
@@ -36,7 +36,9 @@
   });
 </script>
 
-{#if tasks.length === 0}
+{#if tasksFetchFailed}
+  <p class="empty" role="alert">Could not load tasks for this room. Try refreshing in a moment.</p>
+{:else if tasks.length === 0}
   <p class="empty">No tasks in this room yet.</p>
 {:else}
   <div class="task-list">

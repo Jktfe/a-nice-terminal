@@ -151,12 +151,73 @@ describe('/rooms/[roomId] load', () => {
     expect(loaded.roomMode).toBe('heads-down');
   });
 
+  it('marks room plan and task read failures instead of treating them as empty panels', async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/chat-rooms/r_panels') {
+        return jsonResponse({
+          chatRoom: {
+            id: 'r_panels',
+            name: 'Panel room',
+            summary: null,
+            attentionState: null,
+            lastUpdate: null,
+            whenItWasCreated: '2026-06-19T00:00:00.000Z',
+            whoCreatedIt: '@you',
+            creationOrder: 1,
+            members: [{ handle: '@you', displayName: '@you', displayColor: '#dc2626', displayIcon: 'Y' }]
+          }
+        });
+      }
+      if (url.includes('/messages')) return jsonResponse({ messages: [] });
+      if (url.includes('/aliases')) return jsonResponse({ aliases: [] });
+      if (url.includes('/agent-events')) return jsonResponse({ agentEvents: [] });
+      if (url.includes('/attachments')) return jsonResponse({ sharedFiles: [] });
+      if (url.includes('/api/asks')) return jsonResponse({ asks: [] });
+      if (url.includes('/plans')) return jsonResponse({ message: 'plans unavailable' }, 500);
+      if (url.includes('/tasks')) return jsonResponse({ message: 'tasks unavailable' }, 401);
+      if (url.includes('/focus-mode')) return jsonResponse({ focusedMembers: [] });
+      if (url.includes('/mode')) return jsonResponse({ roomId: 'r_panels', mode: 'brainstorm' });
+      if (url.includes('/responders')) return jsonResponse({ responders: [] });
+      if (url === '/api/chat-rooms') return jsonResponse({ chatRooms: [] });
+      if (url === '/api/capabilities') return jsonResponse({ featureFlags: {}, operatorHandle: '@JWPK' });
+      return jsonResponse({}, 404);
+    });
+
+    const event = {
+      fetch,
+      params: { roomId: 'r_panels' },
+      url: new URL('http://localhost/rooms/r_panels')
+    } as unknown as Parameters<typeof load>[0];
+    const data = await load(event);
+
+    expect(data).toMatchObject({
+      plansForRoom: [],
+      plansFetchFailed: true,
+      tasksForRoom: [],
+      tasksFetchFailed: true
+    });
+  });
+
   it('keeps asks, plans, and tasks one-click reachable from the room menu', () => {
     const source = readFileSync('src/routes/rooms/[roomId]/+page.svelte', 'utf8');
     expect(source).toContain('class="discipline-links"');
     expect(source).toContain('href={`/asks?roomId=${roomFromServer.id}`}');
     expect(source).toContain('href={primaryRoomPlanHref}');
     expect(source).toContain('href="#tasks"');
+  });
+
+  it('threads room work-panel fetch failures into dropdown and pinned rail panels', () => {
+    const roomPageSource = readFileSync('src/routes/rooms/[roomId]/+page.svelte', 'utf8');
+    const moreMenuSource = readFileSync('src/lib/components/RoomDetailMoreMenu.svelte', 'utf8');
+    const railSource = readFileSync('src/lib/components/RoomDetailContextRail.svelte', 'utf8');
+
+    expect(roomPageSource).toContain('plansFetchFailed');
+    expect(roomPageSource).toContain('tasksFetchFailed');
+    expect(moreMenuSource).toContain('<RoomPlansPanel plans={plansForRoom} {plansFetchFailed}');
+    expect(moreMenuSource).toContain('<RoomTasksPanel tasks={tasksForRoom} {tasksFetchFailed}');
+    expect(railSource).toContain('<RoomPlansPanel plans={plansForRoom} {plansFetchFailed}');
+    expect(railSource).toContain('<RoomTasksPanel tasks={tasksForRoom} {tasksFetchFailed}');
   });
 
   it('surfaces room session failures with a retry action', () => {

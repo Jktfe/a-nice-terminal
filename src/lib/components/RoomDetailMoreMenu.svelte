@@ -50,7 +50,9 @@
     asksFromServer: Ask[];
     asksFetchFailed: boolean;
     plansForRoom: RoomPlanLink[];
+    plansFetchFailed: boolean;
     tasksForRoom: TaskForRoom[];
+    tasksFetchFailed: boolean;
     sharedFilesFromServer: SharedFileMetadata[];
     callerHandle: string;
     pinnedSectionIds: Set<string>;
@@ -77,7 +79,9 @@
     asksFromServer,
     asksFetchFailed,
     plansForRoom,
+    plansFetchFailed,
     tasksForRoom,
+    tasksFetchFailed,
     sharedFilesFromServer,
     callerHandle,
     pinnedSectionIds,
@@ -156,7 +160,7 @@
   count={plansForRoom.length}
   pinRoomId={room.id}
 >
-  <RoomPlansPanel plans={plansForRoom} />
+  <RoomPlansPanel plans={plansForRoom} {plansFetchFailed} />
 </CollapsibleSection>
 {/if}
 
@@ -167,7 +171,7 @@
   count={tasksForRoom.length}
   pinRoomId={room.id}
 >
-  <RoomTasksPanel tasks={tasksForRoom} />
+  <RoomTasksPanel tasks={tasksForRoom} {tasksFetchFailed} />
 </CollapsibleSection>
 {/if}
 

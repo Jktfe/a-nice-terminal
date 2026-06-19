@@ -24,11 +24,15 @@
     };
   };
 
-  type Props = { plans: RoomPlanLink[] };
-  let { plans }: Props = $props();
+  type Props = { plans: RoomPlanLink[]; plansFetchFailed?: boolean };
+  let { plans, plansFetchFailed = false }: Props = $props();
 </script>
 
-{#if plans.length === 0}
+{#if plansFetchFailed}
+  <p class="empty" role="alert">
+    Could not load plans for this room. Try refreshing in a moment.
+  </p>
+{:else if plans.length === 0}
   <p class="empty">
     No plans attached to this room yet.
     Use <code>ant plan attach-room &lt;plan_id&gt; &lt;room_id&gt;</code>

@@ -34,9 +34,8 @@
     errorText = '';
     try {
       const response = await fetch(`/api/votes?roomId=${encodeURIComponent(roomId)}`);
-      if (response.status === 401 || response.status === 404) {
-        liveVotes = [];
-        return;
+      if (response.status === 401 || response.status === 403 || response.status === 404) {
+        throw new Error('Could not load votes for this room. Try refreshing in a moment.');
       }
       if (!response.ok) throw new Error(`Could not load votes (${response.status}).`);
       const body = (await response.json()) as { votes?: VoteView[] };

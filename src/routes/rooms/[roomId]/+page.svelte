@@ -95,7 +95,9 @@
     asks: Ask[];
     asksFetchFailed: boolean;
     plansForRoom: RoomPlanLink[];
+    plansFetchFailed: boolean;
     tasksForRoom: TaskForRoom[];
+    tasksFetchFailed: boolean;
     focusedMembers: FocusEntry[];
     roomMode?: RoomMode;
     allRoomLabels?: Record<string, string>;
@@ -144,7 +146,9 @@
   const asksFromServer = $derived<Ask[]>(data.asks ?? []);
   const asksFetchFailed = $derived<boolean>(data.asksFetchFailed ?? false);
   const plansForRoom = $derived<RoomPlanLink[]>(data.plansForRoom ?? []);
+  const plansFetchFailed = $derived<boolean>(data.plansFetchFailed ?? false);
   const tasksForRoom = $derived<TaskForRoom[]>(data.tasksForRoom ?? []);
+  const tasksFetchFailed = $derived<boolean>(data.tasksFetchFailed ?? false);
   const roomMode = $derived<RoomMode>(data.roomMode ?? 'brainstorm');
   const primaryRoomPlanHref = $derived(
     plansForRoom[0]?.planId
@@ -517,7 +521,9 @@
       {asksFromServer}
       {asksFetchFailed}
       {plansForRoom}
+      {plansFetchFailed}
       {tasksForRoom}
+      {tasksFetchFailed}
       {sharedFilesFromServer}
       {callerHandle}
       {pinnedSectionIds}
@@ -630,7 +636,9 @@
       {asksFromServer}
       {asksFetchFailed}
       {plansForRoom}
+      {plansFetchFailed}
       {tasksForRoom}
+      {tasksFetchFailed}
       {sharedFilesFromServer}
       {callerHandle}
       {pinnedSectionIds}
