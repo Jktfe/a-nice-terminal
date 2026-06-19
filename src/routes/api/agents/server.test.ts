@@ -21,14 +21,19 @@ import { createChatRoom, inviteAgentToRoom, resetChatRoomStoreForTests } from '$
 import { postMessage, resetChatMessageStoreForTests } from '$lib/server/chatMessageStore';
 import { addReactionToMessage, resetMessageReactionStoreForTests } from '$lib/server/messageReactionStore';
 import { openAskInRoom, resetAskStoreForTests } from '$lib/server/askStore';
+import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
 import { GET, _resetAgentsLiveSessionCacheForTests } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
 const PREV_CACHE_MS = process.env.ANT_AGENTS_LIVE_SESSION_CACHE_MS;
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
   process.env.ANT_AGENTS_LIVE_SESSION_CACHE_MS = '3000';
+  process.env.ANT_ADMIN_TOKEN = 'test-admin-token';
   resetIdentityDbForTests();
   resetChatRoomStoreForTests();
   resetChatMessageStoreForTests();
@@ -50,12 +55,31 @@ afterEach(() => {
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
   if (PREV_CACHE_MS === undefined) delete process.env.ANT_AGENTS_LIVE_SESSION_CACHE_MS;
   else process.env.ANT_AGENTS_LIVE_SESSION_CACHE_MS = PREV_CACHE_MS;
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
-function req(url: string): Parameters<typeof GET>[0] {
+function req(url: string, headers?: HeadersInit): Parameters<typeof GET>[0] {
   return {
-    url: new URL(url)
+    url: new URL(url),
+    request: new Request(url, { headers })
   } as Parameters<typeof GET>[0];
+}
+
+function adminReq(url: string): Parameters<typeof GET>[0] {
+  return req(url, { authorization: 'Bearer test-admin-token' });
+}
+
+function operatorCookieFor(roomId: string): string {
+  const terminal = upsertTerminal({
+    pid: Math.floor(Math.random() * 10_000) + 1,
+    pid_start: 'agents-fleet-operator-session',
+    name: 'agents-fleet-operator-session'
+  });
+  addMembership({ room_id: roomId, handle: '@JWPK', terminal_id: terminal.id });
+  const session = createBrowserSession({ roomId, authorHandle: '@JWPK' });
+  if (!session) throw new Error('createBrowserSession returned null');
+  return `ant_browser_session=${session.browserSessionSecret}`;
 }
 
 describe('GET /api/agents', () => {
@@ -137,13 +161,32 @@ function attachTerminal(
 }
 
 describe('GET /api/agents?view=fleet', () => {
+  it('rejects anonymous fleet reads because they expose roster and telemetry', async () => {
+    await expect(GET(req('http://x/api/agents?view=fleet'))).rejects.toMatchObject({
+      status: 401
+    });
+  });
+
+  it('allows the configured operator browser session to read the fleet view', async () => {
+    const room = createChatRoom({ name: 'operator-fleet-room', whoCreatedIt: '@JWPK' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@alpha', agentDisplayName: 'Alpha' });
+    attachTerminal('@alpha', room.id, 'sess-alpha');
+    setLiveSessions(['sess-alpha']);
+
+    const res = await GET(req('http://x/api/agents?view=fleet', { cookie: operatorCookieFor(room.id) }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.agents).toHaveLength(1);
+    expect(body.agents[0]).toMatchObject({ handle: '@alpha', sessionId: 'sess-alpha' });
+  });
+
   it('returns the rich fleet shape with zero defaults for a fresh agent', async () => {
     const room = createChatRoom({ name: 'fleet-room', whoCreatedIt: '@you' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@alpha', agentDisplayName: 'Alpha' });
     attachTerminal('@alpha', room.id, 'sess-alpha');
     setLiveSessions(['sess-alpha']);
 
-    const res = await GET(req('http://x/api/agents?view=fleet'));
+    const res = await GET(adminReq('http://x/api/agents?view=fleet'));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.agents).toHaveLength(1);
@@ -181,9 +224,9 @@ describe('GET /api/agents?view=fleet', () => {
     attachTerminal('@alpha', room.id, 'sess-alpha');
     setLiveSessions(['sess-alpha']);
 
-    const first = await (await GET(req('http://x/api/agents?view=fleet'))).json();
+    const first = await (await GET(adminReq('http://x/api/agents?view=fleet'))).json();
     setLiveSessions([]);
-    const second = await (await GET(req('http://x/api/agents?view=fleet'))).json();
+    const second = await (await GET(adminReq('http://x/api/agents?view=fleet'))).json();
 
     expect(listTerminalsCallCount).toBe(1);
     expect(first.agents[0]).toMatchObject({
@@ -232,7 +275,7 @@ describe('GET /api/agents?view=fleet', () => {
        VALUES (?, ?, ?, ?, ?)`
     ).run('p-1', 'plan one', '@alpha', now, now);
 
-    const res = await GET(req('http://x/api/agents?view=fleet'));
+    const res = await GET(adminReq('http://x/api/agents?view=fleet'));
     const body = await res.json();
     const alpha = body.agents.find((a: { handle: string }) => a.handle === '@alpha');
     const beta = body.agents.find((a: { handle: string }) => a.handle === '@beta');
@@ -265,7 +308,7 @@ describe('GET /api/agents?view=fleet', () => {
     // been killed, so its terminal_records row is offline / archived.
     setLiveSessions(['sess-live']);
 
-    const res = await GET(req('http://x/api/agents?view=fleet'));
+    const res = await GET(adminReq('http://x/api/agents?view=fleet'));
     const body = await res.json();
     expect(body.agents.map((a: { handle: string }) => a.handle)).toEqual(['@live', '@archived', '@detached']);
     expect(body.agents.find((a: { handle: string }) => a.handle === '@live')).toMatchObject({
@@ -290,7 +333,7 @@ describe('GET /api/agents?view=fleet', () => {
     attachTerminal('@thinker', room.id, 'sess-thinker', { agentStatus: 'thinking', agentStatusAtMs: 6000 });
     setLiveSessions(['sess-worker', 'sess-thinker']);
 
-    const res = await GET(req('http://x/api/agents?view=fleet'));
+    const res = await GET(adminReq('http://x/api/agents?view=fleet'));
     const body = await res.json();
     const worker = body.agents.find((a: { handle: string }) => a.handle === '@worker');
     const thinker = body.agents.find((a: { handle: string }) => a.handle === '@thinker');
@@ -304,7 +347,7 @@ describe('GET /api/agents?view=fleet', () => {
     attachTerminal('@expired', room.id, 'sess-exp', { expiresAt: 1 });
     setLiveSessions(['sess-exp']);
 
-    const res = await GET(req('http://x/api/agents?view=fleet'));
+    const res = await GET(adminReq('http://x/api/agents?view=fleet'));
     const body = await res.json();
     expect(body.agents).toEqual([
       expect.objectContaining({
