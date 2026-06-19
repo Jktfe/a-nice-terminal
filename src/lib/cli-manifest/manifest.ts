@@ -870,11 +870,12 @@ EOF`,
   // manual (2026-05-13) as customer-facing promises; CLI wrapper to ship.
   // source_ref = MANUAL distinguishes these from DP-sourced planned verbs.
   av('chat-focus', 'chat', 'focus',
-    'chat focus <roomId> --member @h [--mode shield|solo] [--for 30m|1h|2d] [--reason "..."] [--json]',
-    'Flag a member as focused in a room. `--mode shield` stops that member receiving room traffic; `--mode solo` mutes everyone else. `--for` sets the timer prompt window; `--reason` adds a short note. Wraps PUT /api/chat-rooms/:roomId/focus-mode.',
+    'chat focus <roomId> --member @h [--mode shield|solo] [--direct-mentions-only] [--for 30m|1h|2d] [--reason "..."] [--json]',
+    'Flag a member as focused in a room. `--mode shield` stops that member receiving room traffic; `--direct-mentions-only` lets direct @mentions break through a shield; `--mode solo` mutes everyone else. `--for` sets the timer prompt window; `--reason` adds a short note. Wraps PUT /api/chat-rooms/:roomId/focus-mode.',
     [
       f('member', 'string', 'Member handle to focus.', { default: '@JWPK' }),
       f('mode', 'enum', 'Focus mode: shield or solo.', { constraint: 'shield|solo', default: 'shield' }),
+      f('direct-mentions-only', 'boolean', 'For shield mode, allow direct @mentions through while suppressing room fanout.'),
       f('for', 'string', 'Auto-clear duration (e.g. 30m, 1h, 2d).'),
       f('reason', 'string', 'Short reason.'),
       f('json', 'boolean', 'Emit JSON.')

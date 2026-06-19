@@ -152,6 +152,16 @@ describe('/api/chat-rooms/:roomId/focus-mode', () => {
       expect(findFocus(room.id, '@you')?.mode).toBe('shield');
     });
 
+    it('accepts directMentionsOnly for shield breakthrough routing', async () => {
+      const room = createChatRoom({ name: 'put-direct-only', whoCreatedIt: '@you' });
+      const response = await callPut(
+        room.id,
+        JSON.stringify({ memberHandle: '@you', mode: 'shield', directMentionsOnly: true })
+      );
+      expect(response.status).toBe(200);
+      expect(findFocus(room.id, '@you')?.directMentionsOnly).toBe(true);
+    });
+
     it('returns 400 on an invalid mode', async () => {
       const room = createChatRoom({ name: 'put-bad-mode', whoCreatedIt: '@you' });
       const response = await callPut(room.id, JSON.stringify({ memberHandle: '@you', mode: 'lurk' }));

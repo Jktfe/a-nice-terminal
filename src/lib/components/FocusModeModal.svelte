@@ -28,6 +28,8 @@
 
   let selectedMs = $state<number | null>(PRESETS[2].durationMs);
   let selectedHandle = $state('');
+  let mode = $state<'shield' | 'solo'>('shield');
+  let directMentionsOnly = $state(false);
   let customMin = $state('');
   let reason = $state('');
   let submitting = $state(false);
@@ -58,6 +60,8 @@
     submitting = true; err = '';
     try {
       const body: Record<string, unknown> = { memberHandle: selectedHandle };
+      body.mode = mode;
+      body.directMentionsOnly = mode === 'shield' ? directMentionsOnly : false;
       const r = reason.trim();
       if (r.length > 0) body.reason = r;
       if (resolvedMs !== null) body.durationMs = resolvedMs;
@@ -95,6 +99,30 @@
         </select>
       {:else}
         <p class="empty">No agents are in this room yet.</p>
+      {/if}
+    </fieldset>
+
+    <fieldset class="mode-picker">
+      <legend>Delivery</legend>
+      <div class="row">
+        <button
+          type="button"
+          class="chip"
+          class:active={mode === 'shield'}
+          onclick={() => (mode = 'shield')}
+        >Shield this member</button>
+        <button
+          type="button"
+          class="chip"
+          class:active={mode === 'solo'}
+          onclick={() => (mode = 'solo')}
+        >Solo this member</button>
+      </div>
+      {#if mode === 'shield'}
+        <label class="direct-only">
+          <input type="checkbox" bind:checked={directMentionsOnly} />
+          <span>Direct @mentions still break through</span>
+        </label>
       {/if}
     </fieldset>
 
@@ -137,8 +165,8 @@
 <style>
   .sub { margin: 0; color: var(--ink-soft); font-size: 0.85rem; }
   form { display: flex; flex-direction: column; gap: 0.75rem; }
-  .member-picker { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.3rem; }
-  .member-picker legend { padding: 0; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); font-weight: 800; }
+  .member-picker, .mode-picker { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+  .member-picker legend, .mode-picker legend { padding: 0; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); font-weight: 800; }
   .member-picker select { padding: 0.5rem 0.6rem; border: 1px solid var(--line-soft); border-radius: 0.5rem; background: var(--bg); color: var(--ink-strong); font: inherit; }
   .empty { margin: 0; color: var(--ink-soft); font-size: 0.85rem; }
   .presets { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
@@ -149,6 +177,8 @@
     background: var(--bg); color: var(--ink-strong); font: inherit; font-weight: 700; cursor: pointer;
   }
   .chip.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg)); color: var(--accent); }
+  .direct-only { display: flex; align-items: center; gap: 0.45rem; color: var(--ink-soft); font-size: 0.85rem; }
+  .direct-only input { width: 1rem; height: 1rem; accent-color: var(--accent); }
   .custom, .reason { display: flex; flex-direction: column; gap: 0.2rem; }
   .custom span, .reason span { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); font-weight: 800; }
   .custom input, .reason textarea { padding: 0.55rem 0.7rem; border: 1px solid var(--line-soft); border-radius: 0.55rem; background: var(--bg); color: var(--ink-strong); font: inherit; }

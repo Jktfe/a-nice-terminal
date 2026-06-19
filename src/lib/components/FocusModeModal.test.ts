@@ -17,6 +17,9 @@ describe('FocusModeModal', () => {
     expect(body).toContain('Codex');
     expect(body).toContain('15m');
     expect(body).toContain('Indefinite');
+    expect(body).toContain('Shield this member');
+    expect(body).toContain('Solo this member');
+    expect(body).toContain('Direct @mentions still break through');
     expect(body).toContain('Focus target');
   });
 });

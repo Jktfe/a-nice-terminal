@@ -471,7 +471,7 @@ describe('ant chat state wrappers', () => {
     const { runtime, captured } = makeRuntime(() => okJson({
       focusEntry: { memberHandle: '@codex', expiresAt: '2026-05-16T22:00:00.000Z' }
     }));
-    await handleChatVerb('focus', ['room-a', '--member', '@codex', '--for', '30m', '--reason', 'heads down', '--mode', 'solo'], runtime, { CliInputError });
+    await handleChatVerb('focus', ['room-a', '--member', '@codex', '--for', '30m', '--reason', 'heads down', '--mode', 'solo', '--direct-mentions-only'], runtime, { CliInputError });
     expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/focus-mode');
     expect(captured.requests[0].init.method).toBe('PUT');
     expect(bodyAt(captured)).toMatchObject({
@@ -479,6 +479,7 @@ describe('ant chat state wrappers', () => {
       durationMs: 1_800_000,
       reason: 'heads down',
       mode: 'solo',
+      directMentionsOnly: true,
       pidChain: expect.any(Array)
     });
     expect(captured.stdout.join('\n')).toContain('Focus set');

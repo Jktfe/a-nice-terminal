@@ -44,7 +44,7 @@ function paneFact() {
   return typeof pane === 'string' && pane.trim().length > 0 ? { pane: pane.trim() } : {};
 }
 
-const BOOLEAN_FLAGS = new Set(['once', 'json', 'clear', 'msg-stdin', 'stdin', 'broadcast-ok']);
+const BOOLEAN_FLAGS = new Set(['once', 'json', 'clear', 'msg-stdin', 'stdin', 'broadcast-ok', 'direct-mentions-only', 'direct-only']);
 // Known top-level action verbs for `ant chat <action>`. Anything else
 // in the first slot is treated as a chat identifier (name or id) per
 // the JWPK 2026-05-16 verb spec: `ant chat <chatname> send <msg>`.
@@ -866,6 +866,9 @@ async function runFocus(flags, runtime, CliInputError) {
       throw new CliInputError('mode must be shield or solo');
     }
     payload.mode = flags.mode;
+  }
+  if (flags['direct-mentions-only'] !== undefined || flags['direct-only'] !== undefined) {
+    payload.directMentionsOnly = true;
   }
   if (flags.for) {
     const durationMs = parseDurationToMs(flags.for, CliInputError);
