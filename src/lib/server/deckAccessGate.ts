@@ -8,21 +8,7 @@
 
 import { resolveBrowserSessionSecretIgnoringRoom } from './browserSessionStore';
 import { isHandleMemberOfRoom } from './membershipStore';
-
-function getCookieValue(request: Request, name: string): string | null {
-  const cookieHeader = request.headers.get('cookie');
-  if (!cookieHeader) return null;
-  for (const part of cookieHeader.split(';')) {
-    const trimmed = part.trim();
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    if (trimmed.slice(0, eq) === name) {
-      const raw = trimmed.slice(eq + 1);
-      try { return decodeURIComponent(raw); } catch { return raw; }
-    }
-  }
-  return null;
-}
+import { getCookieValuesFromRequest } from './authGate';
 
 export function resolveDeckAccess(args: {
   deckRoomId: string;
@@ -47,8 +33,7 @@ export function resolveDeckAccess(args: {
   //    2026-05-17 in the ANT artefacts room: previously the gate
   //    required the cookie's room === deck's room, which 403'd
   //    legitimate cross-room shares.
-  const cookieSecret = getCookieValue(args.request, 'ant_browser_session');
-  if (cookieSecret !== null) {
+  for (const cookieSecret of getCookieValuesFromRequest(args.request, 'ant_browser_session')) {
     const resolved = resolveBrowserSessionSecretIgnoringRoom(cookieSecret);
     if (resolved && isHandleMemberOfRoom(args.deckRoomId, resolved.handle)) {
       return { allowed: true };

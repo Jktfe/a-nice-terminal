@@ -26,33 +26,23 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { getCookieValuesFromRequest } from '$lib/server/authGate';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { listMessagesInRoom } from '$lib/server/chatMessageStore';
 import { resolveBrowserSessionSecret } from '$lib/server/browserSessionStore';
 import { isSuperAdmin } from '$lib/server/orgStore';
 
-function getCookieValue(request: Request, cookieName: string): string | null {
-  const cookieHeader = request.headers.get('cookie');
-  if (!cookieHeader) return null;
-  for (const part of cookieHeader.split(';')) {
-    const trimmed = part.trim();
-    const sep = trimmed.indexOf('=');
-    if (sep === -1) continue;
-    if (trimmed.slice(0, sep) === cookieName) {
-      return decodeURIComponent(trimmed.slice(sep + 1));
-    }
-  }
-  return null;
-}
-
 function requireOperatorBrowserSession(request: Request, roomId: string): void {
-  const cookie = getCookieValue(request, 'ant_browser_session');
-  if (!cookie) throw error(403, 'Operator browser session required.');
-  const resolved = resolveBrowserSessionSecret(cookie, roomId);
-  if (!resolved) throw error(403, 'Operator browser session required.');
-  if (!isSuperAdmin(resolved.handle)) {
-    throw error(403, 'Only the operator can mine the vault.');
+  const cookies = getCookieValuesFromRequest(request, 'ant_browser_session');
+  if (cookies.length === 0) throw error(403, 'Operator browser session required.');
+  let sawNonOperatorSession = false;
+  for (const cookie of cookies) {
+    const resolved = resolveBrowserSessionSecret(cookie, roomId);
+    if (resolved && isSuperAdmin(resolved.handle)) return;
+    if (resolved) sawNonOperatorSession = true;
   }
+  if (sawNonOperatorSession) throw error(403, 'Only the operator can mine the vault.');
+  throw error(403, 'Operator browser session required.');
 }
 
 type MemoryCandidate = {

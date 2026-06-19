@@ -23,24 +23,11 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { getCookieValuesFromRequest } from '$lib/server/authGate';
 import { listArchivedChatRooms } from '$lib/server/chatRoomStore';
 import { listMessagesInRoom } from '$lib/server/chatMessageStore';
 import { resolveBrowserSessionSecret } from '$lib/server/browserSessionStore';
 import { isSuperAdmin } from '$lib/server/orgStore';
-
-function getCookieValue(request: Request, cookieName: string): string | null {
-  const cookieHeader = request.headers.get('cookie');
-  if (!cookieHeader) return null;
-  for (const part of cookieHeader.split(';')) {
-    const trimmed = part.trim();
-    const sep = trimmed.indexOf('=');
-    if (sep === -1) continue;
-    if (trimmed.slice(0, sep) === cookieName) {
-      return decodeURIComponent(trimmed.slice(sep + 1));
-    }
-  }
-  return null;
-}
 
 function requireOperatorBrowserSessionAnyRoom(request: Request): void {
   // Vault is a global operator surface — there's no roomId in the URL to
@@ -48,8 +35,8 @@ function requireOperatorBrowserSessionAnyRoom(request: Request): void {
   // resolved handle is @you. We probe one archived room id (if any) just
   // to satisfy resolveBrowserSessionSecret's room-binding signature, then
   // fall back to an unrestricted check via the same hash table.
-  const cookie = getCookieValue(request, 'ant_browser_session');
-  if (!cookie) throw error(403, 'Operator browser session required.');
+  const cookies = getCookieValuesFromRequest(request, 'ant_browser_session');
+  if (cookies.length === 0) throw error(403, 'Operator browser session required.');
   // Iterate archived rooms looking for ANY one the cookie resolves against.
   // If no archived rooms exist yet we can still admit by walking active
   // rooms separately — but in the vault context, no archived rooms means
@@ -57,8 +44,10 @@ function requireOperatorBrowserSessionAnyRoom(request: Request): void {
   // empty list flow through.
   const archives = listArchivedChatRooms();
   for (const archive of archives) {
-    const resolved = resolveBrowserSessionSecret(cookie, archive.id);
-    if (resolved && isSuperAdmin(resolved.handle)) return;
+    for (const cookie of cookies) {
+      const resolved = resolveBrowserSessionSecret(cookie, archive.id);
+      if (resolved && isSuperAdmin(resolved.handle)) return;
+    }
   }
   // No archived rooms or no cookie match — refuse. Operator should hit
   // /rooms first to mint a session; vault is gated on having at least one

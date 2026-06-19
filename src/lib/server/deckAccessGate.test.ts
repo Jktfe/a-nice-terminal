@@ -70,6 +70,27 @@ describe('resolveDeckAccess', () => {
     expect(result.allowed).toBe(true);
   });
 
+  it('tries later browser-session cookies when the first same-name cookie is stale', () => {
+    const room = createChatRoom({ name: 'stale-cookie-room', whoCreatedIt: '@owner' });
+    const terminal = upsertTerminal({ pid: 43, pid_start: 'stale-cookie', name: 'stale-cookie-terminal' });
+    addMembership({ room_id: room.id, handle: '@owner', terminal_id: terminal.id });
+    const deck = createDeck({ roomId: room.id, title: 'Member-only after stale cookie' });
+    const session = createBrowserSession({ roomId: room.id, authorHandle: '@owner' });
+    if (!session) throw new Error('session creation failed');
+    const request = new Request('http://localhost/api/decks/' + deck.id, {
+      headers: {
+        cookie: `ant_browser_session=bws_stale_demo_login; ant_browser_session=${session.browserSessionSecret}`
+      }
+    });
+    const result = resolveDeckAccess({
+      deckRoomId: room.id,
+      deckAccessPassword: deck.accessPassword,
+      request,
+      url: new URL(request.url)
+    });
+    expect(result.allowed).toBe(true);
+  });
+
   // JWPK 2026-05-17 in ANT artefacts room (msg_pde718rya2 → msg_u2cu5rt4u8):
   // browser sessions are minted per-room, so clicking a deck link whose
   // room differs from the cookie's room used to 403 even when the caller

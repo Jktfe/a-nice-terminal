@@ -8,33 +8,23 @@
 
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { getCookieValuesFromRequest } from '$lib/server/authGate';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { resolveBrowserSessionSecret } from '$lib/server/browserSessionStore';
 import { isOperatorHandle } from '$lib/server/operatorHandle';
 import { revokeInvite } from '$lib/server/chatInviteStore';
 
-function getCookieValue(request: Request, cookieName: string): string | null {
-  const cookieHeader = request.headers.get('cookie');
-  if (!cookieHeader) return null;
-  for (const part of cookieHeader.split(';')) {
-    const trimmed = part.trim();
-    const separatorIndex = trimmed.indexOf('=');
-    if (separatorIndex === -1) continue;
-    if (trimmed.slice(0, separatorIndex) === cookieName) {
-      return decodeURIComponent(trimmed.slice(separatorIndex + 1));
-    }
-  }
-  return null;
-}
-
 function requireOperatorBrowserSession(request: Request, roomId: string): void {
-  const cookie = getCookieValue(request, 'ant_browser_session');
-  if (!cookie) throw error(403, 'Operator browser session required.');
-  const resolved = resolveBrowserSessionSecret(cookie, roomId);
-  if (!resolved) throw error(403, 'Operator browser session required.');
-  if (!isOperatorHandle(resolved.handle)) {
-    throw error(403, 'Only the operator can manage invites.');
+  const cookies = getCookieValuesFromRequest(request, 'ant_browser_session');
+  if (cookies.length === 0) throw error(403, 'Operator browser session required.');
+  let sawNonOperatorSession = false;
+  for (const cookie of cookies) {
+    const resolved = resolveBrowserSessionSecret(cookie, roomId);
+    if (resolved && isOperatorHandle(resolved.handle)) return;
+    if (resolved) sawNonOperatorSession = true;
   }
+  if (sawNonOperatorSession) throw error(403, 'Only the operator can manage invites.');
+  throw error(403, 'Operator browser session required.');
 }
 
 export const DELETE: RequestHandler = ({ params, request }) => {
