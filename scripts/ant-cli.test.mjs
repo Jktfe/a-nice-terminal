@@ -382,6 +382,22 @@ describe('ant-cli', () => {
       expect(fullStderr).toContain('Cannot reach server');
       expect(fullStderr).toContain('http://localhost:4321');
     });
+
+    it('adds terminal identity recovery steps for 401 auth failures', async () => {
+      const { runner, writtenErr } = setupRunner({
+        fetchReplies: [makeJsonResponse({ message: 'Authentication required.' }, 401)]
+      });
+
+      const exitCode = await runner.run(['rooms', 'members', 'r1']);
+
+      expect(exitCode).toBe(1);
+      const fullStderr = writtenErr.join('\n');
+      expect(fullStderr).toContain('401');
+      expect(fullStderr).toContain('Authentication recovery:');
+      expect(fullStderr).toContain('ant whoami --json');
+      expect(fullStderr).toContain('ant register --name <terminal-name> --handle <@your-handle>');
+      expect(fullStderr).toContain('ANT_ADMIN_TOKEN');
+    });
   });
 
   describe('rooms members', () => {

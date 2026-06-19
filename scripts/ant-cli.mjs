@@ -431,7 +431,18 @@ async function throwIfNotOk(response, runtime) {
   const composed = errorBodyMessage
     ? `${response.status} ${response.statusText}: ${errorBodyMessage}`
     : `${response.status} ${response.statusText}`;
-  throw new CliNetworkError(`Request failed: ${composed}`);
+  throw new CliNetworkError(`Request failed: ${composed}${authRecoveryHint(response.status)}`);
+}
+
+function authRecoveryHint(status) {
+  if (status !== 401) return '';
+  return `
+
+Authentication recovery:
+  Run \`ant whoami --json\` to see this terminal's ANThandle.
+  If it is unregistered or stale, run:
+    ant register --name <terminal-name> --handle <@your-handle>
+  For operator-only commands, pass --admin-token or set ANT_ADMIN_TOKEN.`;
 }
 
 const MAXIMUM_ERROR_TEXT_LENGTH = 200;
