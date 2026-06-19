@@ -41,10 +41,20 @@ describe('/decks/[deckId] page source', () => {
     expect(pageSource).toContain('type StageAlternativeDecisionAction');
     expect(pageSource).toContain('composedSlides');
     expect(pageSource).toContain('/alternatives/decision');
+    expect(pageSource).toContain('focusComposedAlternative');
     expect(pageSource).toContain('Replace');
     expect(pageSource).toContain('Append after');
     expect(pageSource).toContain('Appendix');
     expect(pageSource).toContain('Park');
+  });
+
+  it('moves presenter focus to generated or adopted slide alternatives', () => {
+    expect(pageSource).toContain('newestSlideAlternativeForSource(feedbackSlideIndex)');
+    expect(pageSource).toContain("action === 'replace-slide' || action === 'append-after' || action === 'append-appendix'");
+    expect(pageSource).toContain('candidate.sourceAlternativeRef === alternativeRef');
+    expect(pageSource).toContain('Using adopted alternative in the main deck path.');
+    expect(pageSource).toContain('activeVersionRef');
+    expect(pageSource).toContain('originalVersionIsActive');
   });
 
   it('renders the Stage cockpit controls from the wireframe', () => {

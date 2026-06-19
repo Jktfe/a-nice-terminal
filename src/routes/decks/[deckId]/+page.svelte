@@ -143,6 +143,7 @@
         createdAtMs: number;
         decision: StageAlternativeDecision | null;
       };
+  type StageSlideAlternativeOption = Extract<StageAlternativeOption, { kind: 'slide' }>;
   type StagePresentedSlide = DeckSlide & {
     source: 'original' | 'alternative';
     sourceSlideIndex: number;
@@ -164,9 +165,9 @@
   const deckPasswordQuery = $derived(data.deckPassword ? `?password=${encodeURIComponent(data.deckPassword)}` : '');
   const originalSlides = $derived(deck.slides ?? []);
   const slideAlternatives = $derived(
-    stageAlternatives.filter((alt): alt is Extract<StageAlternativeOption, { kind: 'slide' }> => alt.kind === 'slide')
+    stageAlternatives.filter((alt): alt is StageSlideAlternativeOption => alt.kind === 'slide')
   );
-  function slideFromAlternative(alternative: Extract<StageAlternativeOption, { kind: 'slide' }>, idPrefix: string): StagePresentedSlide {
+  function slideFromAlternative(alternative: StageSlideAlternativeOption, idPrefix: string): StagePresentedSlide {
     return {
       id: `${idPrefix}-${alternative.slideIndex}`,
       title: alternative.proposedTitle,
@@ -178,9 +179,9 @@
     };
   }
   const composedSlides = $derived.by<StagePresentedSlide[]>(() => {
-    const replacements = new Map<number, Extract<StageAlternativeOption, { kind: 'slide' }>>();
-    const appendAfter = new Map<number, Extract<StageAlternativeOption, { kind: 'slide' }>[]>();
-    const appendix: Extract<StageAlternativeOption, { kind: 'slide' }>[] = [];
+    const replacements = new Map<number, StageSlideAlternativeOption>();
+    const appendAfter = new Map<number, StageSlideAlternativeOption[]>();
+    const appendix: StageSlideAlternativeOption[] = [];
 
     for (const alternative of slideAlternatives) {
       const action = alternative.decision?.action;
@@ -231,6 +232,11 @@
   const visibleSlideAlternative = $derived(
     showAlternatives && selectedAlternative?.kind === 'slide' ? selectedAlternative : null
   );
+  const activeCommittedAlternativeRef = $derived(
+    activeSlide?.source === 'alternative' ? activeSlide.sourceAlternativeRef ?? '' : ''
+  );
+  const activeVersionRef = $derived(visibleSlideAlternative?.ref ?? activeCommittedAlternativeRef);
+  const originalVersionIsActive = $derived(!visibleSlideAlternative && activeSlide?.source !== 'alternative');
   const displayedSlideTitle = $derived(
     visibleSlideAlternative ? visibleSlideAlternative.proposedTitle : (activeSlide?.title ?? '')
   );
@@ -290,6 +296,23 @@
     }
     selectedAlternativeRef = ref;
     showAlternatives = true;
+  }
+
+  function newestSlideAlternativeForSource(sourceIndex: number): StageSlideAlternativeOption | null {
+    return [...slideAlternatives]
+      .filter((alternative) => alternative.slideIndex === sourceIndex)
+      .sort((a, b) => b.createdAtMs - a.createdAtMs)[0] ?? null;
+  }
+
+  function focusComposedAlternative(alternativeRef: string, sourceIndex: number): void {
+    const composedIndex = slides.findIndex((candidate) => candidate.sourceAlternativeRef === alternativeRef);
+    if (composedIndex >= 0) {
+      clampedSet(composedIndex);
+      selectedAlternativeRef = alternativeRef;
+      showAlternatives = false;
+      return;
+    }
+    showAlternativeForSource(sourceIndex, alternativeRef);
   }
 
   function next(): void { clampedSet(activeIndex + 1); }
@@ -378,6 +401,9 @@
         return;
       }
       await refreshStageAlternatives();
+      if (action === 'replace-slide' || action === 'append-after' || action === 'append-appendix') {
+        focusComposedAlternative(alternative.ref, alternative.slideIndex);
+      }
       feedbackNotice = { kind: 'ok', text: `Alternative set to ${action}.` };
     } catch {
       feedbackNotice = { kind: 'err', text: 'Alternative decision failed (network).' };
@@ -514,7 +540,12 @@
         ref: body.proposal?.ref
       };
       await refreshStageAlternatives();
-      if (activeAlternatives.length > 0) showAlternatives = true;
+      if (altCount > 0) {
+        const newestAlternative = newestSlideAlternativeForSource(feedbackSlideIndex);
+        if (newestAlternative) focusComposedAlternative(newestAlternative.ref, newestAlternative.slideIndex);
+      } else if (activeAlternatives.length > 0) {
+        showAlternatives = true;
+      }
       feedbackText = '';
       pasteContext = '';
     } catch {
@@ -749,6 +780,10 @@
             <p class="alternative-banner">
               Showing latest alternative · <button type="button" onclick={() => (showAlternatives = false)}>Show original</button>
             </p>
+          {:else if activeCommittedAlternativeRef}
+            <p class="alternative-banner">
+              Using adopted alternative in the main deck path.
+            </p>
           {/if}
           <div class="slide-body">{@html renderedBody}</div>
 
@@ -817,15 +852,15 @@
             <h3>Slide {activeSourceSlideIndex + 1}</h3>
           </header>
           <ul class="version-history-list">
-            <li class:active={!visibleSlideAlternative}>
+            <li class:active={originalVersionIsActive}>
               <button type="button" onclick={() => (showAlternatives = false)}>
                 <span>V1</span>
                 <strong>{originalSlides[activeSourceSlideIndex]?.title ?? activeSlide.title}</strong>
-                <em>{visibleSlideAlternative ? 'View' : 'Viewing'}</em>
+                <em>{originalVersionIsActive ? 'Viewing' : 'View'}</em>
               </button>
             </li>
             {#each activeAlternatives as alternative (alternative.ref)}
-              <li class:active={alternative.ref === selectedAlternative?.ref && showAlternatives}>
+              <li class:active={alternative.ref === activeVersionRef}>
                 <button
                   type="button"
                   onclick={() => {
@@ -840,7 +875,7 @@
                       ? (alternative.summary ?? alternative.label)
                       : alternative.proposedTitle}
                   </strong>
-                  <em>{alternative.ref === selectedAlternative?.ref && showAlternatives ? 'Viewing' : 'View'}</em>
+                  <em>{alternative.ref === activeVersionRef ? 'Viewing' : 'View'}</em>
                 </button>
                 {#if alternative.kind === 'proposal'}
                   <a href={alternative.ref} target="_blank" rel="noopener">Open comment track</a>
