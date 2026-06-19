@@ -124,4 +124,37 @@ describe('/api/terminals/[id]/settings deliveryMode', () => {
     expect(body.coOwners).toEqual(['@jwpk', '@codex']);
     expect(parseAllowlist(getTerminalRecord(record.session_id)?.allowlist ?? null)).toEqual(['@jwpk', '@codex']);
   });
+
+  it('persists write access grants in the same shape the settings modal reads back', async () => {
+    const terminal = upsertTerminal({ pid: 1006, pid_start: 'p', name: 'write-grants' });
+
+    const patch = await runHandler(
+      PATCH as AnyHandler,
+      eventFor('PATCH', terminal.id, {
+        field: 'writeGrants',
+        value: [{ handle: 'Codex', mode: 'read_write' }, { handle: '@Claude', mode: 'read_write' }]
+      })
+    );
+    expect(patch.status).toBe(200);
+
+    const reread = await runHandler(GET as AnyHandler, eventFor('GET', terminal.id));
+    const body = await reread.json() as { writeGrants: Array<{ handle: string; mode: string }> };
+    expect(body.writeGrants).toEqual([
+      { handle: '@codex', mode: 'read_write' },
+      { handle: '@claude', mode: 'read_write' }
+    ]);
+  });
+
+  it('migrates legacy timestamp-only write grants to read_write on read', async () => {
+    const terminal = upsertTerminal({
+      pid: 1007,
+      pid_start: 'p',
+      name: 'legacy-write-grants',
+      meta: { writeGrants: [{ handle: 'Codex', grantedAtMs: 123 }] }
+    });
+
+    const response = await runHandler(GET as AnyHandler, eventFor('GET', terminal.id));
+    const body = await response.json() as { writeGrants: Array<{ handle: string; mode: string }> };
+    expect(body.writeGrants).toEqual([{ handle: '@codex', mode: 'read_write' }]);
+  });
 });

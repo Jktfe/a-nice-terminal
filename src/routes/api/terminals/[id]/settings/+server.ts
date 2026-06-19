@@ -94,6 +94,22 @@ function normaliseHandleList(raw: unknown): string[] {
   }))];
 }
 
+function normaliseWriteGrants(raw: unknown): Settings['writeGrants'] {
+  if (!Array.isArray(raw)) return [];
+  const grants = new Map<string, { handle: string; mode: 'read' | 'read_write' }>();
+  for (const value of raw) {
+    if (!value || typeof value !== 'object') continue;
+    const rawHandle = (value as { handle?: unknown }).handle;
+    if (typeof rawHandle !== 'string') continue;
+    const handle = normaliseHandle(rawHandle);
+    if (!handle) continue;
+    const rawMode = (value as { mode?: unknown }).mode;
+    const mode = rawMode === 'read' ? 'read' : 'read_write';
+    grants.set(handle, { handle, mode });
+  }
+  return [...grants.values()];
+}
+
 function settingsFromMeta(meta: Record<string, unknown>, recordAllowlist: string[] | null): Settings {
   const persistence = typeof meta.persistence === 'string'
     && ['forever', '7d', '24h', '1h'].includes(meta.persistence as string)
@@ -102,13 +118,7 @@ function settingsFromMeta(meta: Record<string, unknown>, recordAllowlist: string
   const coOwners = recordAllowlist && recordAllowlist.length > 0
     ? normaliseHandleList(recordAllowlist)
     : normaliseHandleList(meta.coOwners);
-  const writeGrants = Array.isArray(meta.writeGrants)
-    ? meta.writeGrants
-        .filter((g): g is { handle: string; mode: 'read' | 'read_write' } =>
-          !!g && typeof g === 'object'
-          && typeof (g as { handle?: unknown }).handle === 'string'
-          && ((g as { mode?: unknown }).mode === 'read' || (g as { mode?: unknown }).mode === 'read_write'))
-    : DEFAULT_SETTINGS.writeGrants;
+  const writeGrants = normaliseWriteGrants(meta.writeGrants);
   const killDefault = typeof meta.killDefault === 'string'
     && (KILL_DEFAULT_VALUES as readonly string[]).includes(meta.killDefault)
     ? meta.killDefault as KillDefault
@@ -192,6 +202,9 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   if (field === 'coOwners' && !Array.isArray(body.value)) {
     throw error(400, 'coOwners must be an array of handles.');
   }
+  if (field === 'writeGrants' && !Array.isArray(body.value)) {
+    throw error(400, 'writeGrants must be an array of grant objects.');
+  }
   if (field === 'killDefault'
       && !(typeof body.value === 'string'
            && (KILL_DEFAULT_VALUES as readonly string[]).includes(body.value))) {
@@ -204,7 +217,11 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     throw error(400, `deliveryTargetMode must be one of ${TERMINAL_DELIVERY_TARGET_MODES.join(' | ')}.`);
   }
   const existingMeta = parseMeta(typeof terminal.meta === 'string' ? terminal.meta : undefined);
-  const value = field === 'coOwners' ? normaliseHandleList(body.value) : body.value;
+  const value = field === 'coOwners'
+    ? normaliseHandleList(body.value)
+    : field === 'writeGrants'
+      ? normaliseWriteGrants(body.value)
+      : body.value;
   if (field === 'coOwners') {
     updateTerminalRecord(id, { allowlist: value as string[] });
   }

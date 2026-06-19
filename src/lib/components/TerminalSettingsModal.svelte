@@ -6,7 +6,7 @@
   import ModalShell from './ModalShell.svelte';
 
   type PersistenceChoice = '1h' | '24h' | '7d' | 'forever';
-  type WriteGrant = { handle: string; grantedAtMs: number };
+  type WriteGrant = { handle: string; mode: 'read_write' };
   type KillDefault = 'prompt' | 'archive' | 'delete' | 'just-kill';
   type DeliveryMode = 'inject' | 'queue_raw' | 'queue_summarise';
   type DeliveryTargetMode = 'room_flow' | 'handle_only';
@@ -115,10 +115,10 @@
         coOwners: (incoming.coOwners as string[]) ?? [],
         writeGrants: Array.isArray(incoming.writeGrants)
           ? incoming.writeGrants.map((g) => {
-              const obj = g as { handle?: unknown; grantedAtMs?: unknown };
+              const obj = g as { handle?: unknown; mode?: unknown };
               return {
                 handle: typeof obj.handle === 'string' ? obj.handle : '',
-                grantedAtMs: typeof obj.grantedAtMs === 'number' ? obj.grantedAtMs : Date.now()
+                mode: 'read_write' as const
               };
             }).filter((g) => g.handle.length > 0)
           : [],
@@ -192,7 +192,7 @@
 
   async function grantWriteTo(handle: string) {
     if (!handle || settings.writeGrants.some((g) => g.handle === handle)) return;
-    const nextGrants = [...settings.writeGrants, { handle, grantedAtMs: Date.now() }];
+    const nextGrants = [...settings.writeGrants, { handle, mode: 'read_write' as const }];
     settings.writeGrants = nextGrants;
     stagedNewGrantee = '';
     markDirty('writeGrants');
