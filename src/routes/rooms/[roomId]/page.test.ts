@@ -319,6 +319,15 @@ describe('/rooms/[roomId] load', () => {
     expect(awayToggleSource).toContain('role="alert"');
   });
 
+  it('preselects the participant when Set focus is opened from the member sheet', () => {
+    const roomPageSource = readFileSync('src/routes/rooms/[roomId]/+page.svelte', 'utf8');
+    expect(roomPageSource).toContain('function openFocusModal(memberHandle: string | null = null)');
+    expect(roomPageSource).toContain('focusModalTarget = memberHandle');
+    expect(roomPageSource).toContain('openFocusModal(memberHandle)');
+    expect(roomPageSource).toContain('preselectedHandle={focusModalTarget}');
+    expect(roomPageSource).toContain('onSetFocus={handleSetFocusFromSheet}');
+  });
+
   it('threads room mode and roster-based agent identity into message claims', () => {
     const roomPageSource = readFileSync('src/routes/rooms/[roomId]/+page.svelte', 'utf8');
     const messageListSource = readFileSync('src/lib/components/MessageList.svelte', 'utf8');

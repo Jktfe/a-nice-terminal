@@ -453,9 +453,23 @@
     refreshFromServer();
   }
 
-  function handleSetFocusFromSheet(memberHandle: string) {
+  function openFocusModal(memberHandle: string | null = null) {
     focusModalTarget = memberHandle;
     showFocusModal = true;
+  }
+
+  function closeFocusModal() {
+    showFocusModal = false;
+    focusModalTarget = null;
+  }
+
+  function handleFocusEntered() {
+    closeFocusModal();
+    invalidateAll();
+  }
+
+  function handleSetFocusFromSheet(memberHandle: string) {
+    openFocusModal(memberHandle);
   }
 
   function dismissBanner() {
@@ -539,7 +553,7 @@
       onMemberPicked={openMemberSheet}
       onInviteRequested={focusInviteForm}
       onAgentInvited={refreshFromServer}
-      onOpenFocusModal={() => (showFocusModal = true)}
+      onOpenFocusModal={() => openFocusModal()}
       onOpenBreakModal={() => (showBreakModal = true)}
       onOpenDigestPanel={() => (showDigestPanel = true)}
     />
@@ -582,8 +596,9 @@
     <FocusModeModal
       roomId={roomFromServer.id}
       members={focusableMembers.length > 0 ? focusableMembers : roomFromServer.members}
-      onClose={() => showFocusModal = false}
-      onEntered={() => { showFocusModal = false; invalidateAll(); }}
+      preselectedHandle={focusModalTarget}
+      onClose={closeFocusModal}
+      onEntered={handleFocusEntered}
     />
   {/if}
 
@@ -657,7 +672,7 @@
       onMemberPicked={openMemberSheet}
       onInviteRequested={focusInviteForm}
       onAgentInvited={refreshFromServer}
-      onOpenFocusModal={() => (showFocusModal = true)}
+      onOpenFocusModal={() => openFocusModal()}
       onToggleRightPane={toggleRightPane}
     />
   </div>
