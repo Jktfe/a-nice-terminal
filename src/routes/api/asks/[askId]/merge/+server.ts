@@ -22,6 +22,7 @@ import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { canonicalOperatorHandleForMembers } from '$lib/operatorSentinel';
 import { findAskById, mergeAsks } from '$lib/server/askStore';
+import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 
 export const POST: RequestHandler = async ({ params, request }) => {
   const source = findAskById(params.askId);
@@ -30,6 +31,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
   if (!room) throw error(404, 'The room for this ask no longer exists.');
 
   const bodyAsObject = await parseRequiredJsonBody(request);
+  requireChatRoomMutationAuth(source.roomId, request, bodyAsObject);
 
   const intoAskIdRaw = bodyAsObject.intoAskId;
   if (typeof intoAskIdRaw !== 'string' || intoAskIdRaw.trim().length === 0) {

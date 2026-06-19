@@ -19,6 +19,7 @@ import { canonicalOperatorHandleForMembers } from '$lib/operatorSentinel';
 import { dismissAsk, findAskById, hasResponseRequiredAsksForHandle } from '$lib/server/askStore';
 import { broadcastToRoom } from '$lib/server/eventBroadcast';
 import { inboxRoomIdFor } from '$lib/server/humanInboxRoomStore';
+import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 
 export const POST: RequestHandler = async ({ params, request }) => {
   const ask = findAskById(params.askId);
@@ -31,6 +32,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
   }
 
   const bodyAsObject = await parseRequiredJsonBody(request);
+  requireChatRoomMutationAuth(ask.roomId, request, bodyAsObject);
 
   const dismissedByHandleRaw = bodyAsObject.dismissedByHandle;
   if (typeof dismissedByHandleRaw !== 'string' || dismissedByHandleRaw.trim().length === 0) {

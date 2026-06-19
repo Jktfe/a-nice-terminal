@@ -6,7 +6,7 @@
  * idempotent PUT-replace, DELETE reports prior existence.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PUT, DELETE } from './+server';
 import {
   createChatRoom,
@@ -18,11 +18,16 @@ import {
   resetChairDigestNoteStoreForTests
 } from '$lib/server/chairDigestNoteStore';
 
-function eventFor(method: 'PUT' | 'DELETE', roomId: string, body?: string) {
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'chair-notes-test-admin';
+
+function eventFor(method: 'PUT' | 'DELETE', roomId: string, body?: string, authenticated = true) {
   const url = new URL(`http://localhost/api/chair/notes/${roomId}`);
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (authenticated) headers.authorization = `Bearer ${TEST_ADMIN_TOKEN}`;
   const request = new Request(url.toString(), {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers,
     body
   });
   return { request, params: { roomId }, url } as unknown as Parameters<typeof PUT>[0];
@@ -44,16 +49,31 @@ async function runHandler(
   }
 }
 
-const callPut = (roomId: string, body?: string) => runHandler(PUT, eventFor('PUT', roomId, body));
-const callDelete = (roomId: string) => runHandler(DELETE, eventFor('DELETE', roomId));
+const callPut = (roomId: string, body?: string, authenticated = true) =>
+  runHandler(PUT, eventFor('PUT', roomId, body, authenticated));
+const callDelete = (roomId: string, authenticated = true) =>
+  runHandler(DELETE, eventFor('DELETE', roomId, undefined, authenticated));
 
 describe('/api/chair/notes/:roomId', () => {
   beforeEach(() => {
+    process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
     resetChatRoomStoreForTests();
     resetChairDigestNoteStoreForTests();
   });
 
+  afterEach(() => {
+    if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
+  });
+
   describe('PUT', () => {
+    it('returns 401 for anonymous note writes before mutation', async () => {
+      const room = createChatRoom({ name: 'put-blocked', whoCreatedIt: '@you' });
+      const response = await callPut(room.id, JSON.stringify({ noteText: 'blocked' }), false);
+      expect(response.status).toBe(401);
+      expect(findDigestNote(room.id)).toBeUndefined();
+    });
+
     it('returns 200 and saves the note', async () => {
       const room = createChatRoom({ name: 'put-happy', whoCreatedIt: '@you' });
       const response = await callPut(room.id, JSON.stringify({ noteText: 'shipping slice 5 next' }));
@@ -108,6 +128,14 @@ describe('/api/chair/notes/:roomId', () => {
   });
 
   describe('DELETE', () => {
+    it('returns 401 for anonymous note clears before mutation', async () => {
+      const room = createChatRoom({ name: 'delete-blocked', whoCreatedIt: '@you' });
+      setDigestNote({ roomId: room.id, noteText: 'keep' });
+      const response = await callDelete(room.id, false);
+      expect(response.status).toBe(401);
+      expect(findDigestNote(room.id)?.noteText).toBe('keep');
+    });
+
     it('returns 200 wasCleared=true when a note existed', async () => {
       const room = createChatRoom({ name: 'delete-existing', whoCreatedIt: '@you' });
       setDigestNote({ roomId: room.id, noteText: 'going away' });

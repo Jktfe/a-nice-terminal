@@ -25,6 +25,7 @@ import { consumeConsentGrant } from '$lib/server/consentGrantStore';
 import { postSystemMessage } from '$lib/server/chatMessageStore';
 import { broadcastToRoom } from '$lib/server/eventBroadcast';
 import { fanoutMessageToRoomTerminals } from '$lib/server/pty-inject-fanout';
+import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 
 export const POST: RequestHandler = async ({ params, request }) => {
   const ask = findAskById(params.askId);
@@ -37,6 +38,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
   }
 
   const bodyAsObject = await parseRequiredJsonBody(request);
+  requireChatRoomMutationAuth(ask.roomId, request, bodyAsObject);
 
   const answeredByHandleRaw = bodyAsObject.answeredByHandle;
   if (typeof answeredByHandleRaw !== 'string' || answeredByHandleRaw.trim().length === 0) {

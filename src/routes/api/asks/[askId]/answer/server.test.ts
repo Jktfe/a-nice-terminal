@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { POST } from './+server';
 import {
   createChatRoom,
@@ -18,13 +18,18 @@ import {
 } from '$lib/server/chatMessageStore';
 import { subscribeRoomEvents } from '$lib/server/eventBroadcast';
 
-type CallPostOptions = { askId: string; body?: string };
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'ask-answer-test-admin';
+
+type CallPostOptions = { askId: string; body?: string; authenticated?: boolean };
 
 async function callPost(options: CallPostOptions): Promise<Response> {
   const url = `http://localhost/api/asks/${options.askId}/answer`;
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (options.authenticated !== false) headers.authorization = `Bearer ${TEST_ADMIN_TOKEN}`;
   const request = new Request(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: options.body
   });
   const event = {
@@ -59,9 +64,27 @@ function seedOpenAsk(roomCreator: string = '@you', memberHandle?: string): Ask {
 
 describe('POST /api/asks/:askId/answer', () => {
   beforeEach(() => {
+    process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
     resetChatRoomStoreForTests();
     resetAskStoreForTests();
     resetChatMessageStoreForTests();
+  });
+
+  afterEach(() => {
+    if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
+  });
+
+  it('401 for anonymous answers before mutation or room fanout', async () => {
+    const ask = seedOpenAsk('@you');
+    const response = await callPost({
+      askId: ask.id,
+      body: JSON.stringify({ answeredByHandle: '@you', answer: 'because' }),
+      authenticated: false
+    });
+    expect(response.status).toBe(401);
+    expect(findAskById(ask.id)?.status).toBe('open');
+    expect(listMessagesInRoom(ask.roomId)).toHaveLength(0);
   });
 
   it('200 when a room member answers an open ask', async () => {

@@ -1,20 +1,29 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { createConsentGrant, resetConsentGrantStoreForTests } from '$lib/server/consentGrantStore';
 import { findAskById, openAskInRoom, resetAskStoreForTests } from '$lib/server/askStore';
 import { POST } from './+server';
 
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'ask-answer-consent-test-admin';
+
 beforeEach(() => {
+  process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
   resetChatRoomStoreForTests();
   resetAskStoreForTests();
   resetConsentGrantStoreForTests();
+});
+
+afterEach(() => {
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
 async function callPost(askId: string, body: unknown): Promise<Response> {
   const url = `http://localhost/api/asks/${askId}/answer`;
   const request = new Request(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${TEST_ADMIN_TOKEN}` },
     body: JSON.stringify(body)
   });
   const event = { request, params: { askId }, url: new URL(url) } as unknown as Parameters<typeof POST>[0];

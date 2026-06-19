@@ -22,6 +22,7 @@ import {
   setDigestNote,
   clearDigestNote
 } from '$lib/server/chairDigestNoteStore';
+import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 
 function assertRoomExists(roomId: string): void {
   if (!findChatRoomById(roomId)) {
@@ -49,6 +50,7 @@ async function parseRequiredJsonBody(request: Request): Promise<Record<string, u
 }
 
 export const PUT: RequestHandler = async ({ params, request }) => {
+  requireChatRoomMutationAuth(params.roomId, request, null);
   assertRoomExists(params.roomId);
   const bodyAsObject = await parseRequiredJsonBody(request);
 
@@ -67,7 +69,8 @@ export const PUT: RequestHandler = async ({ params, request }) => {
   }
 };
 
-export const DELETE: RequestHandler = ({ params }) => {
+export const DELETE: RequestHandler = ({ params, request }) => {
+  requireChatRoomMutationAuth(params.roomId, request, null);
   assertRoomExists(params.roomId);
   const wasCleared = clearDigestNote(params.roomId);
   return json({ wasCleared });
