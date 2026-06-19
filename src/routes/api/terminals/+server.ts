@@ -24,7 +24,7 @@ import {
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { createChatRoom, findChatRoomById, softDeleteChatRoom } from '$lib/server/chatRoomStore';
 import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle';
-import { resolveTerminalCallerHandle } from '$lib/server/authGate';
+import { resolveTerminalCallerHandle, resolveCallerHandleAnyRoom } from '$lib/server/authGate';
 import {
   autoRegisterTerminalForSpawnedSession,
   listTerminalClassByIds,
@@ -62,7 +62,14 @@ export const GET: RequestHandler = async ({ request }) => {
   // operator-only, which broke the antOS Terminals view — every already-adopted
   // pane fell back to showing as an un-adopted "Bring in" candidate.
   const antSessionId = request.headers.get('x-ant-session-id')?.trim() ?? null;
-  if (!hasOperatorLikeAuth(request) && resolveOrNull(antSessionId) === null) {
+  const authHeader = request.headers.get('authorization') ?? '';
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  const authenticated =
+    hasOperatorLikeAuth(request) ||                       // admin / operator session / antchat-operator
+    resolveCallerHandleAnyRoom(request) !== null ||       // antchat bearer / browser-session cookie
+    resolveOrNull(antSessionId) !== null ||               // x-ant-session-id durable session
+    resolveOrNull(bearerToken) !== null;                  // Bearer durable session (antOS app's pattern)
+  if (!authenticated) {
     throw error(401, 'authenticated operator or ANT session required');
   }
   const aliveSessionIds = await listTerminals();
