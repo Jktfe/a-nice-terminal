@@ -118,8 +118,12 @@
       scope: parseScope(lens?.scope),
       scopeId: lens?.scopeId ?? '',
       reason: '',
-      rules: structuredClone(parsedRules)
+      rules: cloneLensRules(parsedRules)
     };
+  }
+
+  function cloneLensRules(rules: LensRules): LensRules {
+    return JSON.parse(JSON.stringify(rules)) as LensRules;
   }
 
   function isLensRules(value: unknown): value is LensRules {
@@ -153,7 +157,7 @@
   }
 
   function cloneRules(): LensRules {
-    return structuredClone(draft.rules);
+    return cloneLensRules(draft.rules);
   }
 
   function updateRules(nextRules: LensRules): void {
@@ -303,6 +307,14 @@
     };
   }
 
+  async function responseFailureMessage(response: Response, action: string): Promise<string> {
+    const body = await response.json().catch(() => null) as { message?: unknown } | null;
+    const message = typeof body?.message === 'string' ? body.message.trim() : '';
+    return message.length > 0
+      ? `${action} failed (${response.status}): ${message}`
+      : `${action} failed (${response.status}).`;
+  }
+
   async function saveLens(): Promise<void> {
     if (!isPaid) return;
     saving = true;
@@ -316,8 +328,7 @@
         body: JSON.stringify(payload())
       });
       if (!response.ok) {
-        const err = await response.json().catch(() => null) as { message?: string } | null;
-        throw new Error(err?.message ?? `Save failed (${response.status}).`);
+        throw new Error(await responseFailureMessage(response, 'Save'));
       }
       const body = await response.json() as { lens: Lens };
       lenses = [body.lens, ...lenses.filter((lens) => lens.id !== body.lens.id)];
@@ -343,7 +354,7 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ reason: draft.reason || 'Archived from web designer.' })
       });
-      if (!response.ok) throw new Error(`Archive failed (${response.status}).`);
+      if (!response.ok) throw new Error(await responseFailureMessage(response, 'Archive'));
       lenses = lenses.filter((lens) => lens.id !== draft.id);
       startNew();
       notice = 'Lens archived.';
