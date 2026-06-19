@@ -89,6 +89,8 @@
   onMount(loadFeed);
 </script>
 
+<svelte:head><title>Suggestions | ANT vNext</title></svelte:head>
+
 <SimplePageShell showIntro={false}>
   <div class="feed-page">
     <header class="feed-header">

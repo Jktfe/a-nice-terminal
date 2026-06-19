@@ -682,6 +682,8 @@
   onMount(loadStates);
 </script>
 
+<svelte:head><title>Screens canvas | ANT vNext</title></svelte:head>
+
 <SimplePageShell showIntro={false}>
   <div class="canvas-page">
     <header class="canvas-header">

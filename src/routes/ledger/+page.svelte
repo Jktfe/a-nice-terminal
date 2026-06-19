@@ -8,4 +8,6 @@
   onMount(() => { location.replace('/settings#activity'); });
 </script>
 
+<svelte:head><title>Ledger | ANT vNext</title></svelte:head>
+
 <p>Ledger has moved into <a href="/settings#activity">Settings → Activity</a>.</p>
