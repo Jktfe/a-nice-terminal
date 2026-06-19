@@ -10,4 +10,12 @@ describe('/login page source', () => {
     expect(pageSource).toContain('return `${failure.message}${requestSuffix}`');
     expect(pageSource).toContain('Reference: ${failure.requestId}.');
   });
+
+  it('keeps non-credential account login failures visible when the stored-login fallback also fails', () => {
+    expect(pageSource).toContain('shouldKeepAccountFailureAfterStoredFallback(');
+    expect(pageSource).toContain("accountFailure.code && accountFailure.code !== 'invalid_credentials'");
+    expect(pageSource).toContain('return accountResponse.status >= 500 && !storedResponse.ok;');
+    expect(pageSource).toContain('response = accountResponse;');
+    expect(pageSource).toContain('failure = accountFailure;');
+  });
 });

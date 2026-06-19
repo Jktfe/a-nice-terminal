@@ -32,6 +32,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 |---|---|---:|---|---|
 | Start a chatroom | v5 chat/room lane | CHANGE | Claude | First vertical slice starts here, not from terminal. |
 | Authenticated chatroom creation | ANT fixes overnight UX sweep, 2026-06-19 | CHANGE | Codex | `POST /api/chat-rooms` is no longer an anonymous write that can default creation to the operator. Room creation now requires an authenticated browser/session/bearer/pidChain caller; non-admin creates are stamped from the server-resolved identity, while admin-bearer automation keeps the explicit creator override. CLI create paths send pidChain on the POST URL. |
+| Account-login fallback failure visibility | ANT fixes overnight UX sweep, 2026-06-19 | CHANGE | Codex | The `/login` browser form still tries stored-user login after account-password failures, but it now preserves the account-login failure when the account path reached a non-credential local/session error or account outage and the stored-login fallback also fails. Users see the real request-id-bearing auth/session problem instead of a misleading stored-login "wrong password" message. |
 | Invite existing agent | v5 chat/room lane | CHANGE | Claude | Must include existing and new agent paths. |
 | Invite new agent | v5 chat/room lane | CHANGE | Claude | Must show launch, handle, and room context. |
 | Remote invite to room | v5 system lane | CHANGE | Codex | Keep security boundary explicit. |

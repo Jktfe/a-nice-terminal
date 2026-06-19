@@ -64,6 +64,17 @@
     return response.status === 401 || response.status === 403 || response.status >= 500;
   }
 
+  function shouldKeepAccountFailureAfterStoredFallback(
+    accountResponse: Response,
+    accountFailure: LoginFailure | null,
+    storedResponse: Response
+  ): boolean {
+    if (!accountFailure) return false;
+    if (accountFailure.fallbackToStoredLogin === false) return true;
+    if (accountFailure.code && accountFailure.code !== 'invalid_credentials') return true;
+    return accountResponse.status >= 500 && !storedResponse.ok;
+  }
+
   function describeLoginFailure(response: Response, failure: LoginFailure): string {
     const requestSuffix = failure.requestId ? ` Reference: ${failure.requestId}.` : '';
     if (failure.fallbackToStoredLogin === false && failure.message) return `${failure.message}${requestSuffix}`;
@@ -89,14 +100,23 @@
       // proven). Both set the same browser-session cookie server-side.
       const body = JSON.stringify({ email, password });
       const headers = { 'content-type': 'application/json' };
-      let response = await fetch('/api/auth/accounts-login', { method: 'POST', headers, body });
+      const accountResponse = await fetch('/api/auth/accounts-login', { method: 'POST', headers, body });
+      let response = accountResponse;
       let failure: LoginFailure | null = null;
       if (!response.ok) {
         failure = await parseLoginFailure(response);
       }
       if (!response.ok && canTryStoredLogin(response, failure ?? {})) {
-        response = await fetch('/api/auth/demo-login', { method: 'POST', headers, body });
-        failure = response.ok ? null : await parseLoginFailure(response);
+        const accountFailure = failure;
+        const storedResponse = await fetch('/api/auth/demo-login', { method: 'POST', headers, body });
+        const storedFailure = storedResponse.ok ? null : await parseLoginFailure(storedResponse);
+        if (!storedResponse.ok && shouldKeepAccountFailureAfterStoredFallback(accountResponse, accountFailure, storedResponse)) {
+          response = accountResponse;
+          failure = accountFailure;
+        } else {
+          response = storedResponse;
+          failure = storedFailure;
+        }
       }
       if (!response.ok) {
         errorMessage = describeLoginFailure(response, failure ?? {});
