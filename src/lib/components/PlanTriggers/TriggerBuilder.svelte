@@ -12,6 +12,7 @@
   import CopyButton from '$lib/components/CopyButton.svelte';
   import type { PlanTriggerEvent, PlanTriggerAction } from '$lib/server/planTriggerStore';
   import type { PlanRecord } from '$lib/server/planStore';
+  import { buildPlanTriggerAddCommand } from './triggerCommands';
 
   type Props = {
     eventOptions: PlanTriggerEvent[];
@@ -32,10 +33,6 @@
   const selectablePlans: PlanRecord[] = $derived(
     plans.filter((p) => planLifecycle(p) !== 'deleted')
   );
-
-  function shellQuote(v: string): string {
-    return `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-  }
 
   // svelte-ignore state_referenced_locally — init-from-prop intentional.
   let selectedEvent = $state<PlanTriggerEvent>(eventOptions[0] ?? ('plan.completed' as PlanTriggerEvent));
@@ -63,24 +60,17 @@
         : 'Message'
   );
 
-  const addCommand = $derived.by((): string => {
-    const parts: string[] = ['ant', 'plan', 'trigger', 'add', selectedEvent, selectedAction];
-    if (scope) parts.push('--plan', scope);
-    if (showMessage && messageTemplate.trim().length > 0) {
-      parts.push('--message', shellQuote(messageTemplate));
-    }
-    if (showWebhook && webhookUrl.trim().length > 0) {
-      parts.push('--url', shellQuote(webhookUrl.trim()));
-    }
-    if (showTaskCreate) {
-      if (taskSubject.trim().length > 0) parts.push('--subject', shellQuote(taskSubject));
-      if (taskTargetPlan.trim().length > 0) parts.push('--target-plan', shellQuote(taskTargetPlan.trim()));
-      const pri = taskPriority.trim();
-      if (pri.length > 0 && /^-?\d+$/.test(pri)) parts.push('--priority', pri);
-    }
-    if (createdBy.trim().length > 0) parts.push('--by', shellQuote(createdBy.trim()));
-    return parts.join(' ');
-  });
+  const addCommand = $derived.by((): string => buildPlanTriggerAddCommand({
+    event: selectedEvent,
+    action: selectedAction,
+    planId: scope,
+    message: showMessage ? messageTemplate : null,
+    url: showWebhook ? webhookUrl : null,
+    subject: showTaskCreate ? taskSubject : null,
+    targetPlan: showTaskCreate ? taskTargetPlan : null,
+    priority: showTaskCreate ? taskPriority : null,
+    createdBy
+  }));
 </script>
 
 <div class="form-grid">

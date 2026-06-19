@@ -7,6 +7,7 @@
   import CopyButton from '$lib/components/CopyButton.svelte';
   import type { PlanTrigger } from '$lib/server/planTriggerStore';
   import type { PlanRecord } from '$lib/server/planStore';
+  import { buildPlanTriggerFireCommand, buildPlanTriggerRemoveCommand } from './triggerCommands';
 
   type Props = {
     triggers: PlanTrigger[];
@@ -34,8 +35,8 @@
     return { kind: 'plan', text: p?.title?.trim() || t.planId, id: t.planId };
   }
 
-  function fireCmd(id: string): string { return `ant plan trigger fire ${id}`; }
-  function removeCmd(id: string): string { return `ant plan trigger remove ${id}`; }
+  function fireCmd(trigger: PlanTrigger): string { return buildPlanTriggerFireCommand(trigger); }
+  function removeCmd(trigger: PlanTrigger): string { return buildPlanTriggerRemoveCommand(trigger); }
 </script>
 
 {#if triggers.length === 0}
@@ -56,6 +57,8 @@
       <tbody>
         {#each triggers as t (t.id)}
           {@const sc = scopeLabel(t)}
+          {@const removeCommand = removeCmd(t)}
+          {@const fireCommand = fireCmd(t)}
           <tr>
             <td><code>{t.event}</code></td>
             <td><code>{t.action}</code></td>
@@ -69,8 +72,15 @@
             <td class="muted">{fmtRelative(t.lastFiredAtMs)}</td>
             <td class="num">{t.fireCount}</td>
             <td class="actions">
-              <CopyButton text={removeCmd(t.id)} label="Remove cmd" title={`Copy: ${removeCmd(t.id)}`} />
-              <CopyButton text={fireCmd(t.id)} label="Fire cmd" title={`Copy: ${fireCmd(t.id)}`} />
+              <CopyButton text={removeCommand} label="Remove cmd" title={`Copy: ${removeCommand}`} />
+              <CopyButton
+                text={fireCommand}
+                label={t.planId == null ? 'Fire cmd + plan' : 'Fire cmd'}
+                title={`Copy: ${fireCommand}`}
+              />
+              {#if t.planId == null}
+                <span class="muted hint">replace &lt;planId&gt;</span>
+              {/if}
             </td>
           </tr>
         {/each}
@@ -101,6 +111,7 @@
   td a { color: var(--ink-strong); font-weight: 700; text-decoration: none; }
   td a:hover { color: var(--accent); }
   .actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+  .actions .hint { align-self: center; font-size: 0.74rem; }
   code {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.82rem;
