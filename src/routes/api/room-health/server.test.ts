@@ -9,14 +9,17 @@ import { createSession } from '$lib/server/antSessionStore';
 
 // GET /api/room-health — read-only room-identity health feed (workstream C).
 // Wraps listRoomHealth() + summary so the RoomHealthPanel can poll one cheap
-// endpoint. No auth gate beyond DB existence (matches health/digest patterns).
+// endpoint. Cross-room roster reads require aggregate auth.
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
+const previousAdminToken = process.env.ANT_ADMIN_TOKEN;
+const ADMIN_TOKEN = 'room-health-admin-token';
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-room-health-api-'));
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+  process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN;
   resetIdentityDbForTests();
   resetChatRoomStoreForTests();
 });
@@ -26,6 +29,8 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
   if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
+  if (previousAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = previousAdminToken;
 });
 
 function insertTerminal(id: string, name: string): void {
@@ -61,13 +66,31 @@ function addMembershipRow(roomId: string, handle: string, terminalId: string): v
     .run(`mem-${terminalId}`, roomId, handle, terminalId, Math.floor(Date.now() / 1000));
 }
 
-async function callGet(): Promise<Response> {
+async function callGet(headers: HeadersInit = { authorization: `Bearer ${ADMIN_TOKEN}` }): Promise<Response> {
   const url = new URL('http://localhost/api/room-health');
-  const event = { request: new Request(url), url } as unknown as Parameters<typeof GET>[0];
+  const event = { request: new Request(url, { headers }), url } as unknown as Parameters<typeof GET>[0];
   return (await GET(event)) as Response;
 }
 
+async function callGetOrCaught(headers: HeadersInit = {}): Promise<Response> {
+  try {
+    return await callGet(headers);
+  } catch (thrown) {
+    if (thrown instanceof Response) return thrown;
+    const failure = thrown as { status?: number; body?: { message?: string } };
+    if (typeof failure?.status === 'number') {
+      return new Response(JSON.stringify(failure.body ?? {}), { status: failure.status });
+    }
+    throw thrown;
+  }
+}
+
 describe('GET /api/room-health', () => {
+  it('rejects anonymous cross-room health reads', async () => {
+    const res = await callGetOrCaught({});
+    expect(res.status).toBe(401);
+  });
+
   it('returns an empty list + zeroed summary when no live terminals exist', async () => {
     const res = await callGet();
     expect(res.status).toBe(200);

@@ -1,7 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { GET, POST } from './+server';
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+
+const ADMIN_TOKEN = 'share-admin-token';
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
 
 type GetEvent = Parameters<typeof GET>[0];
 type PostEvent = Parameters<typeof POST>[0];
@@ -15,20 +18,20 @@ function caughtResponse(thrownByHandler: unknown): Response {
   throw thrownByHandler;
 }
 
-async function callGet(search = ''): Promise<Response> {
+async function callGet(search = '', headers: HeadersInit = { authorization: `Bearer ${ADMIN_TOKEN}` }): Promise<Response> {
   const url = new URL(`http://localhost/api/share${search}`);
   try {
-    return (await GET({ request: new Request(url), params: {}, url } as unknown as GetEvent)) as Response;
+    return (await GET({ request: new Request(url, { headers }), params: {}, url } as unknown as GetEvent)) as Response;
   } catch (thrownByHandler) {
     return caughtResponse(thrownByHandler);
   }
 }
 
-async function callPost(body: unknown): Promise<Response> {
+async function callPost(body: unknown, headers: HeadersInit = { authorization: `Bearer ${ADMIN_TOKEN}` }): Promise<Response> {
   const url = new URL('http://localhost/api/share');
   const request = new Request(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body)
   });
   try {
@@ -40,8 +43,20 @@ async function callPost(body: unknown): Promise<Response> {
 
 describe('/api/share', () => {
   beforeEach(() => {
+    process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN;
     resetIdentityDbForTests();
     resetChatRoomStoreForTests();
+  });
+
+  afterEach(() => {
+    if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
+  });
+
+  it('rejects anonymous share-link creation and listing', async () => {
+    const room = createChatRoom({ name: 'private room', whoCreatedIt: '@you' });
+    expect((await callPost({ roomId: room.id, title: 'leak', scope: 'messages' }, {})).status).toBe(401);
+    expect((await callGet(`?roomId=${room.id}`, {})).status).toBe(401);
   });
 
   it('POST creates a share link and GET lists it for the room', async () => {
@@ -58,7 +73,7 @@ describe('/api/share', () => {
       room_id: room.id,
       title: 'Public room view',
       scope: 'messages',
-      created_by: '@you',
+      created_by: '@admin',
       access_count: 0
     });
     expect(createBody.link.token).toHaveLength(24);

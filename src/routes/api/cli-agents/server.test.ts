@@ -19,10 +19,23 @@ import {
 
 type AnyHandler = (event: unknown) => unknown;
 
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'cli-agents-test-admin';
+
 function eventFor(method: 'GET' | 'POST' | 'DELETE', path: string, init?: RequestInit, params?: Record<string, string>): unknown {
   const url = new URL(`http://localhost${path}`);
   const request = new Request(url.toString(), { method, ...(init ?? {}) });
   return { request, params: params ?? {}, url };
+}
+
+function adminEventFor(method: 'GET' | 'POST' | 'DELETE', path: string, init?: RequestInit, params?: Record<string, string>): unknown {
+  return eventFor(method, path, {
+    ...(init ?? {}),
+    headers: {
+      ...(init?.headers as Record<string, string> | undefined),
+      authorization: `Bearer ${TEST_ADMIN_TOKEN}`
+    }
+  }, params);
 }
 
 async function runHandler(handler: AnyHandler, event: unknown): Promise<Response> {
@@ -72,13 +85,25 @@ function fakeHandle(opts: {
 }
 
 describe('/api/cli-agents endpoints', () => {
-  beforeEach(() => resetCliAgentRegistryForTests());
-  afterEach(() => resetCliAgentRegistryForTests());
+  beforeEach(() => {
+    process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
+    resetCliAgentRegistryForTests();
+  });
+  afterEach(() => {
+    resetCliAgentRegistryForTests();
+    if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
+  });
+
+  it('GET /api/cli-agents rejects anonymous list reads', async () => {
+    const response = await runHandler(listGet as unknown as AnyHandler, eventFor('GET', '/api/cli-agents'));
+    expect(response.status).toBe(401);
+  });
 
   it('GET /api/cli-agents returns all registered agents', async () => {
     registerCliAgentForTests(fakeHandle({ cli: 'codex', handleId: 'a', sessionId: 'thread-1' }));
     registerCliAgentForTests(fakeHandle({ cli: 'pi', handleId: 'b', sessionId: 'pi-sess-x' }));
-    const response = await runHandler(listGet as unknown as AnyHandler, eventFor('GET', '/api/cli-agents'));
+    const response = await runHandler(listGet as unknown as AnyHandler, adminEventFor('GET', '/api/cli-agents'));
     expect(response.status).toBe(200);
     const body = (await response.json()) as { agents: Array<{ handleId: string; sessionId: string | null }> };
     expect(body.agents.map((a) => a.handleId).sort()).toEqual(['a', 'b']);

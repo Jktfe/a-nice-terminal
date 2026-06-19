@@ -83,6 +83,12 @@ function operatorCookieFor(roomId: string): string {
 }
 
 describe('GET /api/agents', () => {
+  it('rejects anonymous global agent reads because they expose cross-room memberships', async () => {
+    await expect(GET(req('http://x/api/agents'))).rejects.toMatchObject({
+      status: 401
+    });
+  });
+
   it('lists global agents deduplicated by handle with room memberships', async () => {
     const first = createChatRoom({ name: 'room-one', whoCreatedIt: '@you' });
     const second = createChatRoom({ name: 'room-two', whoCreatedIt: '@you' });
@@ -90,7 +96,7 @@ describe('GET /api/agents', () => {
     inviteAgentToRoom({ roomId: second.id, agentHandle: '@alpha', agentDisplayName: 'Alpha' });
     inviteAgentToRoom({ roomId: first.id, agentHandle: '@beta', agentDisplayName: 'Beta' });
 
-    const res = await GET(req('http://x/api/agents'));
+    const res = await GET(adminReq('http://x/api/agents'));
     expect(res.status).toBe(200);
     const body = await res.json();
 
@@ -112,7 +118,7 @@ describe('GET /api/agents', () => {
     inviteAgentToRoom({ roomId: first.id, agentHandle: '@alpha', agentDisplayName: 'Alpha' });
     inviteAgentToRoom({ roomId: second.id, agentHandle: '@beta', agentDisplayName: 'Beta' });
 
-    const res = await GET(req(`http://x/api/agents?roomId=${first.id}`));
+    const res = await GET(adminReq(`http://x/api/agents?roomId=${first.id}`));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.agents).toEqual([
@@ -122,7 +128,7 @@ describe('GET /api/agents', () => {
       })
     ]);
 
-    await expect(GET(req('http://x/api/agents?roomId=missing-room'))).rejects.toMatchObject({
+    await expect(GET(adminReq('http://x/api/agents?roomId=missing-room'))).rejects.toMatchObject({
       status: 404
     });
   });

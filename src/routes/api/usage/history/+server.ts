@@ -13,11 +13,13 @@
  */
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 import { listRecentUsageSnapshots } from '$lib/server/usageSnapshotStore';
 
 const DEFAULT_LIMIT = 60;
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ request, url }) => {
+  requireAggregateReadAuth(request, '/api/usage/history');
   const limitRaw = url.searchParams.get('limit');
   const limit = limitRaw === null ? DEFAULT_LIMIT : Number(limitRaw);
   const snapshots = listRecentUsageSnapshots(Number.isFinite(limit) ? limit : DEFAULT_LIMIT);

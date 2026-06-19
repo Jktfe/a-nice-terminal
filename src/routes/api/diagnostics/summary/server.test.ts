@@ -27,7 +27,30 @@ afterEach(() => {
 });
 
 describe('GET /api/diagnostics/summary', () => {
-  it('returns public safe diagnostics without leaking admin secrets', async () => {
+  async function callGet(headers: HeadersInit = { authorization: `Bearer ${ADMIN_TOKEN}` }): Promise<Response> {
+    const request = new Request('http://localhost/api/diagnostics/summary', { headers });
+    return (await GET({ request } as Parameters<typeof GET>[0])) as Response;
+  }
+
+  async function callGetOrCaught(headers: HeadersInit = {}): Promise<Response> {
+    try {
+      return await callGet(headers);
+    } catch (thrown) {
+      if (thrown instanceof Response) return thrown;
+      const failure = thrown as { status?: number; body?: { message?: string } };
+      if (typeof failure?.status === 'number') {
+        return new Response(JSON.stringify(failure.body ?? {}), { status: failure.status });
+      }
+      throw thrown;
+    }
+  }
+
+  it('rejects anonymous diagnostics summary reads', async () => {
+    const res = await callGetOrCaught({});
+    expect(res.status).toBe(401);
+  });
+
+  it('returns operator diagnostics without leaking admin secrets', async () => {
     const room = createChatRoom({ name: 'summary-room', whoCreatedIt: '@test' });
     const controller = {
       enqueue: () => {},
@@ -37,7 +60,7 @@ describe('GET /api/diagnostics/summary', () => {
     subscribeToRoom(room.id, controller);
     broadcastToRoom(room.id, { type: 'diagnostics_probe' });
 
-    const res = await GET({} as Parameters<typeof GET>[0]);
+    const res = await callGet();
     expect(res.status).toBe(200);
     const body = await res.json();
 

@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { listTunnelsForRoom, createTunnel, getTunnelBySlug } from '$lib/server/tunnelStore';
 import type { Tunnel } from '$lib/server/tunnelStore';
+import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 
 function serialize(t: Tunnel) {
   return {
@@ -19,21 +20,23 @@ function serialize(t: Tunnel) {
   };
 }
 
-export const GET: RequestHandler = async ({ url, locals }) => {
+export const GET: RequestHandler = async ({ request, url }) => {
   const roomId = url.searchParams.get('roomId');
   if (!roomId) throw error(400, 'roomId required');
   const room = findChatRoomById(roomId);
   if (!room) throw error(404, 'Room not found');
+  requireChatRoomMutationAuth(roomId, request, null);
   const tunnels = listTunnelsForRoom(roomId);
   return json({ tunnels: tunnels.map(serialize) });
 };
 
-export const POST: RequestHandler = async ({ request, locals }) => {
+export const POST: RequestHandler = async ({ request }) => {
   const body = await request.json().catch(() => ({}));
   const roomId = body.roomId;
   if (!roomId || typeof roomId !== 'string') throw error(400, 'roomId required');
   const room = findChatRoomById(roomId);
   if (!room) throw error(404, 'Room not found');
+  requireChatRoomMutationAuth(roomId, request, body);
 
   const slug = body.slug;
   if (!slug || typeof slug !== 'string') throw error(400, 'slug required');

@@ -12,12 +12,14 @@ import { createOrg, resetOrgsStoreForTests } from '$lib/server/orgsStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
+const previousAdminToken = process.env.ANT_ADMIN_TOKEN;
+const ADMIN_TOKEN = 'single-org-admin-token';
 
 type AnyHandler = (event: unknown) => unknown;
 
-function eventFor(path: string, params: Record<string, string>): unknown {
+function eventFor(path: string, params: Record<string, string>, headers: HeadersInit = { authorization: `Bearer ${ADMIN_TOKEN}` }): unknown {
   const url = new URL(`http://localhost${path}`);
-  const request = new Request(url.toString(), { method: 'GET' });
+  const request = new Request(url.toString(), { method: 'GET', headers });
   return { request, params, url };
 }
 
@@ -37,6 +39,7 @@ async function runHandler(handler: AnyHandler, event: unknown): Promise<Response
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-orgs-single-route-'));
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+  process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN;
   resetIdentityDbForTests();
   resetOrgsStoreForTests();
 });
@@ -46,9 +49,17 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
   if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
+  if (previousAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = previousAdminToken;
 });
 
 describe('/api/orgs/[orgId] GET', () => {
+  it('OS0: rejects anonymous reads', async () => {
+    createOrg({ id: 'acme', displayName: 'Acme', namespacePrefix: 'org.acme', createdBy: '@james' });
+    const response = await runHandler(GET as unknown as AnyHandler, eventFor('/api/orgs/acme', { orgId: 'acme' }, {}));
+    expect(response.status).toBe(401);
+  });
+
   it('OS1: returns the org row when found', async () => {
     createOrg({ id: 'acme', displayName: 'Acme', namespacePrefix: 'org.acme', createdBy: '@james' });
     const response = await runHandler(GET as unknown as AnyHandler, eventFor('/api/orgs/acme', { orgId: 'acme' }));

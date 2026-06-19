@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getShareLink, incrementLinkAccess, revokeShareLink } from '$lib/server/shareLinkStore';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
+import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 
 export const GET: RequestHandler = async ({ params, fetch }) => {
   const link = getShareLink(params.token);
@@ -32,9 +33,10 @@ export const GET: RequestHandler = async ({ params, fetch }) => {
   return json(response);
 };
 
-export const DELETE: RequestHandler = async ({ params }) => {
+export const DELETE: RequestHandler = async ({ request, params }) => {
   const link = getShareLink(params.token);
   if (!link) throw error(404, 'Link not found');
+  requireChatRoomMutationAuth(link.room_id, request, null);
   revokeShareLink(params.token);
   return json({ token: params.token });
 };

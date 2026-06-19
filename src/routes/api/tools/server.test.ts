@@ -47,10 +47,10 @@ function makePost(body: unknown, token: string = ADMIN_TOKEN): any {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeGet(query: string = ''): any {
+function makeGet(query: string = '', headers: HeadersInit = { authorization: `Bearer ${ADMIN_TOKEN}` }): any {
   const url = `http://localhost/api/tools${query}`;
   return {
-    request: new Request(url),
+    request: new Request(url, { headers }),
     params: {},
     url: new URL(url)
   };
@@ -176,6 +176,11 @@ describe('POST /api/tools', () => {
 });
 
 describe('GET /api/tools', () => {
+  it('401 rejects anonymous tool listing', async () => {
+    const res = await callOrUnwrap(() => GET(makeGet('', {})));
+    expect(res.status).toBe(401);
+  });
+
   it('200 lists active tools', async () => {
     registerTool({ toolSlug: 'a', kind: 'skill', name: 'A' });
     registerTool({ toolSlug: 'b', kind: 'mcp', name: 'B' });

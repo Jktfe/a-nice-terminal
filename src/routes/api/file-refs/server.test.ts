@@ -16,20 +16,29 @@ import {
 const TERMINAL_FILES_ADMIN_TOKEN = 'file-refs-terminal-files-test-token';
 const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
 
-function getEvent(searchParams: Record<string, string> = {}) {
+function getEvent(searchParams: Record<string, string> = {}, headers: HeadersInit = { authorization: `Bearer ${TERMINAL_FILES_ADMIN_TOKEN}` }) {
   const url = new URL('http://localhost/api/file-refs');
   for (const [k, v] of Object.entries(searchParams)) url.searchParams.set(k, v);
-  return { url, params: {}, request: new Request(url) } as unknown as Parameters<typeof GET>[0];
+  return { url, params: {}, request: new Request(url, { headers }) } as unknown as Parameters<typeof GET>[0];
 }
 
-function postEvent(body?: unknown) {
+function postEvent(body?: unknown, headers: HeadersInit = { authorization: `Bearer ${TERMINAL_FILES_ADMIN_TOKEN}` }) {
   const url = new URL('http://localhost/api/file-refs');
   const request = new Request(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
   return { request, url, params: {} } as unknown as Parameters<typeof POST>[0];
+}
+
+function oneEvent(id: string, method: 'GET' | 'DELETE', headers: HeadersInit = { authorization: `Bearer ${TERMINAL_FILES_ADMIN_TOKEN}` }) {
+  const url = new URL(`http://localhost/api/file-refs/${id}`);
+  return {
+    params: { id },
+    request: new Request(url, { method, headers }),
+    url
+  };
 }
 
 async function callOrCaught<T extends (event: any) => any>(fn: T, event: Parameters<T>[0]): Promise<Response> {
@@ -54,6 +63,11 @@ describe('/api/file-refs endpoints', () => {
   afterEach(() => {
     if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
     else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
+  });
+
+  it('rejects anonymous list and create access', async () => {
+    expect((await callOrCaught(GET, getEvent({ scope: 'global' }, {}))).status).toBe(401);
+    expect((await callOrCaught(POST, postEvent({ file_path: './README.md', scope: 'global' }, {}))).status).toBe(401);
   });
 
   it('POST creates a global file_ref and returns 201 with the new row', async () => {
@@ -116,26 +130,40 @@ describe('/api/file-refs endpoints', () => {
     const ref = addFileRef({ filePath: 'z.ts', scope: 'global' });
     const firstDelete = await callOrCaught(
       DELETE_ONE,
-      { params: { id: ref.id } } as unknown as Parameters<typeof DELETE_ONE>[0]
+      oneEvent(ref.id, 'DELETE') as unknown as Parameters<typeof DELETE_ONE>[0]
     );
     expect(firstDelete.status).toBe(204);
     const secondDelete = await callOrCaught(
       DELETE_ONE,
-      { params: { id: ref.id } } as unknown as Parameters<typeof DELETE_ONE>[0]
+      oneEvent(ref.id, 'DELETE') as unknown as Parameters<typeof DELETE_ONE>[0]
     );
     expect(secondDelete.status).toBe(404);
+  });
+
+  it('GET/DELETE /api/file-refs/[id] reject anonymous access', async () => {
+    const ref = addFileRef({ filePath: 'q.ts', scope: 'global' });
+    const read = await callOrCaught(
+      GET_ONE,
+      oneEvent(ref.id, 'GET', {}) as unknown as Parameters<typeof GET_ONE>[0]
+    );
+    expect(read.status).toBe(401);
+    const deleted = await callOrCaught(
+      DELETE_ONE,
+      oneEvent(ref.id, 'DELETE', {}) as unknown as Parameters<typeof DELETE_ONE>[0]
+    );
+    expect(deleted.status).toBe(401);
   });
 
   it('GET /api/file-refs/[id] returns the ref or 404', async () => {
     const ref = addFileRef({ filePath: 'q.ts', scope: 'global' });
     const found = await callOrCaught(
       GET_ONE,
-      { params: { id: ref.id } } as unknown as Parameters<typeof GET_ONE>[0]
+      oneEvent(ref.id, 'GET') as unknown as Parameters<typeof GET_ONE>[0]
     );
     expect(found.status).toBe(200);
     const missing = await callOrCaught(
       GET_ONE,
-      { params: { id: 'nope' } } as unknown as Parameters<typeof GET_ONE>[0]
+      oneEvent('nope', 'GET') as unknown as Parameters<typeof GET_ONE>[0]
     );
     expect(missing.status).toBe(404);
   });

@@ -9,9 +9,11 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 import { listMemoryAudit } from '$lib/server/memoriesStore';
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ request, url }) => {
+  requireAggregateReadAuth(request, '/api/memories/audit');
   const keyParam = url.searchParams.get('key');
   const limitRaw = url.searchParams.get('limit');
   const limitParsed = limitRaw === null ? null : Number.parseInt(limitRaw, 10);
