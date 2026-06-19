@@ -15,8 +15,8 @@
  *
  * Exposes messageQueueStore over HTTP so the queue is a first-class, editable
  * object (user + CLI). Mutations gate via the same chatRoomAuthGate as every
- * other mutating chat-room sub-route; GET is read-only and ungated, mirroring
- * focus-mode.
+ * other mutating chat-room sub-route; GET gates via room read access because
+ * queued items include message bodies.
  *
  * Spec: docs/curated-queue-spec.md.
  */

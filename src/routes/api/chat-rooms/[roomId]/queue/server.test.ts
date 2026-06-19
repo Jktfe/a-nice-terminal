@@ -65,8 +65,8 @@ async function runHandler(handler: AnyHandler, event: unknown): Promise<Response
 
 const CHAIR = '@localchair';
 
-const callGet = (roomId: string, query = `?handle=${encodeURIComponent(CHAIR)}`) =>
-  runHandler(GET as AnyHandler, eventFor('GET', `/api/chat-rooms/${roomId}/queue${query}`, { roomId }));
+const callGet = (roomId: string, query = `?handle=${encodeURIComponent(CHAIR)}`, withAuth = true) =>
+  runHandler(GET as AnyHandler, eventFor('GET', `/api/chat-rooms/${roomId}/queue${query}`, { roomId, withAuth }));
 
 const callPost = (roomId: string, body?: string, withAuth = true) =>
   runHandler(
@@ -328,6 +328,13 @@ describe('/api/chat-rooms/:roomId/queue', () => {
   });
 
   describe('auth gate', () => {
+    it('GET returns 401 with no read auth', async () => {
+      const room = createChatRoom({ name: 'unauth-get', whoCreatedIt: '@you' });
+      await enqueueItem(room.id, 'private queued text');
+      const response = await callGet(room.id, `?handle=${encodeURIComponent(CHAIR)}`, false);
+      expect(response.status).toBe(401);
+    });
+
     it('POST returns 401 with no auth header', async () => {
       const room = createChatRoom({ name: 'unauth-post', whoCreatedIt: '@you' });
       const response = await callPost(
@@ -364,6 +371,13 @@ describe('/api/chat-rooms/:roomId/queue', () => {
       const room = createChatRoom({ name: 'unauth-pull', whoCreatedIt: '@you' });
       await enqueueItem(room.id, 'x');
       const response = await callPull(room.id, JSON.stringify({ targetHandle: CHAIR }), false);
+      expect(response.status).toBe(401);
+    });
+
+    it('CURATE returns 401 with no auth header', async () => {
+      const room = createChatRoom({ name: 'unauth-curate', whoCreatedIt: '@you' });
+      await enqueueItem(room.id, 'x');
+      const response = await callCurate(room.id, JSON.stringify({ targetHandle: CHAIR }), false);
       expect(response.status).toBe(401);
     });
   });
