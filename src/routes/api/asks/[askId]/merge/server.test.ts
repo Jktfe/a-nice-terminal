@@ -4,7 +4,7 @@
  * keep the askee's response-required pill lit.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { POST } from './+server';
 import {
   createChatRoom,
@@ -20,12 +20,17 @@ import {
   hasResponseRequiredAsksForHandle
 } from '$lib/server/askStore';
 
-function eventFor(askId: string, body: unknown) {
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'ask-merge-test-admin';
+
+function eventFor(askId: string, body: unknown, authenticated = true) {
   const url = new URL(`http://localhost/api/asks/${askId}/merge`);
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (authenticated) headers.authorization = `Bearer ${TEST_ADMIN_TOKEN}`;
   return {
     request: new Request(url.toString(), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(body)
     }),
     params: { askId },
@@ -64,6 +69,25 @@ function setupTwoAsksForJames() {
 }
 
 describe('POST /api/asks/:askId/merge', () => {
+  beforeEach(() => {
+    process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
+  });
+
+  afterEach(() => {
+    if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
+  });
+
+  it('rejects anonymous merges before mutation', async () => {
+    const { source, into } = setupTwoAsksForJames();
+    const response = await runHandler(eventFor(source.id, {
+      intoAskId: into.id,
+      mergedByHandle: '@you'
+    }, false));
+    expect(response.status).toBe(401);
+    expect(findAskById(source.id)?.status).toBe('open');
+  });
+
   it('merges source into into; source becomes "merged" with audit fields', async () => {
     const { source, into } = setupTwoAsksForJames();
     const response = await runHandler(eventFor(source.id, {
@@ -154,7 +178,7 @@ describe('POST /api/asks/:askId/merge', () => {
     const malformed = eventFor(source.id, {});
     (malformed as { request: Request }).request = new Request(
       'http://localhost/api/asks/x/merge',
-      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{ broken' }
+      { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TEST_ADMIN_TOKEN}` }, body: '{ broken' }
     );
     expect((await runHandler(malformed)).status).toBe(400);
   });

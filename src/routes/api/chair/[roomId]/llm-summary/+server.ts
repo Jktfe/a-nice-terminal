@@ -30,6 +30,7 @@ import {
   clearLLMSummaryForRoom,
   setLLMSummaryForRoom
 } from '$lib/server/chairStore';
+import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 
 async function parseRequiredJsonBody(request: Request): Promise<Record<string, unknown>> {
   const requestBodyText = await request.text();
@@ -51,6 +52,7 @@ async function parseRequiredJsonBody(request: Request): Promise<Record<string, u
 }
 
 export const PUT: RequestHandler = async ({ params, request }) => {
+  requireChatRoomMutationAuth(params.roomId, request, null);
   if (!findChatRoomById(params.roomId)) {
     throw error(404, 'Room not found.');
   }
@@ -71,7 +73,8 @@ export const PUT: RequestHandler = async ({ params, request }) => {
   return json({ roomId: params.roomId });
 };
 
-export const DELETE: RequestHandler = ({ params }) => {
+export const DELETE: RequestHandler = ({ params, request }) => {
+  requireChatRoomMutationAuth(params.roomId, request, null);
   clearLLMSummaryForRoom(params.roomId);
   return json({ roomId: params.roomId });
 };

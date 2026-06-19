@@ -2,8 +2,10 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { dismissAskCandidate } from '$lib/server/askCandidateStore';
 import { getOperatorHandle } from '$lib/server/operatorHandle';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 export const POST: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const body = await readOptionalJsonObject(request);
   const dismissedByHandle = normalizeHandle(body.dismissedByHandle, getOperatorHandle());
   try {
