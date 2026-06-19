@@ -11,6 +11,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { addDependency, removeDependency, getTask, TaskDependencyError } from '$lib/server/taskStore';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 async function readBlockerId(request: Request): Promise<string> {
   const body = await request.json().catch(() => null);
@@ -25,6 +26,7 @@ async function readBlockerId(request: Request): Promise<string> {
 }
 
 export const POST: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const blockerId = await readBlockerId(request);
   try {
     addDependency(params.taskId, blockerId);
@@ -39,6 +41,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 };
 
 export const DELETE: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const blockerId = await readBlockerId(request);
   removeDependency(params.taskId, blockerId);
   return json({ task: getTask(params.taskId) });

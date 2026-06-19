@@ -6,11 +6,16 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listAuditForElement } from '$lib/server/manualScreenStore';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
-export const GET: RequestHandler = async ({ params, url }) => {
+export const GET: RequestHandler = async ({ params, request, url }) => {
+  requireAggregateReadAuth(
+    request,
+    '/api/manual/states/:screenId/:stateSlug/annotations/:elementSlug/audit'
+  );
   const screenId = params.screenId ?? '';
   const stateSlug = params.stateSlug ?? '';
   const elementSlug = params.elementSlug ?? '';

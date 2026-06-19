@@ -13,8 +13,11 @@ import {
   upsertScreenState
 } from '$lib/server/manualScreenStore';
 import { getIdentityDb } from '$lib/server/db';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
+  requireAggregateReadAuth(request, `/api/manual/states/${params.screenId ?? ''}/${params.stateSlug ?? ''}`);
   const screenId = params.screenId ?? '';
   const stateSlug = params.stateSlug ?? '';
   if (!screenId || !stateSlug) throw error(400, 'screenId and stateSlug required');
@@ -30,6 +33,7 @@ export const GET: RequestHandler = async ({ params }) => {
 };
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const screenId = params.screenId ?? '';
   const stateSlug = params.stateSlug ?? '';
   if (!screenId || !stateSlug) throw error(400, 'screenId and stateSlug required');
@@ -58,7 +62,8 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   return json({ state });
 };
 
-export const DELETE: RequestHandler = async ({ params }) => {
+export const DELETE: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const screenId = params.screenId ?? '';
   const stateSlug = params.stateSlug ?? '';
   if (!screenId || !stateSlug) throw error(400, 'screenId and stateSlug required');

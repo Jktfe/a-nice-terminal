@@ -8,8 +8,10 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { removeShortcut } from '$lib/server/shortcutsStore';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
-export const DELETE: RequestHandler = async ({ params }) => {
+export const DELETE: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const wasRemoved = removeShortcut(params.id);
   if (!wasRemoved) {
     throw error(404, 'Shortcut not found.');

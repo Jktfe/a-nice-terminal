@@ -4,14 +4,18 @@ import { createTask, getTask, _resetTaskStoreForTests } from '\$lib/server/taskS
 import { POST, DELETE } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+const PREV_ADMIN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'task-dependencies-test-admin';
 
 type AnyHandler = (event: unknown) => unknown;
 
-function eventFor(taskId: string, method: 'POST' | 'DELETE', body?: unknown) {
+function eventFor(taskId: string, method: 'POST' | 'DELETE', body?: unknown, authenticated = true) {
   const url = new URL(`http://localhost/api/tasks/${taskId}/dependencies`);
-  const init: RequestInit = { method };
+  const headers: Record<string, string> = {};
+  if (authenticated) headers.authorization = `Bearer ${TEST_ADMIN_TOKEN}`;
+  const init: RequestInit = { method, headers };
   if (body !== undefined) {
-    init.headers = { 'content-type': 'application/json' };
+    headers['content-type'] = 'application/json';
     init.body = JSON.stringify(body);
   }
   return {
@@ -36,6 +40,7 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
   resetIdentityDbForTests();
   _resetTaskStoreForTests();
 });
@@ -45,9 +50,23 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_ADMIN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN;
 });
 
 describe('/api/tasks/:taskId/dependencies', () => {
+  it('rejects anonymous POST before adding a dependency edge', async () => {
+    createTask({ id: 't-a', subject: 'Task A', status: 'pending' });
+    createTask({ id: 't-b', subject: 'Task B', status: 'pending' });
+    const res = await run(
+      POST as unknown as AnyHandler,
+      eventFor('t-a', 'POST', { blockerId: 't-b' }, false)
+    );
+    expect(res.status).toBe(401);
+    expect(getTask('t-a')?.blockedBy).toEqual([]);
+    expect(getTask('t-b')?.blocks).toEqual([]);
+  });
+
   it('POST adds a dependency edge', async () => {
     createTask({ id: 't-a', subject: 'Task A', status: 'pending' });
     createTask({ id: 't-b', subject: 'Task B', status: 'pending' });
@@ -124,6 +143,20 @@ describe('/api/tasks/:taskId/dependencies', () => {
     expect(body.task.blockedBy).not.toContain('t-b');
     const blocker = getTask('t-b');
     expect(blocker?.blocks).not.toContain('t-a');
+  });
+
+  it('rejects anonymous DELETE before removing a dependency edge', async () => {
+    createTask({ id: 't-a', subject: 'Task A', status: 'pending' });
+    createTask({ id: 't-b', subject: 'Task B', status: 'pending' });
+    await run(POST as unknown as AnyHandler, eventFor('t-a', 'POST', { blockerId: 't-b' }));
+
+    const res = await run(
+      DELETE as unknown as AnyHandler,
+      eventFor('t-a', 'DELETE', { blockerId: 't-b' }, false)
+    );
+    expect(res.status).toBe(401);
+    expect(getTask('t-a')?.blockedBy).toEqual(['t-b']);
+    expect(getTask('t-b')?.blocks).toEqual(['t-a']);
   });
 
   it('DELETE is idempotent when edge does not exist', async () => {
