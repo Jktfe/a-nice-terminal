@@ -42,6 +42,11 @@
       <h2>Existing triggers</h2>
       <span class="count">{data.triggers.length} total</span>
     </header>
+    {#if data.triggersFetchFailed}
+      <p class="alert" role="alert">
+        Could not load plan triggers. Existing automation may be hidden until the server responds.
+      </p>
+    {/if}
     <TriggerList triggers={data.triggers} planById={planById} />
   </section>
 
@@ -49,6 +54,11 @@
     <header class="card-head">
       <h2>Build a new trigger</h2>
     </header>
+    {#if data.plansFetchFailed}
+      <p class="alert" role="alert">
+        Could not load plans for the trigger builder. You can still build a wildcard trigger, but plan-scoped options may be missing.
+      </p>
+    {/if}
     <TriggerBuilder
       eventOptions={data.events ?? []}
       actionOptions={data.actions ?? []}
@@ -87,4 +97,14 @@
     text-transform: uppercase; letter-spacing: 0.06em;
   }
   .count { color: var(--ink-soft); font-size: 0.8rem; }
+  .alert {
+    margin: 0 0 0.75rem;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line-soft) 45%);
+    border-radius: 0.6rem;
+    background: color-mix(in srgb, var(--warn) 12%, var(--surface-card) 88%);
+    color: var(--ink-strong);
+    font-size: 0.86rem;
+    line-height: 1.45;
+  }
 </style>

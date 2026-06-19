@@ -1,9 +1,9 @@
 /**
  * /plans/triggers — universal load. Fetches the public read endpoints
- * for triggers + plans in parallel; soft-fails to empty arrays so the
- * page still renders if either endpoint is unhappy. The event/action
- * const sets come from the sibling +page.server.ts (which can safely
- * import from $lib/server).
+ * for triggers + plans in parallel; soft-fails so the page still renders if
+ * either endpoint is unhappy, but threads explicit failure flags instead of
+ * pretending there are zero triggers/plans. The event/action const sets come
+ * from the sibling +page.server.ts (which can safely import from $lib/server).
  */
 
 import type { PageLoad } from './$types';
@@ -17,20 +17,26 @@ export const load: PageLoad = async ({ fetch, data }) => {
   ]);
 
   let triggers: PlanTrigger[] = [];
+  let triggersFetchFailed = true;
   if (triggersRes && triggersRes.ok) {
     const body = (await triggersRes.json().catch(() => null)) as { triggers?: PlanTrigger[] } | null;
     if (body && Array.isArray(body.triggers)) triggers = body.triggers;
+    triggersFetchFailed = false;
   }
 
   let plans: PlanRecord[] = [];
+  let plansFetchFailed = true;
   if (plansRes && plansRes.ok) {
     const body = (await plansRes.json().catch(() => null)) as { plans?: PlanRecord[] } | null;
     if (body && Array.isArray(body.plans)) plans = body.plans;
+    plansFetchFailed = false;
   }
 
   return {
     ...data, // events + actions from +page.server.ts
     triggers,
-    plans
+    triggersFetchFailed,
+    plans,
+    plansFetchFailed
   };
 };
