@@ -26,6 +26,7 @@
     resolved: string[];
   };
 
+  let { canManage = true }: { canManage?: boolean } = $props();
   let payload = $state<SettingsPayload | null>(null);
   let editing = $state<string[]>([]);
   let loading = $state(true);
@@ -35,7 +36,10 @@
   let lastSavedAt = $state<number | null>(null);
 
   onMount(() => {
-    if (!browser) return;
+    if (!browser || !canManage) {
+      loading = false;
+      return;
+    }
     void load();
   });
 
@@ -119,6 +123,11 @@
     iCloud Drive paths, a mounted share. Spaces are fine.
   </p>
 
+  {#if !canManage}
+    <p class="muted" role="status">
+      Sign in as the operator to view and edit deck folders.
+    </p>
+  {:else}
   {#if payload && payload.envRoots.length > 0}
     <div class="env-block">
       <span class="label">From <code>ANT_BUILT_DECKS_ROOTS</code> (env, read-only here)</span>
@@ -196,6 +205,7 @@
       <code>export ANT_BUILT_DECKS_ROOTS="…"</code>
     </p>
   </div>
+  {/if}
 </div>
 
 <style>

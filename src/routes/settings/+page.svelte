@@ -53,9 +53,10 @@
   onMount(() => { terminalClasses.init(); });
 
   type SkillEntry = { name: string; description: string };
-  type Props = { data: { skills: SkillEntry[] } };
+  type Props = { data: { skills: SkillEntry[]; canManageOperatorFileSettings?: boolean } };
   let { data }: Props = $props();
   const skills = $derived<SkillEntry[]>(data.skills ?? []);
+  const canManageOperatorFileSettings = $derived(data.canManageOperatorFileSettings === true);
 
   const tabs = [
     { id: 'preferences', label: 'Preferences' },
@@ -332,8 +333,8 @@
   <section id="system" class="settings-section">
     <h2>System</h2>
     <CliVersionCard />
-    <DeckRootsCard />
-    <AssetFoldersCard />
+    <DeckRootsCard canManage={canManageOperatorFileSettings} />
+    <AssetFoldersCard canManage={canManageOperatorFileSettings} />
     <p class="stub-note system-stub">Server status + certs widget lands in the server-status slice (claude2 NAV-POLISH followup).</p>
   </section>
 

@@ -31,6 +31,7 @@
     resolved: string[];
   };
 
+  let { canManage = true }: { canManage?: boolean } = $props();
   let payload = $state<SettingsPayload | null>(null);
   let editing = $state<string[]>([]);
   let loading = $state(true);
@@ -40,7 +41,10 @@
   let lastSavedAt = $state<number | null>(null);
 
   onMount(() => {
-    if (!browser) return;
+    if (!browser || !canManage) {
+      loading = false;
+      return;
+    }
     void load();
   });
 
@@ -127,6 +131,11 @@
     <code>/srv/ant-assets</code>. Spaces are fine.
   </p>
 
+  {#if !canManage}
+    <p class="muted" role="status">
+      Sign in as the operator to view and edit external asset folders.
+    </p>
+  {:else}
   {#if payload && payload.envRoots.length > 0}
     <div class="env-block">
       <span class="label">From <code>ANT_ASSET_ROOTS</code> (env, read-only here)</span>
@@ -184,6 +193,7 @@
       <span class="status error" role="alert">{saveError}</span>
     {/if}
   </div>
+  {/if}
 </div>
 
 <style>

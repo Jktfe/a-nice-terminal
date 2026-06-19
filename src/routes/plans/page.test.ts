@@ -16,6 +16,9 @@ describe('/plans load', () => {
       if (url === '/api/plans/completions?active=1') {
         return jsonResponse({ plans: [] });
       }
+      if (url === '/api/capabilities') {
+        return jsonResponse({ operatorHandle: '@JWPK', viewerHandle: '@JWPK' });
+      }
       if (url === '/api/tasks') {
         return jsonResponse({ message: 'Authentication required.' }, 401);
       }
@@ -41,6 +44,9 @@ describe('/plans load', () => {
       if (url === '/api/plans/completions?active=1') {
         return jsonResponse({ message: 'server down' }, 500);
       }
+      if (url === '/api/capabilities') {
+        return jsonResponse({ operatorHandle: '@JWPK', viewerHandle: '@JWPK' });
+      }
       if (url === '/api/tasks') {
         return jsonResponse({ tasks: [{ planId: null, status: 'completed' }] });
       }
@@ -57,6 +63,35 @@ describe('/plans load', () => {
       unfiled: { total: 1, completed: 1 },
       taskFetchFailed: false,
       plansFetchFailed: true
+    });
+  });
+
+  it('does not fetch global standalone tasks for a non-operator browser viewer', async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/plans/completions?active=1') {
+        return jsonResponse({ plans: [] });
+      }
+      if (url === '/api/capabilities') {
+        return jsonResponse({ operatorHandle: '@JWPK', viewerHandle: '@newantcodexfixer' });
+      }
+      if (url === '/api/tasks') {
+        return jsonResponse({ message: 'should not be called' }, 500);
+      }
+      return jsonResponse({}, 404);
+    });
+
+    const result = await load({
+      fetch,
+      url: new URL('http://localhost/plans')
+    } as unknown as Parameters<typeof load>[0]);
+
+    expect(fetch).not.toHaveBeenCalledWith('/api/tasks');
+    expect(result).toMatchObject({
+      plans: [],
+      unfiled: { total: 0, completed: 0 },
+      taskFetchFailed: false,
+      plansFetchFailed: false
     });
   });
 
