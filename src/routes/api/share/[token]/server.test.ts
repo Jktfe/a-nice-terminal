@@ -1,9 +1,12 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DELETE, GET } from './+server';
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { postMessage, resetChatMessageStoreForTests } from '$lib/server/chatMessageStore';
 import { createShareLink, getShareLink } from '$lib/server/shareLinkStore';
+
+const ADMIN_TOKEN = 'share-token-admin-token';
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
 
 type GetEvent = Parameters<typeof GET>[0];
 type DeleteEvent = Parameters<typeof DELETE>[0];
@@ -31,11 +34,11 @@ async function callGet(token: string, fetchImpl: typeof fetch = fetch): Promise<
   }
 }
 
-async function callDelete(token: string): Promise<Response> {
+async function callDelete(token: string, headers: HeadersInit = { authorization: `Bearer ${ADMIN_TOKEN}` }): Promise<Response> {
   const url = new URL(`http://localhost/api/share/${token}`);
   try {
     return (await DELETE({
-      request: new Request(url, { method: 'DELETE' }),
+      request: new Request(url, { method: 'DELETE', headers }),
       params: { token },
       url
     } as unknown as DeleteEvent)) as Response;
@@ -46,9 +49,15 @@ async function callDelete(token: string): Promise<Response> {
 
 describe('/api/share/:token', () => {
   beforeEach(() => {
+    process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN;
     resetIdentityDbForTests();
     resetChatRoomStoreForTests();
     resetChatMessageStoreForTests();
+  });
+
+  afterEach(() => {
+    if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
   });
 
   it('GET returns a public room payload and increments access count', async () => {
@@ -101,5 +110,15 @@ describe('/api/share/:token', () => {
     expect(await response.json()).toEqual({ token: link.token });
     expect(getShareLink(link.token)?.revoked_at_ms).not.toBeNull();
     expect((await callDelete('missing')).status).toBe(404);
+  });
+
+  it('DELETE rejects anonymous revocation', async () => {
+    const room = createChatRoom({ name: 'revoke auth', whoCreatedIt: '@you' });
+    const link = createShareLink({ room_id: room.id });
+
+    const response = await callDelete(link.token, {});
+
+    expect(response.status).toBe(401);
+    expect(getShareLink(link.token)?.revoked_at_ms).toBeNull();
   });
 });

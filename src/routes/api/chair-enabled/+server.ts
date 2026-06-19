@@ -12,6 +12,7 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 import { isChairEnabled, setChairEnabled } from '$lib/server/chairEnabledStore';
 import { resolveCallerTerminalStrict } from '$lib/server/authGate';
 
@@ -34,7 +35,8 @@ async function parseRequiredJsonBody(request: Request): Promise<Record<string, u
   }
 }
 
-export const GET: RequestHandler = () => {
+export const GET: RequestHandler = ({ request }) => {
+  requireAggregateReadAuth(request, '/api/chair-enabled');
   return json({ enabled: isChairEnabled() });
 };
 

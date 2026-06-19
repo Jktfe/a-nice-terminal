@@ -19,6 +19,7 @@
 
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 import { requireAdminAuth } from '$lib/server/chatInviteAuth';
 import {
   registerTool,
@@ -94,7 +95,8 @@ export const POST: RequestHandler = async ({ request }) => {
   return json({ tool }, { status: 201 });
 };
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ request, url }) => {
+  requireAggregateReadAuth(request, '/api/tools');
   const filters: ListToolsFilters = {};
   const kindParam = url.searchParams.get('kind');
   if (kindParam) {

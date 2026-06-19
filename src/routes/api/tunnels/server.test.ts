@@ -5,6 +5,8 @@ import { createTunnel } from '$lib/server/tunnelStore';
 import { GET, POST } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const ADMIN_TOKEN = 'tunnels-admin-token';
 
 type AnyHandler = (event: unknown) => unknown;
 
@@ -17,18 +19,18 @@ function seedTunnel(input: { slug: string; public_url: string; owner_room_id: st
   });
 }
 
-function getEvent(search: string) {
+function getEvent(search: string, headers: HeadersInit = { authorization: `Bearer ${ADMIN_TOKEN}` }) {
   return {
-    request: new Request(`http://localhost/api/tunnels${search}`),
+    request: new Request(`http://localhost/api/tunnels${search}`, { headers }),
     url: new URL(`http://localhost/api/tunnels${search}`)
   };
 }
 
-function postEvent(body: unknown) {
+function postEvent(body: unknown, headers: HeadersInit = { authorization: `Bearer ${ADMIN_TOKEN}` }) {
   return {
     request: new Request('http://localhost/api/tunnels', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...headers },
       body: JSON.stringify(body)
     }),
     url: new URL('http://localhost/api/tunnels')
@@ -50,6 +52,7 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN;
   resetIdentityDbForTests();
   resetChatRoomStoreForTests();
 });
@@ -59,6 +62,8 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
 describe('/api/tunnels', () => {
@@ -82,6 +87,13 @@ describe('/api/tunnels', () => {
     expect(body.tunnels[0].slug).toBe('t1');
   });
 
+  it('GET rejects anonymous tunnel listing for a real room', async () => {
+    const room = createChatRoom({ name: 'Tunnel Room', whoCreatedIt: '@you' });
+    seedTunnel({ slug: 't1', public_url: 'https://t1.test', owner_room_id: room.id });
+    const res = await run(GET as unknown as AnyHandler, getEvent(`?roomId=${room.id}`, {}));
+    expect(res.status).toBe(401);
+  });
+
   it('POST creates a tunnel', async () => {
     const room = createChatRoom({ name: 'Tunnel Room', whoCreatedIt: '@you' });
     const res = await run(POST as unknown as AnyHandler, postEvent({
@@ -94,6 +106,16 @@ describe('/api/tunnels', () => {
     expect(body.tunnel.slug).toBe('new-tunnel');
     expect(body.tunnel.public_url).toBe('https://new.test');
     expect(body.tunnel.owner_room_id).toBe(room.id);
+  });
+
+  it('POST rejects anonymous tunnel creation for a real room', async () => {
+    const room = createChatRoom({ name: 'Tunnel Room', whoCreatedIt: '@you' });
+    const res = await run(POST as unknown as AnyHandler, postEvent({
+      roomId: room.id,
+      slug: 'new-tunnel',
+      public_url: 'https://new.test'
+    }, {}));
+    expect(res.status).toBe(401);
   });
 
   it('POST 400 without roomId', async () => {

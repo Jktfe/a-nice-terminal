@@ -12,21 +12,21 @@
  * Files are filtered out — this endpoint backs the FolderNavigator
  * (cd-to-folder UX) and listing files would just be visual noise.
  *
- * Security note: the endpoint trusts OS permissions to gate reads.
- * fresh-ANT is single-user (the launchd user); we deliberately don't
- * try to sandbox to $HOME because cd-ing into /opt/homebrew, /tmp,
- * /Volumes, etc. is a legitimate user flow. If multi-user mode ships,
- * add an allowlist + per-caller pidChain gate here.
+ * Security note: the endpoint trusts OS permissions after the operator/admin
+ * gate. Tailnet exposure means network callers are multi-caller even when the
+ * launchd process is single-user; never let anonymous users enumerate paths.
  */
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { readdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 type FsEntry = { name: string; hidden: boolean };
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ request, url }) => {
+  requireOperatorLikeAuth(request);
   const rawPath = url.searchParams.get('path');
   const showHidden = url.searchParams.get('showHidden') === 'true';
 

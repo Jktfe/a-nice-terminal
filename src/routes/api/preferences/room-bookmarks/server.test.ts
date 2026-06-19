@@ -8,16 +8,22 @@ import { resetIdentityDbForTests } from '$lib/server/db';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
+const previousAdminToken = process.env.ANT_ADMIN_TOKEN;
+const ADMIN_TOKEN = 'room-bookmarks-admin-token';
 type AnyHandler = (event: unknown) => unknown;
 
-function eventFor(method: 'GET' | 'PUT', search = '', body?: unknown) {
+function eventFor(method: 'GET' | 'PUT', search = '', body?: unknown, headers: HeadersInit = {}) {
   const url = new URL(`http://localhost/api/preferences/room-bookmarks${search}`);
-  const init: RequestInit = { method };
+  const init: RequestInit = { method, headers };
   if (body !== undefined) {
-    init.headers = { 'content-type': 'application/json' };
+    init.headers = { 'content-type': 'application/json', ...headers };
     init.body = JSON.stringify(body);
   }
   return { request: new Request(url, init), url, params: {} };
+}
+
+function adminEventFor(method: 'GET' | 'PUT', search = '', body?: unknown) {
+  return eventFor(method, search, body, { authorization: `Bearer ${ADMIN_TOKEN}` });
 }
 
 async function run(handler: AnyHandler, event: unknown): Promise<Response> {
@@ -37,6 +43,7 @@ describe('/api/preferences/room-bookmarks', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ant-room-bookmarks-'));
     process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+    process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN;
     resetIdentityDbForTests();
     resetChatRoomStoreForTests();
   });
@@ -47,10 +54,19 @@ describe('/api/preferences/room-bookmarks', () => {
     rmSync(tmpDir, { recursive: true, force: true });
     if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
     else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
+    if (previousAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = previousAdminToken;
+  });
+
+  it('rejects anonymous bookmark reads and writes', async () => {
+    const getResponse = await run(GET as unknown as AnyHandler, eventFor('GET'));
+    expect(getResponse.status).toBe(401);
+    const putResponse = await run(PUT as unknown as AnyHandler, eventFor('PUT', '', { roomIds: [] }));
+    expect(putResponse.status).toBe(401);
   });
 
   it('returns an empty list before the operator stars a room', async () => {
-    const response = await run(GET as unknown as AnyHandler, eventFor('GET'));
+    const response = await run(GET as unknown as AnyHandler, adminEventFor('GET'));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ownerHandle: '@JWPK', roomIds: [] });
   });
@@ -59,11 +75,11 @@ describe('/api/preferences/room-bookmarks', () => {
     const first = createChatRoom({ name: 'first', whoCreatedIt: '@you' });
     const second = createChatRoom({ name: 'second', whoCreatedIt: '@you' });
 
-    const putResponse = await run(PUT as unknown as AnyHandler, eventFor('PUT', '', { roomIds: [second.id, first.id] }));
+    const putResponse = await run(PUT as unknown as AnyHandler, adminEventFor('PUT', '', { roomIds: [second.id, first.id] }));
     expect(putResponse.status).toBe(200);
     expect((await putResponse.json()).roomIds).toEqual([second.id, first.id]);
 
-    const getResponse = await run(GET as unknown as AnyHandler, eventFor('GET'));
+    const getResponse = await run(GET as unknown as AnyHandler, adminEventFor('GET'));
     expect((await getResponse.json()).roomIds).toEqual([second.id, first.id]);
   });
 
@@ -74,17 +90,17 @@ describe('/api/preferences/room-bookmarks', () => {
     const real = createChatRoom({ name: 'real', whoCreatedIt: '@you' });
     const response = await run(
       PUT as unknown as AnyHandler,
-      eventFor('PUT', '', { roomIds: [real.id, 'missing-room'] })
+      adminEventFor('PUT', '', { roomIds: [real.id, 'missing-room'] })
     );
     expect(response.status).toBe(200);
     expect((await response.json()).roomIds).toEqual([real.id]); // stale dropped, valid kept
 
-    const getResponse = await run(GET as unknown as AnyHandler, eventFor('GET'));
+    const getResponse = await run(GET as unknown as AnyHandler, adminEventFor('GET'));
     expect((await getResponse.json()).roomIds).toEqual([real.id]); // persisted
   });
 
   it('a save containing ONLY unknown rooms persists an empty set (still 200, not 404)', async () => {
-    const response = await run(PUT as unknown as AnyHandler, eventFor('PUT', '', { roomIds: ['missing-room'] }));
+    const response = await run(PUT as unknown as AnyHandler, adminEventFor('PUT', '', { roomIds: ['missing-room'] }));
     expect(response.status).toBe(200);
     expect((await response.json()).roomIds).toEqual([]);
   });

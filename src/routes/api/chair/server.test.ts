@@ -7,7 +7,7 @@
  * chairStore.test.ts; this file only asserts the wire shape.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { GET } from './+server';
 import {
   createChatRoom,
@@ -15,8 +15,11 @@ import {
 } from '$lib/server/chatRoomStore';
 import { resetChatMessageStoreForTests } from '$lib/server/chatMessageStore';
 
-async function callGet(): Promise<Response> {
-  const request = new Request('http://localhost/api/chair');
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'chair-route-test-admin';
+
+async function callGet(headers?: HeadersInit): Promise<Response> {
+  const request = new Request('http://localhost/api/chair', { headers });
   const event = {
     request,
     params: {},
@@ -27,12 +30,24 @@ async function callGet(): Promise<Response> {
 
 describe('GET /api/chair', () => {
   beforeEach(() => {
+    process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
     resetChatRoomStoreForTests();
     resetChatMessageStoreForTests();
   });
 
+  afterEach(() => {
+    resetChatMessageStoreForTests();
+    resetChatRoomStoreForTests();
+    if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
+  });
+
+  it('rejects anonymous reads because the digest includes cross-room message summaries', async () => {
+    await expect(callGet()).rejects.toMatchObject({ status: 401 });
+  });
+
   it('returns 200 with an empty chairDigest array when no rooms exist', async () => {
-    const response = await callGet();
+    const response = await callGet({ authorization: `Bearer ${TEST_ADMIN_TOKEN}` });
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.chairDigest).toEqual([]);
@@ -41,14 +56,14 @@ describe('GET /api/chair', () => {
   it('returns one digest row per room', async () => {
     createChatRoom({ name: 'alpha', whoCreatedIt: '@you' });
     createChatRoom({ name: 'beta', whoCreatedIt: '@you' });
-    const response = await callGet();
+    const response = await callGet({ authorization: `Bearer ${TEST_ADMIN_TOKEN}` });
     const body = await response.json();
     expect(body.chairDigest).toHaveLength(2);
   });
 
   it('each row carries the full set of digest fields', async () => {
     createChatRoom({ name: 'fields', whoCreatedIt: '@you' });
-    const response = await callGet();
+    const response = await callGet({ authorization: `Bearer ${TEST_ADMIN_TOKEN}` });
     const body = await response.json();
     for (const digestRow of body.chairDigest) {
       expect(typeof digestRow.roomId).toBe('string');

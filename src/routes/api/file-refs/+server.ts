@@ -18,6 +18,7 @@ import {
   listFileRefsForScope,
   type FileRefScope
 } from '$lib/server/fileRefsStore';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 const VALID_SCOPES: ReadonlySet<FileRefScope> = new Set(['terminal', 'chatroom', 'global']);
 
@@ -26,7 +27,8 @@ function asScope(raw: string | null): FileRefScope | null {
   return VALID_SCOPES.has(raw as FileRefScope) ? (raw as FileRefScope) : null;
 }
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ request, url }) => {
+  requireOperatorLikeAuth(request);
   const rawScope = url.searchParams.get('scope');
   const rawTarget = url.searchParams.get('target');
   const rawPath = url.searchParams.get('path');
@@ -50,6 +52,7 @@ export const GET: RequestHandler = async ({ url }) => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
+  requireOperatorLikeAuth(request);
   const rawBody = await request.json().catch(() => null);
   if (!rawBody || typeof rawBody !== 'object') {
     throw error(400, 'Send a JSON body with at least file_path and scope.');

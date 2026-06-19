@@ -14,6 +14,7 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 import {
   listAgentAvailability,
   type AvailabilityFilters,
@@ -26,7 +27,8 @@ function parseBool(raw: string | null): boolean | undefined {
   return undefined;
 }
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ url, request }) => {
+  requireAggregateReadAuth(request, '/api/agents/availability');
   const filters: AvailabilityFilters = {
     // Default to alive=true so the noisy archived rows stay off the
     // common-case fleet view; pass ?alive=false to widen for audits.

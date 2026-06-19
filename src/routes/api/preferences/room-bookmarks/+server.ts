@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { listRoomBookmarks, replaceRoomBookmarks } from '$lib/server/roomBookmarkStore';
 import { canonicaliseOperatorHandle, getOperatorHandle } from '$lib/server/operatorHandle';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 function ownerFromUrl(url: URL): string {
   const owner = url.searchParams.get('owner');
@@ -11,7 +12,8 @@ function ownerFromUrl(url: URL): string {
     : getOperatorHandle();
 }
 
-export const GET: RequestHandler = ({ url }) => {
+export const GET: RequestHandler = ({ request, url }) => {
+  requireOperatorLikeAuth(request);
   const owner = ownerFromUrl(url);
   return json({
     ownerHandle: owner,
@@ -20,6 +22,7 @@ export const GET: RequestHandler = ({ url }) => {
 };
 
 export const PUT: RequestHandler = async ({ request, url }) => {
+  requireOperatorLikeAuth(request);
   const owner = ownerFromUrl(url);
   const body = (await request.json().catch(() => null)) as { roomIds?: unknown } | null;
   if (!body || !Array.isArray(body.roomIds)) {

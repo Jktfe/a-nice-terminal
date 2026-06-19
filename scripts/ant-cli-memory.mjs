@@ -271,7 +271,7 @@ async function runGet(args, runtime, CliInputError) {
   const key = positionals[0];
   if (!key) throw new CliInputError('memory get needs a key');
   const sendJson = makeStandardSendJson(runtime);
-  const path = `/api/memories/key/${key.split('/').map(encodeURIComponent).join('/')}`;
+  const path = pathWithPidChain(`/api/memories/key/${key.split('/').map(encodeURIComponent).join('/')}`);
   try {
     const result = await sendJson(path, 'GET');
     if (flags.json !== undefined) runtime.writeOut(JSON.stringify(result));
@@ -298,7 +298,8 @@ async function runPut(args, runtime, CliInputError) {
     value,
     scope: flags.scope ?? 'global',
     scope_target: flags.target ?? null,
-    byHandle: flags.by ?? null
+    byHandle: flags.by ?? null,
+    pidChain: processIdentityChain()
   });
   if (flags.json !== undefined) runtime.writeOut(JSON.stringify(result));
   else runtime.writeOut(`${result.created ? 'Created' : 'Updated'} memory ${result.memory.key}`);
@@ -316,9 +317,9 @@ async function runList(args, runtime, CliInputError) {
     result = await sendJson(`/api/terminals/${encodeURIComponent(terminal.sessionId)}/memories`, 'GET');
   } else if (flags.room !== undefined) {
     const room = await resolveChatRoomIdentifier(runtime, flags.room, CliInputError);
-    result = await sendJson(`/api/memories?scope=room&target=${encodeURIComponent(room.id)}`, 'GET');
+    result = await sendJson(pathWithPidChain(`/api/memories?scope=room&target=${encodeURIComponent(room.id)}`), 'GET');
   } else {
-    result = await sendJson(`/api/memories${flags.prefix !== undefined ? `?prefix=${encodeURIComponent(flags.prefix)}` : ''}`, 'GET');
+    result = await sendJson(pathWithPidChain(`/api/memories${flags.prefix !== undefined ? `?prefix=${encodeURIComponent(flags.prefix)}` : ''}`), 'GET');
   }
   if (flags.json !== undefined) runtime.writeOut(JSON.stringify(result));
   else for (const memory of result.memories ?? []) runtime.writeOut(formatMemoryLine(memory));
@@ -329,7 +330,7 @@ async function runDelete(args, runtime, CliInputError) {
   const { flags, positionals } = parseFlags(args, CliInputError);
   const key = positionals[0];
   if (!key) throw new CliInputError('memory delete needs a key');
-  const path = `/api/memories/key/${key.split('/').map(encodeURIComponent).join('/')}${flags.by ? `?byHandle=${encodeURIComponent(flags.by)}` : ''}`;
+  const path = pathWithPidChain(`/api/memories/key/${key.split('/').map(encodeURIComponent).join('/')}${flags.by ? `?byHandle=${encodeURIComponent(flags.by)}` : ''}`);
   const response = await runtime.fetchImpl(`${runtime.serverUrl}${path}`, { method: 'DELETE' });
   if (response.status === 204) {
     if (flags.json !== undefined) runtime.writeOut(JSON.stringify({ deleted: true, key }));
@@ -350,7 +351,7 @@ async function runAudit(args, runtime, CliInputError) {
   if (flags.key) params.set('key', flags.key);
   if (flags.limit) params.set('limit', flags.limit);
   const query = params.toString();
-  const result = await makeStandardSendJson(runtime)(`/api/memories/audit${query ? `?${query}` : ''}`, 'GET');
+  const result = await makeStandardSendJson(runtime)(pathWithPidChain(`/api/memories/audit${query ? `?${query}` : ''}`), 'GET');
   if (flags.json !== undefined) runtime.writeOut(JSON.stringify(result));
   else {
     for (const row of result.audit ?? []) {
