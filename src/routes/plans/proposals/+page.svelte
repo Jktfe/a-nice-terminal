@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import { safeUrlForTrackerLink } from '$lib/chat/trackerRefs';
   import { resolvePreferredProvider, type TTSProvider } from '$lib/voice/interview-tts';
   import type { PageData } from './$types';
 
@@ -31,6 +32,12 @@
     handle.onStart = () => { playing = taskId; };
   }
 
+  async function responseMessage(response: Response, fallback: string): Promise<string> {
+    const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
+    const message = typeof body?.message === 'string' ? body.message.trim() : '';
+    return message ? `${fallback} (${response.status}): ${message}` : `${fallback} (${response.status}).`;
+  }
+
   async function adopt(proposal: { taskId: string; planId: string | null; ref: string; label: string | null }) {
     if (!proposal.planId) {
       notice = { kind: 'err', text: 'Cannot adopt: proposal is not attached to a plan.' };
@@ -50,7 +57,7 @@
         })
       });
       if (!res.ok) {
-        notice = { kind: 'err', text: `Adopt failed (${res.status}).` };
+        notice = { kind: 'err', text: await responseMessage(res, 'Adopt failed') };
         return;
       }
       notice = { kind: 'ok', text: `Adopted "${proposal.label ?? 'proposal'}". Decision recorded.` };
@@ -82,7 +89,13 @@
     </p>
   {/if}
 
-  {#if data.proposals.length === 0}
+  {#if data.proposalsFetchFailed}
+    <p class="notice-err" role="alert">
+      Could not load Proposal Tracks. {data.proposalsFetchMessage}
+    </p>
+  {/if}
+
+  {#if data.proposals.length === 0 && !data.proposalsFetchFailed}
     <p class="empty">
       No Proposal Tracks yet. Agents create them by attaching evidence of kind
       <code>proposal</code> to a task.
@@ -95,9 +108,13 @@
             <span class="proposal-kind">P</span>
             <span class="proposal-label">{p.label ?? 'Untitled proposal'}</span>
           </div>
-          <a class="proposal-ref" href={p.ref} target="_blank" rel="noopener">
-            {p.ref}
-          </a>
+          {#if safeUrlForTrackerLink(p.ref)}
+            <a class="proposal-ref" href={safeUrlForTrackerLink(p.ref) ?? ''} target="_blank" rel="noopener noreferrer">
+              {p.ref}
+            </a>
+          {:else}
+            <span class="proposal-ref unsafe-ref" title="Not a safe URL">{p.ref}</span>
+          {/if}
           <div class="proposal-attribution">
             From task <strong>{p.taskSubject}</strong>
             {#if p.planTitle}
@@ -200,6 +217,9 @@
   }
   .proposal-ref:hover {
     color: var(--ink-strong);
+  }
+  .proposal-ref.unsafe-ref:hover {
+    color: var(--ink-muted);
   }
   .proposal-attribution {
     font-size: 0.8125rem;
