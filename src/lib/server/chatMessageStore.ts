@@ -28,6 +28,7 @@ import { operatorDisplayHandle } from './operatorDisplayHandle';
 import { isOperatorHandle } from './operatorHandle';
 import type { MessageReactionSummary } from './messageReactionStore';
 import type { MessageReadReceipt } from './messageReadReceiptStore';
+import { broadcastToRoom } from './eventBroadcast';
 
 export type ChatMessageKind = 'human' | 'agent' | 'system' | 'system-break';
 
@@ -168,6 +169,14 @@ function insertMessageRow(input: {
   return message;
 }
 
+function broadcastMessageAddedBestEffort(message: ChatMessage): void {
+  try {
+    broadcastToRoom(message.roomId, { type: 'message_added', message });
+  } catch {
+    /* realtime broadcast is best-effort; persistence already succeeded */
+  }
+}
+
 export function postMessage(input: {
   roomId: string;
   authorHandle: string;
@@ -220,7 +229,7 @@ export function postSystemMessage(input: { roomId: string; body: string }): Chat
     throw new Error('A system message needs at least one non-blank character.');
   }
 
-  return insertMessageRow({
+  const message = insertMessageRow({
     id: makeMessageId(),
     roomId: input.roomId,
     authorHandle: '@system',
@@ -231,6 +240,8 @@ export function postSystemMessage(input: { roomId: string; body: string }): Chat
     parentMessageId: null,
     discussionId: null
   });
+  broadcastMessageAddedBestEffort(message);
+  return message;
 }
 
 export function postBreakMessage(input: { roomId: string; reason?: string; postedByHandle: string }): ChatMessage {
@@ -244,7 +255,7 @@ export function postBreakMessage(input: { roomId: string; reason?: string; poste
     ? `Context break by ${input.postedByHandle}: ${reasonTrimmed}`
     : `Context break by ${input.postedByHandle}.`;
 
-  return insertMessageRow({
+  const message = insertMessageRow({
     id: makeMessageId(),
     roomId: input.roomId,
     authorHandle: '@system',
@@ -255,6 +266,8 @@ export function postBreakMessage(input: { roomId: string; reason?: string; poste
     parentMessageId: null,
     discussionId: null
   });
+  broadcastMessageAddedBestEffort(message);
+  return message;
 }
 
 export function listMessagesInRoom(roomId: string): ChatMessage[] {

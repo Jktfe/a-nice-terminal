@@ -98,14 +98,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
         body: formatAnsweredAskRoomMessage(ask, updatedAsk)
       });
       try {
-        fanoutMessageToRoomTerminals(ask.roomId, roomMessage);
+        fanoutMessageToRoomTerminals(ask.roomId, roomMessage, {
+          allowSystemMessage: true,
+          forceBroadcastToAll: true
+        });
       } catch {
         /* terminal fanout is best-effort; the room message is already persisted */
-      }
-      try {
-        broadcastToRoom(ask.roomId, { type: 'message_added', message: roomMessage });
-      } catch {
-        /* browser broadcast is best-effort; the room message is already persisted */
       }
     } catch {
       /* The ask answer is authoritative; a receipt failure must not re-open it. */

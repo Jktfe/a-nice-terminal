@@ -11,6 +11,7 @@ import { createPlan, _resetPlanStoreForTests } from './planStore';
 import { attachPlanToRoom, _resetPlanRoomLinksForTests } from './planRoomLinkStore';
 import { createTask, _resetTaskStoreForTests } from './taskStore';
 import { getIdentityDb } from './db';
+import { subscribeRoomEvents } from './eventBroadcast';
 
 function resetAll() {
   _resetPlanTriggerStoreForTests();
@@ -42,20 +43,31 @@ describe('planTriggerDispatcher', () => {
 
   it('room.message action: posts a system message to attached rooms', () => {
     const room = createChatRoom({ name: 'fire-test', whoCreatedIt: '@tester' });
+    const liveEvents: Record<string, unknown>[] = [];
+    const unsubscribe = subscribeRoomEvents(room.id, (event) => liveEvents.push(event));
     createPlan({ id: 'p1', title: 'My Plan' });
     attachPlanToRoom({ planId: 'p1', roomId: room.id });
     // Seed a task so completion has something to template against
     createTask({ id: 't1', subject: 's', planId: 'p1', status: 'completed' });
-    addTrigger({
-      planId: 'p1',
-      event: 'plan.completed',
-      action: 'room.message',
-      actionConfig: { messageTemplate: 'Plan {planTitle} done ({pct}%)' }
-    });
-    dispatchPlanEvent('plan.completed', { planId: 'p1' });
-    const msgs = listMessagesInRoom(room.id);
-    expect(msgs).toHaveLength(1);
-    expect(msgs[0].body).toBe('Plan My Plan done (100%)');
+    try {
+      addTrigger({
+        planId: 'p1',
+        event: 'plan.completed',
+        action: 'room.message',
+        actionConfig: { messageTemplate: 'Plan {planTitle} done ({pct}%)' }
+      });
+      dispatchPlanEvent('plan.completed', { planId: 'p1' });
+      const msgs = listMessagesInRoom(room.id);
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0].body).toBe('Plan My Plan done (100%)');
+      expect(liveEvents).toHaveLength(1);
+      expect(liveEvents[0]).toMatchObject({
+        type: 'message_added',
+        message: { id: msgs[0].id, kind: 'system' }
+      });
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('wildcard trigger (planId=null) fires for any plan', () => {

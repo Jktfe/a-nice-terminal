@@ -14,7 +14,6 @@ import { requireStagePresenterAuth } from '$lib/server/stagePresenterAuth';
 import { appendPlanEvent } from '$lib/server/planModeStore';
 import { getCurrentFocus } from '$lib/server/stageStore';
 import { postSystemMessage } from '$lib/server/chatMessageStore';
-import { broadcastToRoom } from '$lib/server/eventBroadcast';
 import { fanoutMessageToRoomTerminals } from '$lib/server/pty-inject-fanout';
 
 type StageFocusPayload = {
@@ -102,14 +101,12 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
     body: `Stage focus: ${deck.title}\n\n${label}`
   });
   try {
-    fanoutMessageToRoomTerminals(deck.roomId, roomMessage);
+    fanoutMessageToRoomTerminals(deck.roomId, roomMessage, {
+      allowSystemMessage: true,
+      forceBroadcastToAll: true
+    });
   } catch {
     /* terminal fanout is best-effort; focus evidence is already persisted */
-  }
-  try {
-    broadcastToRoom(deck.roomId, { type: 'message_added', message: roomMessage });
-  } catch {
-    /* browser broadcast is best-effort; focus evidence is already persisted */
   }
 
   return json({ focus, message: roomMessage }, { status: 201 });

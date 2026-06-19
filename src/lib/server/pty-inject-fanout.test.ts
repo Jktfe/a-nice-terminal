@@ -105,6 +105,19 @@ describe('fanoutMessageToRoomTerminals — recursion lockout', () => {
     expect(getFanoutQueueForTests().pendingCountForTests(`${roomId}::${terminalId}`)).toBe(0);
   });
 
+  it('enqueues system receipts only when terminal delivery is explicitly allowed', () => {
+    const { roomId, terminalId } = setupRoomAndMember('r-system-allowed', '@recip', '%23');
+    const seed = postMessage({ roomId, authorHandle: '@bot', body: 'system receipt', kind: 'agent' });
+    const systemReceipt = { ...seed, kind: 'system' as const };
+
+    fanoutMessageToRoomTerminals(roomId, systemReceipt, {
+      allowSystemMessage: true,
+      forceBroadcastToAll: true
+    });
+
+    expect(getFanoutQueueForTests().pendingCountForTests(`${roomId}::${terminalId}`)).toBe(1);
+  });
+
   it('does NOT enqueue when message.kind is "system-break"', () => {
     const { roomId, terminalId } = setupRoomAndMember('r-break', '@recip', '%23');
     const m = postMessage({ roomId, authorHandle: '@bot', body: 'hi', kind: 'agent' });

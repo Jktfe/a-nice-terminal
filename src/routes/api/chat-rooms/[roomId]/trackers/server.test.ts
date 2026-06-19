@@ -7,6 +7,7 @@ import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoom
 import { resetTrackerStoreForTests } from '$lib/server/trackerStore';
 import { listMessagesInRoom, resetChatMessageStoreForTests } from '$lib/server/chatMessageStore';
 import { listArtefactsInRoom, resetChatRoomArtefactStoreForTests } from '$lib/server/chatRoomArtefactStore';
+import { subscribeRoomEvents } from '$lib/server/eventBroadcast';
 
 const ADMIN = 'tracker-route-admin-token';
 const ORIG = process.env.ANT_ADMIN_TOKEN;
@@ -31,39 +32,48 @@ describe('tracker API', () => {
 
   it('create → add row → set cell, with audit chat-events + store events', async () => {
     const room = createChatRoom({ name: 'gvpl4', whoCreatedIt: '@you' });
-    const created = await run(H(createPost), ev({ roomId: room.id }, {
-      roomId: room.id, title: 'GVPL4 payments',
-      columnSpec: 'Beneficiary, Quantum(£), Invoice link(link), Due date(date), Paid(y/n), Date paid(date)'
-    }));
-    expect(created.status).toBe(201);
-    const t = (await created.json()).tracker;
-    expect(t.columns.map((c:{key:string})=>c.key)).toContain('paid');
-    // create-receipt posted with ant-tracker fence
-    expect(listMessagesInRoom(room.id).some(m => m.body.includes('```ant-tracker') && m.body.includes(t.id))).toBe(true);
-    // JWPK msg_g4ttgnn65i: tracker auto-registers as a room artefact (findable without scrolling)
-    const arts = listArtefactsInRoom(room.id).filter(a => a.kind === 'tracker');
-    expect(arts).toHaveLength(1);
-    expect(arts[0].title).toBe('GVPL4 payments');
-    expect(arts[0].refUrl).toBe(`/rooms/${room.id}/trackers/${t.id}`);
+    const liveEvents: Record<string, unknown>[] = [];
+    const unsubscribe = subscribeRoomEvents(room.id, (event) => liveEvents.push(event));
+    try {
+      const created = await run(H(createPost), ev({ roomId: room.id }, {
+        roomId: room.id, title: 'GVPL4 payments',
+        columnSpec: 'Beneficiary, Quantum(£), Invoice link(link), Due date(date), Paid(y/n), Date paid(date)'
+      }));
+      expect(created.status).toBe(201);
+      const t = (await created.json()).tracker;
+      expect(t.columns.map((c:{key:string})=>c.key)).toContain('paid');
+      // create-receipt posted with ant-tracker fence
+      expect(listMessagesInRoom(room.id).some(m => m.body.includes('```ant-tracker') && m.body.includes(t.id))).toBe(true);
+      expect(liveEvents.filter((event) => event.type === 'message_added')).toHaveLength(1);
+      // JWPK msg_g4ttgnn65i: tracker auto-registers as a room artefact (findable without scrolling)
+      const arts = listArtefactsInRoom(room.id).filter(a => a.kind === 'tracker');
+      expect(arts).toHaveLength(1);
+      expect(arts[0].title).toBe('GVPL4 payments');
+      expect(arts[0].refUrl).toBe(`/rooms/${room.id}/trackers/${t.id}`);
 
-    const rowRes = await run(H(rowPost), ev({ roomId: room.id, trackerId: t.id }, {
-      roomId: room.id, cells: { beneficiary: 'Acme Ltd', quantum: '12500', paid: '' }
-    }));
-    expect(rowRes.status).toBe(201);
-    const rowId = (await rowRes.json()).row.id;
+      const rowRes = await run(H(rowPost), ev({ roomId: room.id, trackerId: t.id }, {
+        roomId: room.id, cells: { beneficiary: 'Acme Ltd', quantum: '12500', paid: '' }
+      }));
+      expect(rowRes.status).toBe(201);
+      const rowId = (await rowRes.json()).row.id;
+      expect(liveEvents.filter((event) => event.type === 'message_added')).toHaveLength(2);
 
-    const setRes = await run(H(cellPatch), ev({ roomId: room.id, trackerId: t.id, rowId }, {
-      roomId: room.id, columnKey: 'paid', value: 'true'
-    }));
-    expect(setRes.status).toBe(200);
-    expect((await setRes.json()).row.cells.paid).toBe('true');
+      const setRes = await run(H(cellPatch), ev({ roomId: room.id, trackerId: t.id, rowId }, {
+        roomId: room.id, columnKey: 'paid', value: 'true'
+      }));
+      expect(setRes.status).toBe(200);
+      expect((await setRes.json()).row.cells.paid).toBe('true');
+      expect(liveEvents.filter((event) => event.type === 'message_added')).toHaveLength(3);
 
-    const view = await run(H(viewGet), ev({ roomId: room.id, trackerId: t.id }));
-    const v = (await view.json()).tracker;
-    expect(v.rows).toHaveLength(1);
-    expect(v.events.filter((e:{kind:string})=>e.kind==='cell.set')).toHaveLength(1);
-    // cell-set audit chat event carries old→new
-    expect(listMessagesInRoom(room.id).some(m => m.body.includes('Paid') && m.body.includes('→'))).toBe(true);
+      const view = await run(H(viewGet), ev({ roomId: room.id, trackerId: t.id }));
+      const v = (await view.json()).tracker;
+      expect(v.rows).toHaveLength(1);
+      expect(v.events.filter((e:{kind:string})=>e.kind==='cell.set')).toHaveLength(1);
+      // cell-set audit chat event carries old→new
+      expect(listMessagesInRoom(room.id).some(m => m.body.includes('Paid') && m.body.includes('→'))).toBe(true);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('a no-op cell write posts no audit event', async () => {

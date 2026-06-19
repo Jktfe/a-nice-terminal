@@ -14,6 +14,7 @@ import {
   resetChatMessageStoreForTests
 } from './chatMessageStore';
 import { openAskInRoom, findAskById } from './askStore';
+import { subscribeRoomEvents } from './eventBroadcast';
 
 describe('chatMessageStore', () => {
   beforeEach(() => {
@@ -65,6 +66,22 @@ describe('chatMessageStore', () => {
     });
     expect(posted.kind).toBe('system');
     expect(posted.authorHandle).toBe('@system');
+  });
+
+  it('postSystemMessage broadcasts a message_added event for live room clients', () => {
+    const room = createChatRoom({ name: 'system-live', whoCreatedIt: '@you' });
+    const events: Record<string, unknown>[] = [];
+    const unsubscribe = subscribeRoomEvents(room.id, (event) => events.push(event));
+    try {
+      const posted = postSystemMessage({ roomId: room.id, body: 'receipt' });
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'message_added',
+        message: { id: posted.id, kind: 'system', body: 'receipt' }
+      });
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('postSystemMessage rejects a blank body', () => {
@@ -182,6 +199,26 @@ describe('chatMessageStore', () => {
         postedByHandle: '@you'
       });
       expect(breakMsg.parentMessageId).toBeUndefined();
+    });
+
+    it('postBreakMessage broadcasts a message_added event for live room clients', () => {
+      const room = createChatRoom({ name: 'break-live', whoCreatedIt: '@you' });
+      const events: Record<string, unknown>[] = [];
+      const unsubscribe = subscribeRoomEvents(room.id, (event) => events.push(event));
+      try {
+        const posted = postBreakMessage({
+          roomId: room.id,
+          postedByHandle: '@you',
+          reason: 'new lane'
+        });
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({
+          type: 'message_added',
+          message: { id: posted.id, kind: 'system-break' }
+        });
+      } finally {
+        unsubscribe();
+      }
     });
   });
 

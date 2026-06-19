@@ -206,6 +206,7 @@ type QueuedItem = {
 
 type FanoutOptions = {
   forceBroadcastToAll?: boolean;
+  allowSystemMessage?: boolean;
 };
 
 function queueKeyFor(roomId: string, terminalId: string): string {
@@ -519,7 +520,9 @@ export function fanoutMessageToRoomTerminals(
   message: ChatMessage,
   options: FanoutOptions = {}
 ): void {
-  if (!FANOUT_KINDS_ALLOWED.has(message.kind)) return;
+  if (!FANOUT_KINDS_ALLOWED.has(message.kind)) {
+    if (!(options.allowSystemMessage === true && message.kind === 'system')) return;
+  }
   const room = findChatRoomById(roomId);
   if (!room) return;
   // Room-mode guard (M3.b.4 + #152):
