@@ -8,6 +8,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import { safeUrlForTrackerLink } from '$lib/chat/trackerRefs';
   import type { TaskEvidenceKind } from '$lib/server/planEvidenceStore';
   import type { EvidenceRow } from '$lib/server/planEvidenceStore';
   import type { PageData } from './$types';
@@ -162,7 +163,13 @@
     {/if}
   </section>
 
-  {#if data.stats.total === 0}
+  {#if data.evidenceFetchFailed}
+    <p class="notice-err" role="alert">
+      Could not load evidence. {data.evidenceFetchMessage}
+    </p>
+  {/if}
+
+  {#if data.stats.total === 0 && !data.evidenceFetchFailed}
     <p class="empty">No evidence captured yet. Attach evidence to a task
       via the task API (the <code>evidence</code> array on a task) and it
       will appear here.</p>
@@ -182,7 +189,11 @@
             <li>
               <div class="ref">
                 {#if row.kind === 'url'}
-                  <a href={row.ref} target="_blank" rel="noopener noreferrer">{row.ref}</a>
+                  {#if safeUrlForTrackerLink(row.ref)}
+                    <a href={safeUrlForTrackerLink(row.ref) ?? ''} target="_blank" rel="noopener noreferrer">{row.ref}</a>
+                  {:else}
+                    <span class="ref-text unsafe-ref" title="Not a safe URL">{row.ref}</span>
+                  {/if}
                 {:else if row.kind === 'file'}
                   <code>{row.ref}</code>
                 {:else}
@@ -231,6 +242,7 @@
   .kind-select { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--ink-soft); font-size: 0.9rem; }
   .kind-select select { padding: 0.4rem 0.5rem; border-radius: 0.5rem; border: 1px solid var(--line-soft); background: var(--surface-card); color: var(--ink-strong); font: inherit; }
   .reset { color: var(--ink-soft); font-size: 0.85rem; text-decoration: underline; }
+  .notice-err { margin: 1rem 0; padding: 0.8rem 1rem; border-radius: 0.75rem; background: rgba(239, 68, 68, 0.1); color: #991b1b; font-weight: 700; }
   .empty { margin: 1rem 0; padding: 1rem 1.1rem; line-height: 1.5; border: 1px dashed var(--line-soft); border-radius: 0.85rem; background: var(--surface-card); color: var(--ink-soft); }
   .empty code { padding: 0.05rem 0.3rem; border-radius: 0.3rem; background: rgb(0 0 0 / 6%); font-size: 0.85em; }
   .group { margin: 1.4rem 0; border: 1px solid var(--line-soft); border-radius: 0.9rem; background: var(--surface-card); overflow: hidden; }
@@ -245,6 +257,7 @@
   .ref a:hover { text-decoration: underline; }
   .ref code { padding: 0.1rem 0.4rem; border-radius: 0.3rem; background: rgb(0 0 0 / 6%); font-size: 0.9em; }
   .ref .ref-text { color: var(--ink-strong); font-weight: 600; }
+  .ref .unsafe-ref:hover { color: var(--ink-strong); }
   .label { color: var(--ink-soft); margin-left: 0.3rem; }
   .meta { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.25rem; font-size: 0.85rem; color: var(--ink-soft); }
   .meta a { color: var(--ink-soft); text-decoration: underline; }

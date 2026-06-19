@@ -30,6 +30,32 @@ const KINDS: ReadonlySet<TaskEvidenceKind> = new Set<TaskEvidenceKind>([
   'stage_alternative_decision'
 ]);
 
+function emptyStats(): EvidenceStats {
+  return {
+    byKind: {
+      run_event: 0,
+      task: 0,
+      url: 0,
+      file: 0,
+      chat_message: 0,
+      proposal: 0,
+      stage_focus: 0,
+      stage_pause_context: 0,
+      stage_feedback: 0,
+      stage_alternative: 0,
+      stage_alternative_decision: 0
+    },
+    total: 0,
+    withLabel: 0
+  };
+}
+
+async function loadFailureMessage(response: Response): Promise<string> {
+  const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
+  const message = typeof body?.message === 'string' ? body.message.trim() : '';
+  return message || `HTTP ${response.status}`;
+}
+
 export const load: PageLoad = async ({ fetch, url }) => {
   const kindRaw = url.searchParams.get('kind');
   const kind: TaskEvidenceKind | null =
@@ -45,33 +71,33 @@ export const load: PageLoad = async ({ fetch, url }) => {
   if (q) qs.set('q', q);
   const suffix = qs.toString();
 
-  const res = await fetch(`/api/plans/evidence${suffix ? `?${suffix}` : ''}`);
-  const data: EvidenceResponse = res.ok
-    ? ((await res.json()) as EvidenceResponse)
-    : {
+  try {
+    const res = await fetch(`/api/plans/evidence${suffix ? `?${suffix}` : ''}`);
+    if (!res.ok) {
+      return {
         evidence: [],
-        stats: {
-          byKind: {
-            run_event: 0,
-            task: 0,
-            url: 0,
-            file: 0,
-            chat_message: 0,
-            proposal: 0,
-            stage_focus: 0,
-            stage_pause_context: 0,
-            stage_feedback: 0,
-            stage_alternative: 0,
-            stage_alternative_decision: 0
-          },
-          total: 0,
-          withLabel: 0
-        }
+        stats: emptyStats(),
+        filter: { kind, planId, q },
+        evidenceFetchFailed: true,
+        evidenceFetchMessage: await loadFailureMessage(res)
       };
+    }
+    const data = (await res.json()) as EvidenceResponse;
 
-  return {
-    evidence: data.evidence,
-    stats: data.stats,
-    filter: { kind, planId, q }
-  };
+    return {
+      evidence: data.evidence,
+      stats: data.stats,
+      filter: { kind, planId, q },
+      evidenceFetchFailed: false,
+      evidenceFetchMessage: ''
+    };
+  } catch (cause) {
+    return {
+      evidence: [],
+      stats: emptyStats(),
+      filter: { kind, planId, q },
+      evidenceFetchFailed: true,
+      evidenceFetchMessage: cause instanceof Error ? cause.message : 'Network error'
+    };
+  }
 };
