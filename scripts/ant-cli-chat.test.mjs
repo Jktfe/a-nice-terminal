@@ -512,6 +512,45 @@ describe('ant chat state wrappers', () => {
     expect(bodyAt(captured)).toMatchObject({ decision: 'Use postgres', pidChain: expect.any(Array) });
     expect(captured.stdout.join('\n')).toContain('closed with decision');
   });
+
+  it('C9: sideband room mutations attach durable session identity when available', async () => {
+    const replies = [
+      okJson({ message: { id: 'break-1', body: 'Context break.' } }, 201),
+      okJson({ ok: true }, 201),
+      okJson({ draft: { id: 'draft-1', draftText: 'partial note' } }),
+      okJson({ wasCleared: true }),
+      okJson({ focusEntry: { memberHandle: '@side', expiresAt: null } }),
+      okJson({ wasActive: true }),
+      okJson({ discussion: { id: 'disc-1', summary: 'Use durable sessions', status: 'closed' } })
+    ];
+    const { runtime, captured } = makeRuntime((callIndex) => replies[callIndex - 1]);
+    runtime.envTmuxPane = '%side';
+    runtime.config = { antSessions: { byPane: { '%side': 'sess-side-1' } } };
+
+    await handleChatVerb('break', ['--room', 'room-a', '--reason', 'switching lane', '--handle', '@side'], runtime, { CliInputError });
+    await handleChatVerb('typing', ['--room', 'room-a', '--handle', '@side'], runtime, { CliInputError });
+    await handleChatVerb('draft', ['--room', 'room-a', '--handle', '@side', '--text', 'partial note'], runtime, { CliInputError });
+    await handleChatVerb('draft', ['--room', 'room-a', '--handle', '@side', '--clear'], runtime, { CliInputError });
+    await handleChatVerb('focus', ['room-a', '--member', '@side'], runtime, { CliInputError });
+    await handleChatVerb('unfocus', ['room-a', '--member', '@side'], runtime, { CliInputError });
+    await handleChatVerb('decide', ['room-a', 'disc-1', 'Use', 'durable', 'sessions'], runtime, { CliInputError });
+
+    expect(captured.requests.map((request) => request.init.headers['x-ant-session-id'])).toEqual([
+      'sess-side-1',
+      'sess-side-1',
+      'sess-side-1',
+      'sess-side-1',
+      'sess-side-1',
+      'sess-side-1',
+      'sess-side-1'
+    ]);
+    for (const index of [0, 1, 2, 3, 4, 5, 6]) {
+      expect(bodyAt(captured, index)).toMatchObject({
+        sessionId: 'sess-side-1',
+        pidChain: expect.any(Array)
+      });
+    }
+  });
 });
 
 describe('ant chat send — message body input modes', () => {

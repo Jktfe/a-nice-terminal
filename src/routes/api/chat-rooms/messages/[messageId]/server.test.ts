@@ -4,6 +4,8 @@ import { postMessage, resetChatMessageStoreForTests } from '$lib/server/chatMess
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
+import { createSession } from '$lib/server/antSessionStore';
+import { addMember } from '$lib/server/membershipStore';
 import { GET } from './+server';
 
 type AnyHandler = (event: unknown) => unknown;
@@ -22,11 +24,11 @@ function verifiedCaller(roomId: string, handle = '@agent') {
   return { pidChain: [{ pid, pid_start }] };
 }
 
-function eventFor(messageId: string, pidChain?: unknown[]) {
+function eventFor(messageId: string, pidChain?: unknown[], headers: Record<string, string> = {}) {
   const url = new URL(`http://localhost/api/chat-rooms/messages/${messageId}`);
   if (pidChain) url.searchParams.set('pidChain', JSON.stringify(pidChain));
   return {
-    request: new Request(url),
+    request: new Request(url, { headers }),
     url,
     params: { messageId }
   } as unknown as Parameters<typeof GET>[0];
@@ -60,6 +62,32 @@ describe('GET /api/chat-rooms/messages/:messageId', () => {
     const caller = verifiedCaller(room.id, '@agent');
 
     const response = await run(GET as unknown as AnyHandler, eventFor(parent.id, caller.pidChain));
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.message).toMatchObject({
+      id: parent.id,
+      roomId: room.id,
+      authorHandle: '@you',
+      body: 'question'
+    });
+  });
+
+  it('returns a message when the caller presents a clean ANT session for the room', async () => {
+    const room = createChatRoom({ name: 'lookup-ant-session', whoCreatedIt: '@you' });
+    const parent = postMessage({ roomId: room.id, authorHandle: '@you', body: 'question' });
+    const session = createSession({
+      id: 'sess-lookup-agent',
+      kind: 'local-cli',
+      label: 'lookup-agent',
+      terminalId: 'terminal-lookup-agent'
+    });
+    addMember(room.id, '@agent', session.id);
+
+    const response = await run(
+      GET as unknown as AnyHandler,
+      eventFor(parent.id, undefined, { 'x-ant-session-id': session.id })
+    );
 
     expect(response.status).toBe(200);
     const payload = await response.json();

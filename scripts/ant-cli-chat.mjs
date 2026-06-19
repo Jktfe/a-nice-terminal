@@ -488,6 +488,13 @@ export function durableSessionHeaders(runtime, roomId) {
   return sessionId ? { 'x-ant-session-id': sessionId } : {};
 }
 
+function durableChatMutation(runtime, roomId, payload) {
+  return {
+    payload: withDurableSessionIdentity(runtime, roomId, payload),
+    headers: durableSessionHeaders(runtime, roomId)
+  };
+}
+
 /**
  * Attachment-lease authoring (issuance-class witness, 2026-06-11): the
  * server resolves the x-ant-attachment header FIRST, before the
@@ -770,11 +777,19 @@ async function runTail(flags, runtime, CliInputError) {
 async function runBreak(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
   const reason = flags.reason ?? '';
-  const result = await sendJson(runtime, `/api/chat-rooms/${encodeURIComponent(room)}/breaks`, 'POST', {
+  const { payload, headers } = durableChatMutation(runtime, room, {
     reason,
     postedByHandle: handleFlag(flags),
     pidChain: processIdentityChain()
   });
+  const result = await sendJson(
+    runtime,
+    `/api/chat-rooms/${encodeURIComponent(room)}/breaks`,
+    'POST',
+    payload,
+    undefined,
+    headers
+  );
   writeResult(runtime, flags, result, `Break posted: ${result.message?.id ?? room}`);
   return 0;
 }
@@ -800,10 +815,18 @@ async function runRead(flags, runtime, CliInputError) {
 
 async function runTyping(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
-  const result = await sendJson(runtime, `/api/chat-rooms/${encodeURIComponent(room)}/typing`, 'POST', {
+  const { payload, headers } = durableChatMutation(runtime, room, {
     memberHandle: handleFlag(flags),
     pidChain: processIdentityChain()
   });
+  const result = await sendJson(
+    runtime,
+    `/api/chat-rooms/${encodeURIComponent(room)}/typing`,
+    'POST',
+    payload,
+    undefined,
+    headers
+  );
   writeResult(runtime, flags, result, `Typing heartbeat sent: ${room}`);
   return 0;
 }
@@ -812,21 +835,37 @@ async function runDraft(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
   const authorHandle = handleFlag(flags);
   if (flags.clear !== undefined) {
-    const result = await sendJson(runtime, `/api/chat-rooms/${encodeURIComponent(room)}/composer-draft`, 'DELETE', {
+    const { payload, headers } = durableChatMutation(runtime, room, {
       authorHandle,
       pidChain: processIdentityChain()
     });
+    const result = await sendJson(
+      runtime,
+      `/api/chat-rooms/${encodeURIComponent(room)}/composer-draft`,
+      'DELETE',
+      payload,
+      undefined,
+      headers
+    );
     writeResult(runtime, flags, result, `Draft cleared: ${room}`);
     return 0;
   }
   if (flags.text === undefined) {
     throw new CliInputError('draft requires --text or --clear');
   }
-  const result = await sendJson(runtime, `/api/chat-rooms/${encodeURIComponent(room)}/composer-draft`, 'PUT', {
+  const { payload, headers } = durableChatMutation(runtime, room, {
     authorHandle,
     draftText: flags.text,
     pidChain: processIdentityChain()
   });
+  const result = await sendJson(
+    runtime,
+    `/api/chat-rooms/${encodeURIComponent(room)}/composer-draft`,
+    'PUT',
+    payload,
+    undefined,
+    headers
+  );
   writeResult(runtime, flags, result, `Draft saved: ${room}`);
   return 0;
 }
@@ -874,7 +913,15 @@ async function runFocus(flags, runtime, CliInputError) {
     const durationMs = parseDurationToMs(flags.for, CliInputError);
     if (durationMs !== undefined) payload.durationMs = durationMs;
   }
-  const result = await sendJson(runtime, `/api/chat-rooms/${encodeURIComponent(room)}/focus-mode`, 'PUT', payload);
+  const request = durableChatMutation(runtime, room, payload);
+  const result = await sendJson(
+    runtime,
+    `/api/chat-rooms/${encodeURIComponent(room)}/focus-mode`,
+    'PUT',
+    request.payload,
+    undefined,
+    request.headers
+  );
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
   } else {
@@ -893,10 +940,18 @@ async function runFocus(flags, runtime, CliInputError) {
 async function runUnfocus(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
   const memberHandle = flags.member ?? flags.handle ?? '@JWPK';
-  const result = await sendJson(runtime, `/api/chat-rooms/${encodeURIComponent(room)}/focus-mode`, 'DELETE', {
+  const { payload, headers } = durableChatMutation(runtime, room, {
     memberHandle,
     pidChain: processIdentityChain()
   });
+  const result = await sendJson(
+    runtime,
+    `/api/chat-rooms/${encodeURIComponent(room)}/focus-mode`,
+    'DELETE',
+    payload,
+    undefined,
+    headers
+  );
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
   } else {
@@ -918,12 +973,17 @@ async function runDecide(flags, runtime, CliInputError) {
   if (typeof decision !== 'string' || decision.trim().length === 0) {
     throw new CliInputError('decide needs a decision text (positional or --decision)');
   }
-  const payload = { decision: decision.trim(), pidChain: processIdentityChain() };
+  const { payload, headers } = durableChatMutation(runtime, room, {
+    decision: decision.trim(),
+    pidChain: processIdentityChain()
+  });
   const result = await sendJson(
     runtime,
     `/api/chat-rooms/${encodeURIComponent(room)}/discussions/${encodeURIComponent(discussionId)}`,
     'PATCH',
-    payload
+    payload,
+    undefined,
+    headers
   );
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
