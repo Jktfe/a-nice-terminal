@@ -1,6 +1,7 @@
 /**
  * Port audit (2026-06-19): source
- * codex/desk-core-model:src/lib/server/terminalDeskCore.ts lines 56-443.
+ * codex/desk-core-model:src/lib/server/terminalDeskCore.ts lines 56-443
+ * and 545-1000.
  * Verdict: CHANGE. vNext simplification: this file is only the deployed
  * /api/desks facade over today's terminal tables plus the atomic handle-move
  * verb; the branch-only lifecycle/config/binding verbs stay out until each
@@ -26,15 +27,29 @@ import {
   getTerminalById,
   listTerminalClassByIds,
   listTerminalRowsByIds,
+  setTerminalAccountType,
+  setTerminalAgentKind,
+  setTerminalLastPath,
+  setTerminalModelFamily,
   type TerminalRow
 } from './terminalsStore';
 import {
+  isTerminalDeliveryMode,
+  isTerminalDeliveryTargetMode,
   readTerminalDeliveryMode,
   readTerminalDeliveryTargetMode,
   type TerminalDeliveryMode,
   type TerminalDeliveryTargetMode
 } from './terminalDeliveryMode';
 import { moveHandleClaimToTerminal } from './terminalHandleClaimStore';
+import { updateTerminalRecord } from './terminalRecordsStore';
+import {
+  bindHandle,
+  getLiveBindingByPane,
+  tombstoneBinding
+} from './handleBindingsStore';
+import { appendLedger } from './identityLedgerStore';
+import { getIdentityDb } from './db';
 
 export type TerminalDeskLifecycle = 'active' | 'parked' | 'retired' | 'deleted';
 export type TerminalPaneBindingState = 'bound' | 'unwitnessed' | 'missing';
@@ -113,6 +128,25 @@ export type TerminalDeskHandleMutationResult = {
   desk: TerminalDesk;
   handle: string;
   movedFromDeskId: string | null;
+};
+
+export type TerminalDeskPaneMutationResult = {
+  desk: TerminalDesk;
+  binding: TerminalDeskPaneBinding;
+  tombstoned: boolean;
+};
+
+export type TerminalDeskCliProfileMutationResult = {
+  desk: TerminalDesk;
+  profile: TerminalDeskCliProfile;
+  terminalRowUpdated: boolean;
+};
+
+export type TerminalDeskConfigMutationResult = {
+  desk: TerminalDesk;
+  config: TerminalDeskConfig;
+  terminalRowUpdated: boolean;
+  recordUpdated: boolean;
 };
 
 type TerminalClass = {
@@ -292,6 +326,170 @@ function ownersForDesk(record: TerminalRecord, claim: TerminalDeskClaim | null, 
   return [...owners].sort();
 }
 
+function addNormalisedHandle(target: Set<string>, raw: string | null | undefined): void {
+  if (!raw) return;
+  target.add(`@${raw.trim().replace(/^@+/, '')}`.toLowerCase());
+}
+
+export function canManageTerminalDesk(input: {
+  actor: string;
+  record: TerminalRecord;
+  operatorHandle: string;
+}): boolean {
+  const actor = `@${input.actor.trim().replace(/^@+/, '')}`.toLowerCase();
+  if (actor === `@${input.operatorHandle.trim().replace(/^@+/, '')}`.toLowerCase()) return true;
+  const allowed = new Set<string>();
+  addNormalisedHandle(allowed, input.record.created_by);
+  addNormalisedHandle(allowed, input.record.handle);
+  for (const coOwner of parseAllowlist(input.record.allowlist) ?? []) {
+    addNormalisedHandle(allowed, coOwner);
+  }
+  const handleRow = input.record.handle ? getHandleRow(input.record.handle) : null;
+  for (const owner of handleRow?.owners ?? []) {
+    addNormalisedHandle(allowed, owner);
+  }
+  return allowed.size === 0 || allowed.has(actor);
+}
+
+function requireRecord(deskId: string): TerminalRecord {
+  const record = getTerminalRecord(deskId);
+  if (!record) throw new TerminalDeskError(404, 'Desk not found.');
+  return record;
+}
+
+function requiredTextOrThrow(rawValue: unknown, label: string): string {
+  if (typeof rawValue !== 'string' || rawValue.trim().length === 0) {
+    throw new TerminalDeskError(400, `${label} required.`);
+  }
+  return rawValue.trim();
+}
+
+function optionalIntegerOrNull(rawValue: unknown, label: string): number | null {
+  if (rawValue === undefined || rawValue === null) return null;
+  if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) {
+    throw new TerminalDeskError(400, `${label} must be a number when supplied.`);
+  }
+  return Math.trunc(rawValue);
+}
+
+function optionalTextOrNull(rawValue: unknown, label: string): string | null {
+  if (rawValue === undefined || rawValue === null) return null;
+  if (typeof rawValue !== 'string') throw new TerminalDeskError(400, `${label} must be text when supplied.`);
+  const trimmed = rawValue.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function optionalTextPatch(rawValue: unknown, label: string): { provided: boolean; value: string | null } {
+  if (rawValue === undefined) return { provided: false, value: null };
+  return { provided: true, value: optionalTextOrNull(rawValue, label) };
+}
+
+function pickAliasPatch(input: {
+  primary: unknown;
+  alias: unknown;
+  primaryLabel: string;
+  aliasLabel: string;
+}): { provided: boolean; value: unknown } {
+  const primaryProvided = input.primary !== undefined;
+  const aliasProvided = input.alias !== undefined;
+  if (primaryProvided && aliasProvided && input.primary !== input.alias) {
+    throw new TerminalDeskError(400, `${input.primaryLabel} and ${input.aliasLabel} must match when both are supplied.`);
+  }
+  if (primaryProvided) return { provided: true, value: input.primary };
+  if (aliasProvided) return { provided: true, value: input.alias };
+  return { provided: false, value: undefined };
+}
+
+function configTextValue(rawValue: unknown, label: string): string {
+  if (typeof rawValue !== 'string' || rawValue.trim().length === 0) {
+    throw new TerminalDeskError(400, `${label} must be text.`);
+  }
+  return rawValue.trim();
+}
+
+function persistenceOrThrow(rawValue: unknown): TerminalPersistencePolicy {
+  const value = configTextValue(rawValue, 'persistence');
+  if (value === '1h' || value === '24h' || value === '7d' || value === 'forever') return value;
+  throw new TerminalDeskError(400, 'persistence must be one of 1h | 24h | 7d | forever.');
+}
+
+function killDefaultOrThrow(rawValue: unknown): TerminalKillDefault {
+  const value = configTextValue(rawValue, 'defaultKillAction');
+  if (value === 'prompt' || value === 'archive' || value === 'delete' || value === 'just-kill') return value;
+  throw new TerminalDeskError(400, 'defaultKillAction must be one of prompt | archive | delete | just-kill.');
+}
+
+function deliveryModeOrThrow(rawValue: unknown): TerminalDeliveryMode {
+  if (isTerminalDeliveryMode(rawValue)) return rawValue;
+  throw new TerminalDeskError(400, 'messageDelivery must be inject, queue_raw, or queue_summarise.');
+}
+
+function deliveryTargetOrThrow(rawValue: unknown): TerminalDeliveryTargetMode {
+  if (isTerminalDeliveryTargetMode(rawValue)) return rawValue;
+  throw new TerminalDeskError(400, 'deliveryTarget must be room_flow or handle_only.');
+}
+
+function coOwnersOrThrow(rawValue: unknown): string[] {
+  if (rawValue === null) return [];
+  if (!Array.isArray(rawValue)) throw new TerminalDeskError(400, 'coOwners must be an array of handles.');
+  return normaliseHandleList(rawValue).map((handle) => handle.toLowerCase()).sort();
+}
+
+function writeGrantsOrThrow(rawValue: unknown): TerminalWriteGrant[] {
+  if (rawValue === null) return [];
+  if (!Array.isArray(rawValue)) throw new TerminalDeskError(400, 'writeGrants must be an array.');
+  const grants = rawValue.map((grant, index): TerminalWriteGrant => {
+    if (!grant || typeof grant !== 'object') {
+      throw new TerminalDeskError(400, `writeGrants[${index}] must be an object.`);
+    }
+    const rawHandle = (grant as { handle?: unknown }).handle;
+    if (typeof rawHandle !== 'string') {
+      throw new TerminalDeskError(400, `writeGrants[${index}].handle must be a handle.`);
+    }
+    const handle = normaliseHandle(rawHandle)?.toLowerCase();
+    const mode = (grant as { mode?: unknown }).mode;
+    if (!handle) throw new TerminalDeskError(400, `writeGrants[${index}].handle must be a handle.`);
+    if (mode !== 'read' && mode !== 'read_write') {
+      throw new TerminalDeskError(400, `writeGrants[${index}].mode must be read or read_write.`);
+    }
+    return { handle, mode };
+  });
+  return [...new Map(grants.map((grant) => [`${grant.handle}:${grant.mode}`, grant])).values()]
+    .sort((a, b) => a.handle.localeCompare(b.handle) || a.mode.localeCompare(b.mode));
+}
+
+function writeTerminalMeta(deskId: string, meta: Record<string, unknown>, atMs: number): boolean {
+  const result = getIdentityDb().prepare(
+    `UPDATE terminals SET meta = ?, updated_at = ? WHERE id = ?`
+  ).run(JSON.stringify(meta), Math.floor(atMs / 1000), deskId);
+  return result.changes > 0;
+}
+
+function accountTypePatchFromInput(
+  accountTypeRaw: unknown,
+  subscriptionRaw: unknown
+): { provided: boolean; value: string | null } {
+  const account = optionalTextPatch(accountTypeRaw, 'accountType');
+  const subscription = optionalTextPatch(subscriptionRaw, 'subscription');
+  if (account.provided && subscription.provided && account.value !== subscription.value) {
+    throw new TerminalDeskError(400, 'accountType and subscription must match when both are supplied.');
+  }
+  return account.provided ? account : subscription;
+}
+
+function activeDeskRecordForPane(pane: string): TerminalRecord | null {
+  const row = getIdentityDb()
+    .prepare(
+      `SELECT * FROM terminal_records
+        WHERE tmux_target_pane = ?
+          AND superseded_at_ms IS NULL
+        ORDER BY created_at_ms DESC
+        LIMIT 1`
+    )
+    .get(pane) as TerminalRecord | undefined;
+  return row ?? null;
+}
+
 export function projectTerminalRecordToDesk(
   record: TerminalRecord,
   options: {
@@ -375,4 +573,245 @@ export function moveTerminalDeskHandle(input: {
     if (message.startsWith('terminal not found:')) throw new TerminalDeskError(404, 'Desk not found.');
     throw new TerminalDeskError(400, message);
   }
+}
+
+export function bindDeskPane(input: {
+  deskId: string;
+  pane: unknown;
+  pid?: unknown;
+  pidStart?: unknown;
+  actor: string;
+  atMs?: number;
+}): TerminalDeskPaneMutationResult {
+  const record = requireRecord(input.deskId);
+  if (!record.handle) throw new TerminalDeskError(409, 'Desk needs an ANThandle claim before binding a pane.');
+  const pane = requiredTextOrThrow(input.pane, 'pane');
+  const pid = optionalIntegerOrNull(input.pid, 'pid');
+  const pidStart = optionalTextOrNull(input.pidStart, 'pidStart');
+  const nowMs = input.atMs ?? Date.now();
+  const boundPane = getLiveBindingByPane(pane);
+  if (boundPane && boundPane.terminal_id !== input.deskId) {
+    throw new TerminalDeskError(409, `Pane ${pane} is already bound to ${boundPane.handle}.`);
+  }
+  const existingPaneDesk = activeDeskRecordForPane(pane);
+  if (existingPaneDesk && existingPaneDesk.session_id !== input.deskId) {
+    throw new TerminalDeskError(409, `Pane ${pane} already belongs to Desk ${existingPaneDesk.session_id}.`);
+  }
+  const updated = updateTerminalRecord(input.deskId, { tmuxTargetPane: pane });
+  if (!updated) throw new TerminalDeskError(404, 'Desk not found.');
+  bindHandle({
+    handle: record.handle,
+    pane,
+    pid,
+    pidStart,
+    spawnedBy: input.actor,
+    terminalId: input.deskId,
+    atMs: nowMs
+  });
+  const desk = getTerminalDesk(input.deskId);
+  if (!desk) throw new TerminalDeskError(404, 'Desk not found.');
+  return { desk, binding: desk.activeBinding, tombstoned: false };
+}
+
+export function tombstoneDeskPane(input: {
+  deskId: string;
+  actor: string;
+  reason?: unknown;
+  atMs?: number;
+}): TerminalDeskPaneMutationResult {
+  const record = requireRecord(input.deskId);
+  if (!record.handle) throw new TerminalDeskError(409, 'Desk has no ANThandle claim to tombstone.');
+  const nowMs = input.atMs ?? Date.now();
+  const reason = optionalTextOrNull(input.reason, 'reason') ?? 'pane-not-found';
+  const tombstoned = tombstoneBinding(record.handle, reason, nowMs);
+  appendLedger({
+    kind: 'desk.binding_tombstoned',
+    handle: record.handle,
+    actor: input.actor,
+    atMs: nowMs,
+    detail: {
+      desk_id: input.deskId,
+      reason,
+      tombstoned
+    }
+  });
+  const desk = getTerminalDesk(input.deskId);
+  if (!desk) throw new TerminalDeskError(404, 'Desk not found.');
+  return { desk, binding: desk.activeBinding, tombstoned };
+}
+
+export function swapDeskCliProfile(input: {
+  deskId: string;
+  actor: string;
+  cli?: unknown;
+  accountType?: unknown;
+  subscription?: unknown;
+  modelFamily?: unknown;
+  rootFolder?: unknown;
+  bootCommand?: unknown;
+  cliSessionId?: unknown;
+  cliSessionSource?: unknown;
+  atMs?: number;
+}): TerminalDeskCliProfileMutationResult {
+  const record = requireRecord(input.deskId);
+  const cli = optionalTextPatch(input.cli, 'cli');
+  const accountType = accountTypePatchFromInput(input.accountType, input.subscription);
+  const modelFamily = optionalTextPatch(input.modelFamily, 'modelFamily');
+  const rootFolder = optionalTextPatch(input.rootFolder, 'rootFolder');
+  const bootCommand = optionalTextPatch(input.bootCommand, 'bootCommand');
+  const cliSessionId = optionalTextPatch(input.cliSessionId, 'cliSessionId');
+  const cliSessionSource = optionalTextPatch(input.cliSessionSource, 'cliSessionSource');
+
+  const recordPatch: Parameters<typeof updateTerminalRecord>[1] = {};
+  if (cli.provided) recordPatch.agentKind = cli.value;
+  if (bootCommand.provided) recordPatch.bootCommand = bootCommand.value;
+  if (cliSessionId.provided) {
+    recordPatch.cliSessionId = cliSessionId.value;
+    recordPatch.cliSessionSource = cliSessionSource.provided ? cliSessionSource.value : record.cli_session_source;
+  } else if (cliSessionSource.provided) {
+    recordPatch.cliSessionId = record.cli_session_id;
+    recordPatch.cliSessionSource = cliSessionSource.value;
+  }
+  if (Object.keys(recordPatch).length > 0 && !updateTerminalRecord(input.deskId, recordPatch)) {
+    throw new TerminalDeskError(404, 'Desk not found.');
+  }
+
+  let terminalRowUpdated = false;
+  const terminal = getTerminalById(input.deskId);
+  if (terminal) {
+    if (cli.provided) terminalRowUpdated = setTerminalAgentKind(input.deskId, cli.value) || terminalRowUpdated;
+    if (accountType.provided) terminalRowUpdated = setTerminalAccountType(input.deskId, accountType.value) || terminalRowUpdated;
+    if (modelFamily.provided) terminalRowUpdated = setTerminalModelFamily(input.deskId, modelFamily.value) || terminalRowUpdated;
+    if (rootFolder.provided) terminalRowUpdated = setTerminalLastPath(input.deskId, rootFolder.value) || terminalRowUpdated;
+  }
+
+  appendLedger({
+    kind: 'cli_profile.swapped',
+    handle: record.handle,
+    actor: input.actor,
+    atMs: input.atMs ?? Date.now(),
+    detail: {
+      desk_id: input.deskId,
+      changed: {
+        cli: cli.provided,
+        account_type: accountType.provided,
+        model_family: modelFamily.provided,
+        root_folder: rootFolder.provided,
+        boot_command: bootCommand.provided,
+        cli_session_id: cliSessionId.provided,
+        cli_session_source: cliSessionSource.provided
+      },
+      terminal_row_updated: terminalRowUpdated
+    }
+  });
+
+  const desk = getTerminalDesk(input.deskId);
+  if (!desk) throw new TerminalDeskError(404, 'Desk not found.');
+  return { desk, profile: desk.cliProfile, terminalRowUpdated };
+}
+
+export function updateDeskConfig(input: {
+  deskId: string;
+  actor: string;
+  persistence?: unknown;
+  coOwners?: unknown;
+  writeGrants?: unknown;
+  defaultKillAction?: unknown;
+  killDefault?: unknown;
+  messageDelivery?: unknown;
+  deliveryMode?: unknown;
+  deliveryTarget?: unknown;
+  deliveryTargetMode?: unknown;
+  atMs?: number;
+}): TerminalDeskConfigMutationResult {
+  const record = requireRecord(input.deskId);
+  const terminal = getTerminalById(input.deskId);
+  const meta = parseMeta(terminal?.meta);
+  const nextMeta: Record<string, unknown> = { ...meta };
+  const changed: Record<string, boolean> = {};
+  let recordUpdated = false;
+  let terminalMetaNeedsWrite = false;
+
+  if (input.persistence !== undefined) {
+    nextMeta.persistence = persistenceOrThrow(input.persistence);
+    changed.persistence = true;
+    terminalMetaNeedsWrite = true;
+  }
+  if (input.coOwners !== undefined) {
+    const coOwners = coOwnersOrThrow(input.coOwners);
+    const updated = updateTerminalRecord(input.deskId, { allowlist: coOwners });
+    if (!updated) throw new TerminalDeskError(404, 'Desk not found.');
+    nextMeta.coOwners = coOwners;
+    changed.coOwners = true;
+    recordUpdated = true;
+    terminalMetaNeedsWrite = terminal !== null;
+  }
+  if (input.writeGrants !== undefined) {
+    nextMeta.writeGrants = writeGrantsOrThrow(input.writeGrants);
+    changed.writeGrants = true;
+    terminalMetaNeedsWrite = true;
+  }
+
+  const killDefault = pickAliasPatch({
+    primary: input.defaultKillAction,
+    alias: input.killDefault,
+    primaryLabel: 'defaultKillAction',
+    aliasLabel: 'killDefault'
+  });
+  if (killDefault.provided) {
+    nextMeta.killDefault = killDefaultOrThrow(killDefault.value);
+    changed.defaultKillAction = true;
+    terminalMetaNeedsWrite = true;
+  }
+
+  const deliveryMode = pickAliasPatch({
+    primary: input.messageDelivery,
+    alias: input.deliveryMode,
+    primaryLabel: 'messageDelivery',
+    aliasLabel: 'deliveryMode'
+  });
+  if (deliveryMode.provided) {
+    nextMeta.deliveryMode = deliveryModeOrThrow(deliveryMode.value);
+    changed.messageDelivery = true;
+    terminalMetaNeedsWrite = true;
+  }
+
+  const deliveryTarget = pickAliasPatch({
+    primary: input.deliveryTarget,
+    alias: input.deliveryTargetMode,
+    primaryLabel: 'deliveryTarget',
+    aliasLabel: 'deliveryTargetMode'
+  });
+  if (deliveryTarget.provided) {
+    nextMeta.deliveryTargetMode = deliveryTargetOrThrow(deliveryTarget.value);
+    changed.deliveryTarget = true;
+    terminalMetaNeedsWrite = true;
+  }
+
+  if (Object.keys(changed).length === 0) {
+    throw new TerminalDeskError(400, 'At least one config field is required.');
+  }
+  if (terminalMetaNeedsWrite && !terminal) {
+    throw new TerminalDeskError(409, 'Desk has no backing terminal row for meta-backed config fields.');
+  }
+  const atMs = input.atMs ?? Date.now();
+  const terminalRowUpdated = terminalMetaNeedsWrite
+    ? writeTerminalMeta(input.deskId, nextMeta, atMs)
+    : false;
+
+  appendLedger({
+    kind: 'desk.config_updated',
+    handle: record.handle,
+    actor: input.actor,
+    atMs,
+    detail: {
+      desk_id: input.deskId,
+      changed,
+      terminal_row_updated: terminalRowUpdated,
+      record_updated: recordUpdated
+    }
+  });
+  const desk = getTerminalDesk(input.deskId);
+  if (!desk) throw new TerminalDeskError(404, 'Desk not found.');
+  return { desk, config: desk.config, terminalRowUpdated, recordUpdated };
 }

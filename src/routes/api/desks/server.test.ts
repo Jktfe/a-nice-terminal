@@ -8,6 +8,10 @@ import { GET as GET_DESK } from './[deskId]/+server';
 import { GET as GET_ANT_VIEW } from './[deskId]/ant-view/+server';
 import { POST as MOVE_HANDLE } from './[deskId]/handle/move/+server';
 import { POST as CLAIM_HANDLE } from './[deskId]/handle/claim/+server';
+import { POST as BIND_PANE } from './[deskId]/binding/bind/+server';
+import { POST as TOMBSTONE_PANE } from './[deskId]/binding/tombstone/+server';
+import { POST as SWAP_CLI_PROFILE } from './[deskId]/cli-profile/swap/+server';
+import { PATCH as UPDATE_CONFIG } from './[deskId]/config/+server';
 import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
 import { appendTerminalRunEvent } from '$lib/server/terminalRunEventsStore';
 import {
@@ -28,7 +32,7 @@ const TEST_ADMIN_TOKEN = 'test-admin-token-for-desks-facade';
 type AnyHandler = (event: unknown) => unknown;
 
 function eventFor(
-  method: 'GET' | 'POST',
+  method: 'GET' | 'POST' | 'PATCH',
   path: string,
   params: Record<string, string> = {},
   body?: Record<string, unknown>,
@@ -350,5 +354,234 @@ describe('/api/desks facade', () => {
       displayHandle: '@alias',
       claim: { handle: '@alias' }
     });
+  });
+
+  it('patches Desk config through the antOS envelope', async () => {
+    createTerminalRecord({
+      sessionId: 't_config',
+      name: 'Config Desk',
+      handle: '@config',
+      createdBy: '@JWPK',
+      tmuxTargetPane: 't_config:0.0'
+    });
+    seedTerminalRow({
+      id: 't_config',
+      pid: 333,
+      pidStart: 'config-start',
+      pane: 't_config:0.0',
+      name: 'Config Desk'
+    });
+
+    const response = await run(
+      UPDATE_CONFIG as unknown as AnyHandler,
+      eventFor(
+        'PATCH',
+        '/api/desks/t_config/config',
+        { deskId: 't_config' },
+        {
+          persistence: '24h',
+          coOwners: ['ecoantclaude'],
+          writeGrants: [{ handle: 'ecoantcodex', mode: 'read_write' }],
+          defaultKillAction: 'archive',
+          messageDelivery: 'queue_summarise',
+          deliveryTarget: 'handle_only'
+        }
+      )
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      terminalRowUpdated: true,
+      recordUpdated: true,
+      config: {
+        persistence: '24h',
+        coOwners: ['@ecoantclaude'],
+        writeGrants: [{ handle: '@ecoantcodex', mode: 'read_write' }],
+        defaultKillAction: 'archive',
+        messageDelivery: 'queue_summarise',
+        deliveryTarget: 'handle_only'
+      },
+      desk: {
+        deskId: 't_config',
+        owners: ['@JWPK', '@ecoantclaude']
+      }
+    });
+    const terminalMeta = getIdentityDb()
+      .prepare(`SELECT meta FROM terminals WHERE id = ?`)
+      .get('t_config') as { meta: string };
+    expect(JSON.parse(terminalMeta.meta)).toMatchObject({
+      persistence: '24h',
+      coOwners: ['@ecoantclaude'],
+      writeGrants: [{ handle: '@ecoantcodex', mode: 'read_write' }],
+      killDefault: 'archive',
+      deliveryMode: 'queue_summarise',
+      deliveryTargetMode: 'handle_only'
+    });
+    expect(getTerminalRecord('t_config')?.allowlist).toBe(JSON.stringify(['@ecoantclaude']));
+  });
+
+  it('swaps the CLI profile without changing the Desk identity', async () => {
+    createTerminalRecord({
+      sessionId: 't_cli',
+      name: 'CLI Desk',
+      handle: '@cli',
+      createdBy: '@JWPK',
+      tmuxTargetPane: 't_cli:0.0',
+      bootCommand: 'claude',
+      cliSessionId: 'old-session',
+      cliSessionSource: 'claude-code'
+    });
+    seedTerminalRow({
+      id: 't_cli',
+      pid: 444,
+      pidStart: 'cli-start',
+      pane: 't_cli:0.0',
+      name: 'CLI Desk',
+      agentKind: 'claude'
+    });
+
+    const response = await run(
+      SWAP_CLI_PROFILE as unknown as AnyHandler,
+      eventFor(
+        'POST',
+        '/api/desks/t_cli/cli-profile/swap',
+        { deskId: 't_cli' },
+        {
+          cli: 'codex',
+          subscription: 'team',
+          modelFamily: 'gpt-5-codex',
+          rootFolder: '/tmp/ant',
+          bootCommand: 'codex',
+          cliSessionId: 'new-session',
+          cliSessionSource: 'codex'
+        }
+      )
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      terminalRowUpdated: true,
+      profile: {
+        cli: 'codex',
+        accountType: 'team',
+        modelFamily: 'gpt-5-codex',
+        rootFolder: '/tmp/ant',
+        bootCommand: 'codex',
+        cliSessionId: 'new-session',
+        cliSessionSource: 'codex'
+      },
+      desk: {
+        deskId: 't_cli',
+        displayHandle: '@cli',
+        claim: { handle: '@cli' }
+      }
+    });
+    expect(getTerminalRecord('t_cli')).toMatchObject({
+      handle: '@cli',
+      agent_kind: 'codex',
+      boot_command: 'codex',
+      cli_session_id: 'new-session',
+      cli_session_source: 'codex'
+    });
+  });
+
+  it('binds and tombstones a Desk pane through explicit verbs', async () => {
+    createTerminalRecord({
+      sessionId: 't_bind',
+      name: 'Bind Desk',
+      handle: '@bind',
+      createdBy: '@JWPK',
+      tmuxTargetPane: 'old-pane'
+    });
+
+    const bindResponse = await run(
+      BIND_PANE as unknown as AnyHandler,
+      eventFor(
+        'POST',
+        '/api/desks/t_bind/binding/bind',
+        { deskId: 't_bind' },
+        { pane: 'new-pane', pid: 555, pidStart: 'bind-start' }
+      )
+    );
+
+    expect(bindResponse.status).toBe(200);
+    const bindBody = await bindResponse.json();
+    expect(bindBody).toMatchObject({
+      tombstoned: false,
+      binding: {
+        state: 'bound',
+        source: 'handle_binding',
+        terminalId: 't_bind',
+        pane: 'new-pane',
+        pid: 555,
+        pidStart: 'bind-start'
+      },
+      desk: {
+        deskId: 't_bind',
+        activeBinding: { pane: 'new-pane' }
+      }
+    });
+    expect(getTerminalRecord('t_bind')?.tmux_target_pane).toBe('new-pane');
+    expect(getLiveBinding('@bind')).toMatchObject({
+      pane: 'new-pane',
+      terminal_id: 't_bind'
+    });
+
+    const tombstoneResponse = await run(
+      TOMBSTONE_PANE as unknown as AnyHandler,
+      eventFor(
+        'POST',
+        '/api/desks/t_bind/binding/tombstone',
+        { deskId: 't_bind' },
+        { reason: 'pane-killed' }
+      )
+    );
+
+    expect(tombstoneResponse.status).toBe(200);
+    const tombstoneBody = await tombstoneResponse.json();
+    expect(tombstoneBody).toMatchObject({
+      tombstoned: true,
+      binding: {
+        state: 'missing',
+        source: 'none'
+      },
+      desk: {
+        deskId: 't_bind',
+        lifecycle: 'parked'
+      }
+    });
+    expect(getLiveBinding('@bind')).toBeNull();
+  });
+
+  it('rejects unauthenticated Desk config writes', async () => {
+    createTerminalRecord({
+      sessionId: 't_noauth',
+      name: 'No Auth Desk',
+      handle: '@noauth',
+      createdBy: '@JWPK',
+      tmuxTargetPane: 't_noauth:0.0'
+    });
+    seedTerminalRow({
+      id: 't_noauth',
+      pid: 666,
+      pidStart: 'noauth-start',
+      pane: 't_noauth:0.0',
+      name: 'No Auth Desk'
+    });
+
+    const response = await run(
+      UPDATE_CONFIG as unknown as AnyHandler,
+      eventFor(
+        'PATCH',
+        '/api/desks/t_noauth/config',
+        { deskId: 't_noauth' },
+        { persistence: '1h' },
+        { withAuth: false }
+      )
+    );
+
+    expect(response.status).toBe(401);
   });
 });
