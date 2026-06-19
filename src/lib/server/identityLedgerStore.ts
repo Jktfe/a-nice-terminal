@@ -16,6 +16,7 @@ export type IdentityLedgerKind =
   | 'binding.tombstoned'
   | 'handle.registered'
   | 'handle.claim-refused'
+  | 'handle.moved'
   | 'handle.retired'
   | 'handle.deleted'
   | 'owner.added'
