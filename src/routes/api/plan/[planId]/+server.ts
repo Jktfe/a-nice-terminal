@@ -37,6 +37,7 @@ import {
   type PlanStatus,
   type ProvenanceRef
 } from '$lib/server/planModeStore';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 
 const ALLOWED_KINDS: ReadonlySet<PlanEventKind> = new Set([
   'plan_section',
@@ -180,13 +181,15 @@ function buildPlanEventFromBody(
   };
 }
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
+  requireAggregateReadAuth(request, `/api/plan/${params.planId ?? ''}`);
   const planIdFromUrl = params.planId ?? '';
   const events = projectPlanEvents(planIdFromUrl);
   return json({ events });
 };
 
 export const POST: RequestHandler = async ({ params, request }) => {
+  requireAggregateReadAuth(request, `/api/plan/${params.planId ?? ''}`);
   const planIdFromUrl = params.planId ?? '';
   if (planIdFromUrl.length === 0) {
     throw error(400, 'URL planId must be non-empty.');

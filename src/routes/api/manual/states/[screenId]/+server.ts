@@ -6,6 +6,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { upsertScreenState, listStatesForScreen } from '$lib/server/manualScreenStore';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 function slugify(label: string): string {
   return label
@@ -17,6 +18,7 @@ function slugify(label: string): string {
 }
 
 export const POST: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const screenId = params.screenId ?? '';
   if (!screenId) throw error(400, 'screenId required');
 

@@ -2,26 +2,38 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { GET, POST } from './+server';
 import { resetPlanModeStoreForTests, type PlanEvent } from '$lib/server/planModeStore';
 
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'plan-mode-route-test-admin';
+
 beforeEach(() => {
+  process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
   resetPlanModeStoreForTests();
 });
 
 afterEach(() => {
   resetPlanModeStoreForTests();
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
 type HandlerEvent = Parameters<typeof GET>[0];
 
-function makeGetEvent(planId: string): HandlerEvent {
-  return { params: { planId } } as unknown as HandlerEvent;
+function makeGetEvent(planId: string, authenticated = true): HandlerEvent {
+  const headers = authenticated ? { authorization: `Bearer ${TEST_ADMIN_TOKEN}` } : undefined;
+  return {
+    params: { planId },
+    request: new Request(`http://test.local/api/plan/${planId}`, { headers })
+  } as unknown as HandlerEvent;
 }
 
-function makePostEvent(planId: string, bodyValue: unknown): HandlerEvent {
+function makePostEvent(planId: string, bodyValue: unknown, authenticated = true): HandlerEvent {
   const bodyText = typeof bodyValue === 'string' ? bodyValue : JSON.stringify(bodyValue);
+  const headers = authenticated ? { authorization: `Bearer ${TEST_ADMIN_TOKEN}` } : undefined;
   return {
     params: { planId },
     request: new Request(`http://test.local/api/plan/${planId}`, {
       method: 'POST',
+      headers,
       body: bodyText
     })
   } as unknown as HandlerEvent;
@@ -52,6 +64,11 @@ async function expectRejectedWith(promise: unknown, expectedStatus: number) {
 }
 
 describe('plan endpoint', () => {
+  it('auth: rejects anonymous GET and POST', async () => {
+    await expectRejectedWith(GET(makeGetEvent('plan-a', false)), 401);
+    await expectRejectedWith(POST(makePostEvent('plan-a', validEventBody(), false)), 401);
+  });
+
   it('E1: GET returns 200 + empty events for unknown plan_id', async () => {
     const response = await GET(makeGetEvent('unknown-plan'));
     expect(response.status).toBe(200);

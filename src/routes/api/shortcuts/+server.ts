@@ -11,8 +11,8 @@
  *      Returns { shortcut } 201 on success, 400 on validation failure.
  *
  * Persistence lives in src/lib/server/shortcutsStore.ts (better-sqlite3).
- * No authentication yet — sibling endpoints for /api/quick-shortcuts and
- * /api/chat-rooms follow the same posture.
+ * Shortcut commands can drive local tools, so reads and writes require
+ * operator-level auth.
  */
 
 import { json, error } from '@sveltejs/kit';
@@ -22,6 +22,7 @@ import {
   listShortcutsFor,
   type ShortcutScope
 } from '$lib/server/shortcutsStore';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 const VALID_SCOPES: ReadonlySet<ShortcutScope> = new Set<ShortcutScope>([
   'terminal',
@@ -36,7 +37,8 @@ function parseScope(raw: unknown): ShortcutScope {
   return raw as ShortcutScope;
 }
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ request, url }) => {
+  requireOperatorLikeAuth(request);
   const scope = parseScope(url.searchParams.get('scope'));
   if (scope === 'global') {
     return json({ shortcuts: listShortcutsFor('global') });
@@ -49,6 +51,7 @@ export const GET: RequestHandler = async ({ url }) => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
+  requireOperatorLikeAuth(request);
   const rawBody = await request.json().catch(() => null);
   if (!rawBody || typeof rawBody !== 'object') {
     throw error(400, 'Send a JSON body with scope, label, command.');

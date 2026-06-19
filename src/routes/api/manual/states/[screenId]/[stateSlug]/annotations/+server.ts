@@ -1,7 +1,7 @@
 // POST /api/manual/states/:screenId/:stateSlug/annotations
 // Author-mode endpoint (slice 1.5, JWPK msg_iu0yjpat78 2026-05-23):
-// create a new annotation by dragging on the canvas. Workspace-public
-// (same as read scope); slice 6 audit-log will record the author.
+// create a new annotation by dragging on the canvas. Authoring requires
+// operator-level auth; slice 6 audit-log records the declared editor.
 
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
@@ -12,6 +12,7 @@ import {
   findAnnotationByKeys
 } from '$lib/server/manualScreenStore';
 import { canonicaliseOperatorHandle, getOperatorHandle } from '$lib/server/operatorHandle';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 type Bbox = { x: number; y: number; w: number; h: number };
 
@@ -31,6 +32,7 @@ function parseStringArray(raw: unknown, field: string): string[] {
 }
 
 export const POST: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const screenId = params.screenId ?? '';
   const stateSlug = params.stateSlug ?? '';
   if (!screenId || !stateSlug) throw error(400, 'screenId and stateSlug required');

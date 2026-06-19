@@ -11,8 +11,10 @@ import type { RequestHandler } from './$types';
 import { appendPlanEvent } from '$lib/server/planModeStore';
 import { getPlan } from '$lib/server/planStore';
 import { getOperatorHandle } from '$lib/server/operatorHandle';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 export const POST: RequestHandler = async ({ request }) => {
+  requireOperatorLikeAuth(request);
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== 'object') {
     throw error(400, 'JSON body required with planId, taskId, ref.');

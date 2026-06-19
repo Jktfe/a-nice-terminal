@@ -3,17 +3,22 @@
  * Style mirrors /api/quick-shortcuts/server.test.ts.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { GET, POST } from './+server';
 import {
   addShortcut,
   resetShortcutsStoreForTests
 } from '$lib/server/shortcutsStore';
 
-function eventFor(method: 'GET' | 'POST', url: URL, body?: string) {
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'shortcuts-route-test-admin';
+
+function eventFor(method: 'GET' | 'POST', url: URL, body?: string, authenticated = true) {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (authenticated) headers.authorization = `Bearer ${TEST_ADMIN_TOKEN}`;
   const request = new Request(url.toString(), {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers,
     body
   });
   return { request, params: {}, url } as unknown as Parameters<typeof POST>[0];
@@ -40,21 +45,32 @@ async function runHandler(
   }
 }
 
-const callGet = (query: string) => {
+const callGet = (query: string, authenticated = true) => {
   const url = new URL(`http://localhost/api/shortcuts?${query}`);
-  return runHandler(GET, eventFor('GET', url));
+  return runHandler(GET, eventFor('GET', url, undefined, authenticated));
 };
-const callPost = (body?: string) => {
+const callPost = (body?: string, authenticated = true) => {
   const url = new URL('http://localhost/api/shortcuts');
-  return runHandler(POST, eventFor('POST', url, body));
+  return runHandler(POST, eventFor('POST', url, body, authenticated));
 };
 
 describe('/api/shortcuts', () => {
   beforeEach(() => {
+    process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
     resetShortcutsStoreForTests();
   });
 
+  afterEach(() => {
+    if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
+  });
+
   describe('GET', () => {
+    it('rejects anonymous reads', async () => {
+      const response = await callGet('scope=global', false);
+      expect(response.status).toBe(401);
+    });
+
     it('returns scoped shortcuts ordered by orderIndex ASC', async () => {
       const a = addShortcut({ scope: 'terminal', scopeTarget: 't_abc', label: 'a', command: 'a' });
       const b = addShortcut({ scope: 'terminal', scopeTarget: 't_abc', label: 'b', command: 'b' });
@@ -86,6 +102,14 @@ describe('/api/shortcuts', () => {
   });
 
   describe('POST', () => {
+    it('rejects anonymous writes before creating a shortcut', async () => {
+      const response = await callPost(
+        JSON.stringify({ scope: 'global', label: 'help', command: '/help' }),
+        false
+      );
+      expect(response.status).toBe(401);
+    });
+
     it('creates a chatroom-scoped shortcut and returns 201 with the new row', async () => {
       const response = await callPost(
         JSON.stringify({
@@ -142,7 +166,7 @@ describe('/api/shortcuts', () => {
       const url = new URL('http://localhost/api/shortcuts');
       const request = new Request(url.toString(), {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${TEST_ADMIN_TOKEN}` },
         body: 'not json'
       });
       const event = { request, params: {}, url } as unknown as Parameters<typeof POST>[0];

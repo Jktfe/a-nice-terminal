@@ -11,6 +11,7 @@ import {
   recordAnnotationAudit
 } from '$lib/server/manualScreenStore';
 import { canonicaliseOperatorHandle, getOperatorHandle } from '$lib/server/operatorHandle';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
 type Bbox = { x: number; y: number; w: number; h: number };
 
@@ -36,6 +37,7 @@ function parseBboxIfPresent(raw: unknown): Bbox | undefined {
 }
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const screenId = params.screenId ?? '';
   const stateSlug = params.stateSlug ?? '';
   const elementSlug = params.elementSlug ?? '';
@@ -72,6 +74,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 };
 
 export const DELETE: RequestHandler = async ({ params, request }) => {
+  requireOperatorLikeAuth(request);
   const screenId = params.screenId ?? '';
   const stateSlug = params.stateSlug ?? '';
   const elementSlug = params.elementSlug ?? '';
