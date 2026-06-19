@@ -149,9 +149,10 @@ For now:
 - `semble`: keep scoped code search; feed large outputs into a reversible
   compression layer only after a probe proves value.
 
-## First Implementation Candidate
+## First Implementation
 
-Build `ant integrations headroom status --json` first.
+Build `ant integrations headroom status --json` first. The initial probe is
+implemented in `scripts/ant-cli-integrations.mjs`.
 
 Expected output:
 

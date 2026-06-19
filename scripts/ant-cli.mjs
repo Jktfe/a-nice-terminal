@@ -35,6 +35,7 @@ import { handleGrantVerb } from './ant-cli-grant-verb.mjs';
 import { handleHandleVerb } from './ant-cli-handle.mjs';
 import { handleHooksVerb } from './ant-cli-hooks.mjs';
 import { handleIdentityVerb } from './ant-cli-identity.mjs';
+import { handleIntegrationsVerb } from './ant-cli-integrations.mjs';
 import { handleInterviewVerb } from './ant-cli-interview.mjs';
 import { handleInviteVerb } from './ant-cli-invites.mjs';
 import { handleLinkedchatVerb } from './ant-cli-linkedchat.mjs';
@@ -79,7 +80,7 @@ const ENV_SERVER_URL = process.env.ANT_SERVER_URL?.trim();
 const DISPATCH = {
   plan: handlePlanVerb, ask: handleAskVerb, artefact: handleArtefactVerb, attach: handleAttachVerb, away: handleAwayVerb, bind: handleBindVerb, invite: handleInviteVerb, chat: handleChatVerb, connect: handleConnectVerb, room: handleRoomVerb,
   queue: handleQueueVerb, reaction: handleReactionVerb, reclaim: handleReclaimVerb, handle: handleHandleVerb, status: handleStatusVerb, delivery: handleDeliveryVerb, audit: handleAuditVerb, docs: handleDocsVerb,
-  deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, tools: handleToolsVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, request: handleRequestVerb, task: handleTaskVerb, memory: handleMemoryVerb, brief: handleBriefVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, vote: handleVoteVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb, whoami: handleWhoamiVerb, helper: handleHelperVerb
+  deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, integrations: handleIntegrationsVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, tools: handleToolsVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, request: handleRequestVerb, task: handleTaskVerb, memory: handleMemoryVerb, brief: handleBriefVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, vote: handleVoteVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb, whoami: handleWhoamiVerb, helper: handleHelperVerb
 };
 
 export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, serverUrlSource: suppliedServerUrlSource, config, envTmuxPane } = {}) {
@@ -537,6 +538,7 @@ Verbs:
   artefact add|list|remove             Add/list room artefact pointers, including deck and stage.
   linkedchat list|allow|deny          Manage terminal-scoped linked-chat permissions.
   fingerprint detect <terminal-id>    Detect agent kind via 5-source cascade.
+  integrations headroom status        Probe optional Headroom sidecar readiness.
   mcp list|grant|revoke               Manage MCP adapter grants (admin-bearer).
   grant <handle> <action> --room|--plan|--task|--org|--system ID [scope] [--revoke]
                                       Stage A permission grant (grants_shim).
