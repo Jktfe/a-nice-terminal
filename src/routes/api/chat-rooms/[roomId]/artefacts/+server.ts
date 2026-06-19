@@ -58,13 +58,25 @@ export const POST: RequestHandler = async ({ params, request }) => {
   if (typeof payload.title !== 'string' || payload.title.trim().length === 0) {
     throw error(400, 'title is required.');
   }
+
+  // Auth-vs-target anti-spoof — mirrors docs/decks (GAP-4a/4b, 2026-05-20).
+  // The gate above stops anonymous mints, but an authenticated room member
+  // could still attribute the artefact to someone else's handle. A supplied
+  // createdBy must match the resolved caller; admin-bearer bypasses (CI/
+  // automation). Omitted createdBy falls back to the resolved caller.
+  const requestedCreatedBy = typeof payload.createdBy === 'string' ? payload.createdBy : undefined;
+  if (requestedCreatedBy !== undefined && !auth.isAdminBearer && auth.handle !== requestedCreatedBy) {
+    throw error(403, `caller ${auth.handle} cannot create artefact as ${requestedCreatedBy}`);
+  }
+  const createdBy = requestedCreatedBy ?? auth.handle;
+
   const artefact = createArtefactInRoom({
     roomId: params.roomId,
     kind: payload.kind,
     title: payload.title,
     refUrl: typeof payload.refUrl === 'string' ? payload.refUrl : null,
     summary: typeof payload.summary === 'string' ? payload.summary : null,
-    createdBy: typeof payload.createdBy === 'string' ? payload.createdBy : auth.handle
+    createdBy
   });
   return json(artefact, { status: 201 });
 };
