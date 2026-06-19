@@ -22,6 +22,8 @@ type MockState = {
   records: Map<string, MockTerminalRecord>;
   terminals: Map<string, { id: string; pid: number; pid_start: string | null; expires_at: number | null; meta: string }>;
   rooms: Set<string>;
+  softDeletedRooms: Set<string>;
+  failLinkedRoomUpdate: boolean;
   handles: Map<string, { owners: string[]; binding: { pane: string | null; pid: number | null; terminalId: string | null } | null }>;
 };
 
@@ -29,6 +31,8 @@ const mockState: MockState = {
   records: new Map(),
   terminals: new Map(),
   rooms: new Set(),
+  softDeletedRooms: new Set(),
+  failLinkedRoomUpdate: false,
   handles: new Map()
 };
 
@@ -56,7 +60,12 @@ vi.mock('$lib/server/chatRoomStore', () => ({
     state().rooms.add(id);
     return { id, name };
   },
-  findChatRoomById: (id: string) => state().rooms.has(id) ? { id, name: id } : null
+  findChatRoomById: (id: string) => state().rooms.has(id) ? { id, name: id } : null,
+  softDeleteChatRoom: (id: string) => {
+    state().softDeletedRooms.add(id);
+    state().rooms.delete(id);
+    return true;
+  }
 }));
 
 vi.mock('$lib/server/terminalRecordsStore', () => ({
@@ -87,6 +96,7 @@ vi.mock('$lib/server/terminalRecordsStore', () => ({
   updateTerminalRecord: (sessionId: string, patch: Record<string, unknown>) => {
     const record = state().records.get(sessionId);
     if (!record) return null;
+    if ('linkedChatRoomId' in patch && state().failLinkedRoomUpdate) return null;
     if ('linkedChatRoomId' in patch) record.linked_chat_room_id = patch.linkedChatRoomId as string | null;
     if ('createdBy' in patch) record.created_by = patch.createdBy as string | null;
     if ('handle' in patch) record.handle = patch.handle as string | null;
@@ -184,6 +194,8 @@ describe('POST /api/terminals/adopt-local', () => {
     mockState.records.clear();
     mockState.terminals.clear();
     mockState.rooms.clear();
+    mockState.softDeletedRooms.clear();
+    mockState.failLinkedRoomUpdate = false;
     mockState.handles.clear();
     probeTmuxSocketBindingMock.mockReset();
   });
@@ -254,5 +266,30 @@ describe('POST /api/terminals/adopt-local', () => {
     }, 'wrong-token'));
 
     expect(response.status).toBe(401);
+  });
+
+  it('rolls back a just-created linked room when the terminal record cannot be linked', async () => {
+    probeTmuxSocketBindingMock.mockReturnValue({
+      pid: 57135,
+      pidStart: 'Tue Jun 16 10:15:11 2026',
+      tmuxSessionName: 'broken-link',
+      tmuxTargetPane: '%11',
+      paneTitle: 'broken'
+    });
+    mockState.failLinkedRoomUpdate = true;
+
+    const response = await runHandler(adoptLocalPost as unknown as AnyHandler, eventFor({
+      sessionId: 'broken-link',
+      name: 'Broken Link',
+      handle: '@brokenlink',
+      user: '@JWPK',
+      tmuxSocketPath: '/Users/james/.tmux-antos/default',
+      tmuxSessionName: 'broken-link'
+    }));
+
+    expect(response.status).toBe(500);
+    expect(mockState.softDeletedRooms.has('room-1')).toBe(true);
+    expect(mockState.rooms.has('room-1')).toBe(false);
+    expect(getTerminalRecord('broken-link')?.linked_chat_room_id).toBeNull();
   });
 });

@@ -24,7 +24,7 @@ import {
   updateTerminalRecord
 } from '$lib/server/terminalRecordsStore';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
-import { createChatRoom, findChatRoomById } from '$lib/server/chatRoomStore';
+import { createChatRoom, findChatRoomById, softDeleteChatRoom } from '$lib/server/chatRoomStore';
 import { getOperatorHandle } from '$lib/server/operatorHandle';
 import { adoptExternalProcessForTerminal } from '$lib/server/terminalsStore';
 import { probeTmuxSocketBinding } from '$lib/server/terminalSocketMetadata';
@@ -58,7 +58,18 @@ function ensureLinkedRoom(sessionId: string): ReturnType<typeof getTerminalRecor
       name: `Terminal: ${record.name}`,
       whoCreatedIt: getOperatorHandle()
     });
-    record = updateTerminalRecord(sessionId, { linkedChatRoomId: linkedRoom.id }) ?? record;
+    let updated = null;
+    try {
+      updated = updateTerminalRecord(sessionId, { linkedChatRoomId: linkedRoom.id });
+    } catch (cause) {
+      softDeleteChatRoom(linkedRoom.id);
+      throw cause;
+    }
+    if (!updated) {
+      softDeleteChatRoom(linkedRoom.id);
+      throw error(500, 'Could not link terminal chat room.');
+    }
+    record = updated;
   }
   return record;
 }

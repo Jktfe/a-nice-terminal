@@ -22,7 +22,7 @@ import {
   deriveHandle
 } from '$lib/server/terminalRecordsStore';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
-import { createChatRoom, findChatRoomById } from '$lib/server/chatRoomStore';
+import { createChatRoom, findChatRoomById, softDeleteChatRoom } from '$lib/server/chatRoomStore';
 import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle';
 import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 import {
@@ -220,16 +220,36 @@ export const POST: RequestHandler = async ({ request }) => {
       name: `Terminal: ${record.name}`,
       whoCreatedIt: getOperatorHandle()
     });
-    const updated = updateTerminalRecord(sessionId, { linkedChatRoomId: linkedRoom.id });
-    if (updated) record = updated;
+    let updated = null;
+    try {
+      updated = updateTerminalRecord(sessionId, { linkedChatRoomId: linkedRoom.id });
+    } catch (cause) {
+      softDeleteChatRoom(linkedRoom.id);
+      throw cause;
+    }
+    if (!updated) {
+      softDeleteChatRoom(linkedRoom.id);
+      throw error(500, 'Could not link terminal chat room.');
+    }
+    record = updated;
   } else if (!findChatRoomById(record.linked_chat_room_id)) {
     // Linked room was deleted out from under us — recreate + relink.
     const linkedRoom = createChatRoom({
       name: `Terminal: ${record.name}`,
       whoCreatedIt: getOperatorHandle()
     });
-    const updated = updateTerminalRecord(sessionId, { linkedChatRoomId: linkedRoom.id });
-    if (updated) record = updated;
+    let updated = null;
+    try {
+      updated = updateTerminalRecord(sessionId, { linkedChatRoomId: linkedRoom.id });
+    } catch (cause) {
+      softDeleteChatRoom(linkedRoom.id);
+      throw cause;
+    }
+    if (!updated) {
+      softDeleteChatRoom(linkedRoom.id);
+      throw error(500, 'Could not relink terminal chat room.');
+    }
+    record = updated;
   }
 
   // AUTO-REGISTER-AT-SPAWN (2026-05-16, JWPK T1 fix): without this, a
