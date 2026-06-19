@@ -45,5 +45,8 @@
     "claude",
     "agent",
     "chat"
-  ]
+  ],
+  "overrides": {
+    "hono": ">=4.12.25"
+  }
 }
