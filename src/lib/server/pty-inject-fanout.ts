@@ -184,7 +184,14 @@ function listDeliveryMembershipsForRoom(roomId: string): RoomMembershipRow[] {
         created_at: Math.floor(membership.created_at_ms / 1000)
       } satisfies RoomMembershipRow];
     });
-  return durableRows.length > 0 ? durableRows : listMembershipsForRoom(roomId);
+  if (durableRows.length === 0) return listMembershipsForRoom(roomId);
+
+  const durableHandles = new Set(durableRows.map((row) => row.handle));
+  const durableTerminalIds = new Set(durableRows.map((row) => row.terminal_id));
+  const legacyRowsForUnmigratedMembers = listMembershipsForRoom(roomId)
+    .filter((row) => !durableHandles.has(row.handle) && !durableTerminalIds.has(row.terminal_id));
+
+  return [...durableRows, ...legacyRowsForUnmigratedMembers];
 }
 
 type QueuedItem = {

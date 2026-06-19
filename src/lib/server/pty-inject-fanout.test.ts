@@ -171,6 +171,33 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
     expect(q.pendingCountForTests(`${room.id}::${currentTerminal.id}`)).toBe(1);
   });
 
+  it('keeps legacy-only members when another member already has a durable binding', () => {
+    const room = createChatRoom({ name: 'mixed-fanout-room', whoCreatedIt: '@JWPK' });
+    const oldFast = upsertTerminal({ pid: 1, pid_start: 'old-fast', name: 'old-fast' });
+    const currentFast = upsertTerminal({ pid: 2, pid_start: 'current-fast', name: 'current-fast' });
+    const legacySlow = upsertTerminal({ pid: 3, pid_start: 'legacy-slow', name: 'legacy-slow' });
+    updatePaneTarget(oldFast.id, '%old-fast', 'codex_cli');
+    updatePaneTarget(currentFast.id, '%current-fast', 'codex_cli');
+    updatePaneTarget(legacySlow.id, '%legacy-slow', 'codex_cli');
+    addMembership({ room_id: room.id, handle: '@fast', terminal_id: oldFast.id });
+    addMembership({ room_id: room.id, handle: '@slow', terminal_id: legacySlow.id });
+    const session = createSession({
+      id: 'durable-fast-session',
+      kind: 'local-cli',
+      label: '@fast',
+      terminalId: currentFast.id
+    });
+    addMember(room.id, '@fast', session.id);
+
+    const message = postMessage({ roomId: room.id, authorHandle: '@JWPK', body: '@slow ping', kind: 'human' });
+    fanoutMessageToRoomTerminals(room.id, message);
+
+    const q = getFanoutQueueForTests();
+    expect(q.pendingCountForTests(`${room.id}::${oldFast.id}`)).toBe(0);
+    expect(q.pendingCountForTests(`${room.id}::${currentFast.id}`)).toBe(0);
+    expect(q.pendingCountForTests(`${room.id}::${legacySlow.id}`)).toBe(1);
+  });
+
   it('does NOT enqueue an unmentioned brainstorm message to room members', () => {
     const room = createChatRoom({ name: 'fanout-room', whoCreatedIt: '@test' });
     const t1 = upsertTerminal({ pid: 1, pid_start: 'p1', name: 'sender-term' });
