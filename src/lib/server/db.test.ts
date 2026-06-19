@@ -35,6 +35,11 @@ describe('getIdentityDb', () => {
     expect(tableNames).toContain('server_config');
   });
 
+  it('uses a startup-safe sqlite busy timeout', () => {
+    const db = getIdentityDb();
+    expect(db.pragma('busy_timeout', { simple: true })).toBe(15_000);
+  });
+
   it('returns the SAME instance on subsequent calls (globalThis singleton)', () => {
     const first = getIdentityDb();
     const second = getIdentityDb();

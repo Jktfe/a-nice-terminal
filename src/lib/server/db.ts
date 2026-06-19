@@ -40,6 +40,7 @@ import { getOperatorHandle } from './operatorHandle';
 type DatabaseInstance = ReturnType<typeof Database>;
 
 const DB_GLOBAL_KEY = '__antFreshIdentityDb';
+const SQLITE_BUSY_TIMEOUT_MS = 15_000;
 
 const SCHEMA_DDL_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS terminals (
@@ -3232,17 +3233,21 @@ export function getIdentityDb(): DatabaseInstance {
 
   const dbFile = resolveDbFilePath();
   ensureParentDirectoryExists(dbFile);
-  const db = new Database(dbFile);
+  // The constructor-level timeout covers the first startup pragmas too.
+  // Without this, `journal_mode = WAL` itself can fail immediately with
+  // SQLITE_BUSY during kickstart when the previous process or a CLI writer
+  // is still holding the DB.
+  const db = new Database(dbFile, { timeout: SQLITE_BUSY_TIMEOUT_MS });
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   // Speed Pact T-Sec-Speed-2: busy_timeout was 0 (default) — SQLite returned
   // SQLITE_BUSY immediately on any lock contention. With concurrent writers
   // (agentStatusPoller every 10s + chat-message inserts + task creates + plan
   // events all sharing this DB file), reads like /api/plans were stalling
-  // 1.5-7s and `database is locked` surfaced on chat sends. 5000ms gives
-  // SQLite a 5-second native busy-wait that resolves contention without
-  // bouncing back to the JS retry layer. Standard better-sqlite3 best practice.
-  db.pragma('busy_timeout = 5000');
+  // 1.5-7s and `database is locked` surfaced on chat sends. 15000ms gives
+  // SQLite a bounded native busy-wait that resolves normal kickstart/writer
+  // contention without bouncing back to the JS retry layer.
+  db.pragma(`busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
   // cache_size in pages (negative = KB). -64000 = 64MB page cache — small
   // memory cost, large win on repeated SELECTs like listAllTerminals (431
   // rows) that the poller does twice per tick.
