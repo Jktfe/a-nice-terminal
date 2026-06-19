@@ -75,4 +75,11 @@ describe('TrackerTable', () => {
     expect(source).toContain('aria-label="Tracker unavailable"');
     expect(source).toContain('>Retry</button>');
   });
+
+  it('keeps server-provided tracker write errors visible to the user', () => {
+    expect(source).toContain('messageFromResponse(response: Response, prefix: string)');
+    expect(source).toContain("throw new Error(await messageFromResponse(r, 'Could not save'))");
+    expect(source).toContain("throw new Error(await messageFromResponse(r, 'Could not add row'))");
+    expect(source).toContain('`${prefix} (${response.status}): ${message}`');
+  });
 });

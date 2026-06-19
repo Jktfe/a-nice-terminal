@@ -41,6 +41,12 @@
 
   onMount(() => void refresh());
 
+  async function messageFromResponse(response: Response, prefix: string): Promise<string> {
+    const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
+    const message = typeof body?.message === 'string' ? body.message.trim() : '';
+    return message ? `${prefix} (${response.status}): ${message}` : `${prefix} (${response.status}).`;
+  }
+
   async function refresh(): Promise<void> {
     if (!trackerId || !roomId) return;
     isLoading = true;
@@ -57,7 +63,7 @@
         errorText = 'Tracker not found or no longer visible in this room.';
         return;
       }
-      if (!r.ok) throw new Error(`Could not load tracker (${r.status}).`);
+      if (!r.ok) throw new Error(await messageFromResponse(r, 'Could not load tracker'));
       const body = (await r.json()) as { tracker?: TrackerView };
       if (body.tracker) live = body.tracker;
     } catch (cause) {
@@ -80,7 +86,7 @@
           body: JSON.stringify({ roomId, columnKey: col.key, value, asHandle })
         }
       );
-      if (!r.ok) throw new Error(`Could not save (${r.status}).`);
+      if (!r.ok) throw new Error(await messageFromResponse(r, 'Could not save'));
       await refresh();
     } catch (cause) {
       errorText = cause instanceof Error ? cause.message : 'Could not save cell.';
@@ -101,7 +107,7 @@
           body: JSON.stringify({ roomId, cells: draft, asHandle })
         }
       );
-      if (!r.ok) throw new Error(`Could not add row (${r.status}).`);
+      if (!r.ok) throw new Error(await messageFromResponse(r, 'Could not add row'));
       draft = {};
       await refresh();
     } catch (cause) {
