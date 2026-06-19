@@ -257,12 +257,12 @@ function readWriteGrants(meta: Record<string, unknown>): TerminalWriteGrant[] {
   return meta.writeGrants.flatMap((grant): TerminalWriteGrant[] => {
     if (!grant || typeof grant !== 'object') return [];
     const rawHandle = (grant as { handle?: unknown }).handle;
-    const rawMode = (grant as { mode?: unknown }).mode;
     if (typeof rawHandle !== 'string') return [];
     const handle = normaliseHandle(rawHandle)?.toLowerCase();
     if (!handle) return [];
-    if (rawMode !== 'read' && rawMode !== 'read_write') return [];
-    return [{ handle, mode: rawMode }];
+    const rawMode = (grant as { mode?: unknown }).mode;
+    const mode = rawMode === 'read' ? 'read' : 'read_write';
+    return [{ handle, mode }];
   }).sort((a, b) => a.handle.localeCompare(b.handle) || a.mode.localeCompare(b.mode));
 }
 
