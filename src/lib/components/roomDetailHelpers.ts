@@ -36,7 +36,20 @@ export async function exitFocusForMember(roomId: string, memberHandle: string): 
     await invalidateAll();
     return true;
   }
-  return false;
+  const failure = await readFocusExitFailure(response);
+  throw new Error(`Could not pull ${memberHandle} out of focus (HTTP ${response.status}): ${failure}`);
+}
+
+async function readFocusExitFailure(response: Response): Promise<string> {
+  try {
+    const body = await response.json();
+    if (body && typeof body.message === 'string' && body.message.trim().length > 0) {
+      return body.message.trim();
+    }
+  } catch {
+    /* fall through to statusText */
+  }
+  return response.statusText || 'Focus update failed.';
 }
 
 /**

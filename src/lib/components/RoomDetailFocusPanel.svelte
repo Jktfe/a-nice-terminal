@@ -24,11 +24,17 @@
   }: Props = $props();
 
   let exitingFocusHandle = $state<string | null>(null);
+  let exitFocusError = $state('');
 
   async function exitFocus(memberHandle: string): Promise<void> {
     exitingFocusHandle = memberHandle;
+    exitFocusError = '';
     try {
       await exitFocusForMember(roomId, memberHandle);
+    } catch (causeOfFailure) {
+      exitFocusError = causeOfFailure instanceof Error
+        ? causeOfFailure.message
+        : 'Could not pull this member out of focus.';
     } finally {
       exitingFocusHandle = null;
     }
@@ -56,6 +62,10 @@
     </ul>
   {:else}
     <p class="focus-empty">No one is heads-down in this room.</p>
+  {/if}
+
+  {#if exitFocusError}
+    <p class="focus-error" role="alert">{exitFocusError}</p>
   {/if}
 
   <button type="button" class="focus-primary" onclick={onOpenFocusModal}>
@@ -102,6 +112,12 @@
     margin: 0.25rem 0 0;
     color: var(--ink-strong);
     font-size: 0.85rem;
+  }
+  .focus-error {
+    margin: 0;
+    color: var(--accent);
+    font-size: 0.82rem;
+    font-weight: 800;
   }
   .focus-primary,
   .focus-secondary {
