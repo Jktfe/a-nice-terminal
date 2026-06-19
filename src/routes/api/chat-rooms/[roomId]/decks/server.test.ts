@@ -93,6 +93,12 @@ describe("/api/chat-rooms/:roomId/decks", () => {
     expect(body.decks).toEqual([]);
   });
 
+  it("GET returns 401 when no auth header is provided", async () => {
+    const room = createChatRoom({ name: "decks-test", whoCreatedIt: "test" });
+    const response = await runHandler(GET, eventFor("GET", room.id, "", undefined, false));
+    expect(response.status).toBe(401);
+  });
+
   it("POST creates a deck and GET lists it", async () => {
     const room = createChatRoom({ name: "decks-test", whoCreatedIt: "test" });
     const postRes = await runHandler(POST, eventFor("POST", room.id, "", { title: "Pitch", slides: [{ id: "s1", title: "Intro", content: "Hello" }], accessPassword: "hunter2" }));

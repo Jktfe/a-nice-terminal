@@ -48,11 +48,24 @@ async function runPut(event: AnyEvent): Promise<Response> {
 }
 
 describe('GET /api/chat-rooms/:roomId/decks/:deckId', () => {
+  const CONTENT_ADMIN_TOKEN = 'decks-content-test-admin-token';
+  const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+  beforeAll(() => {
+    process.env.ANT_ADMIN_TOKEN = CONTENT_ADMIN_TOKEN;
+  });
+  afterAll(() => {
+    if (ORIGINAL_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = ORIGINAL_ADMIN_TOKEN;
+  });
   beforeEach(() => {
     resetChatRoomArtefactContentStoreForTests();
     resetChatRoomArtefactStoreForTests();
     resetChatRoomStoreForTests();
   });
+
+  function adminReadInit(): RequestInit {
+    return { headers: { authorization: `Bearer ${CONTENT_ADMIN_TOKEN}` } };
+  }
 
   it('renders univer-json deck content instead of returning the old 501 placeholder', async () => {
     const room = createChatRoom({ name: 'deck room', whoCreatedIt: '@you' });
@@ -84,7 +97,7 @@ describe('GET /api/chat-rooms/:roomId/decks/:deckId', () => {
       updatedByHandle: '@speedycodex'
     });
 
-    const response = await runGet(eventFor(room.id, 'univer-deck'));
+    const response = await runGet(eventFor(room.id, 'univer-deck', adminReadInit()));
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
@@ -95,6 +108,30 @@ describe('GET /api/chat-rooms/:roomId/decks/:deckId', () => {
     expect(html).toContain('&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;');
     expect(html).not.toContain('<script>alert("x")</script>');
     expect(html).not.toContain('not yet implemented');
+  });
+
+  it('rejects anonymous rendered deck reads for ordinary room decks', async () => {
+    const room = createChatRoom({ name: 'private deck room', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id,
+      kind: 'deck',
+      title: 'Private Deck',
+      refUrl: `/api/chat-rooms/${room.id}/decks/private-deck`,
+      createdBy: '@speedycodex'
+    });
+    upsertArtefactContent({
+      id: 'private-deck',
+      artefactId: artefact.id,
+      roomId: room.id,
+      kind: 'deck',
+      contentFormat: 'markdown',
+      contentBody: '# private',
+      updatedByHandle: '@speedycodex'
+    });
+
+    const response = await runGet(eventFor(room.id, 'private-deck'));
+
+    expect(response.status).toBe(401);
   });
 
   it('lets the seeded Univer demo deck autosave without room auth', async () => {

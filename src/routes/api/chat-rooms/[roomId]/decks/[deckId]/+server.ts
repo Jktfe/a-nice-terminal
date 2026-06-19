@@ -22,6 +22,7 @@ import {
 } from '$lib/server/chatRoomArtefactContentStore';
 import { renderMarkdown } from '$lib/chat/renderMarkdown';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
+import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 import { renderUniverJsonHtml } from '$lib/server/univerJsonRenderer';
 
 const SLIDE_SEPARATOR_RE = /^\s*-{3,}\s*$/m;
@@ -117,9 +118,11 @@ function renderDeckHtml(title: string, markdownBody: string): string {
 </html>`;
 }
 
-export const GET: RequestHandler = ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
   const { roomId, deckId } = params;
-  if (!findChatRoomById(roomId)) throw error(404, 'Room not found.');
+  const room = findChatRoomById(roomId);
+  if (!room) throw error(404, 'Room not found.');
+  await requireChatRoomReadAccess(request, room);
   const content = getArtefactContentById(deckId);
   if (!content) throw error(404, 'Deck content not found.');
   if (content.roomId !== roomId) throw error(404, 'Deck not in this room.');

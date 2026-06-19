@@ -19,10 +19,13 @@ import {
 } from "$lib/server/deckStore";
 import { serializeDeckForApi } from "$lib/server/deckApi";
 import { requireChatRoomMutationAuth } from "$lib/server/chatRoomAuthGate";
+import { requireChatRoomReadAccess } from "$lib/server/chatRoomReadGate";
 import { deckThemeForSubstrate } from "$lib/externalDeckSubstrate";
 
-export const GET: RequestHandler = ({ params }) => {
-  if (!findChatRoomById(params.roomId)) throw error(404, "Room not found.");
+export const GET: RequestHandler = async ({ params, request }) => {
+  const room = findChatRoomById(params.roomId);
+  if (!room) throw error(404, "Room not found.");
+  await requireChatRoomReadAccess(request, room);
   return json({ decks: listDecksInRoom(params.roomId).map(serializeDeckForApi) });
 };
 
