@@ -234,32 +234,17 @@ async function runShowChat(chatIdentifier, args, runtime, CliInputError) {
 
 async function runNameAwarePost(chatIdentifier, args, runtime, CliInputError, parentMessageId) {
   const { flags, positionals } = parsePositionalsAndFlags(args, CliInputError);
-  // Try the same three input modes as `ant chat send`: --msg / --msg-file / --msg-stdin,
-  // falling back to positionals (legacy `chat <name> send <msg...>` shape).
-  let body;
-  try {
-    body = resolveMessageBody(flags, runtime, CliInputError);
-  } catch {
-    body = (flags.msg ?? flags.body ?? positionals.join(' ')).trim();
-  }
+  const body = resolveNameAwareMessageBody(flags, positionals, runtime, CliInputError);
   if (!body) throw new CliInputError('post needs a message (positional or --msg / --msg-file / --msg-stdin)');
+  if (!parentMessageId) assertSendIntentIsSafe(body, flags, CliInputError);
   const room = await resolveChatRoomIdentifier(runtime, chatIdentifier, CliInputError);
-  const payload = withDurableSessionIdentity(runtime, room.id, { body, pidChain: processIdentityChain(), ...paneFact() });
-  if (parentMessageId) payload.parentMessageId = parentMessageId;
-  if (flags.handle) payload.authorHandle = flags.handle;
-  if (flags.kind) {
-    if (!ALLOWED_KIND_TAGS.has(flags.kind)) {
-      throw new CliInputError(`--kind must be one of ${[...ALLOWED_KIND_TAGS].join(', ')}`);
-    }
-    payload.kind = flags.kind;
-  }
-  const sendJson = makeStandardSendJson(runtime);
-  const result = await sendJson(
-    `/api/chat-rooms/${encodeURIComponent(room.id)}/messages`,
-    'POST',
-    payload,
-    { ...attachmentHeaders(flags), ...durableSessionHeaders(runtime, room.id) }
-  );
+  const result = await postChatMessageToRoom(runtime, {
+    roomId: room.id,
+    body,
+    flags,
+    parentMessageId,
+    CliInputError
+  });
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
   } else {
@@ -295,15 +280,48 @@ async function runSend(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
   const body = resolveMessageBody(flags, runtime, CliInputError);
   assertSendIntentIsSafe(body, flags, CliInputError);
-  const payload = withDurableSessionIdentity(runtime, room, { body, pidChain: processIdentityChain(), ...paneFact() });
-  if (flags.handle) payload.authorHandle = flags.handle;
+  const result = await postChatMessageToRoom(runtime, {
+    roomId: room,
+    body,
+    flags,
+    parentMessageId: flags['parent-message'],
+    CliInputError
+  });
+  if (flags.json !== undefined) {
+    runtime.writeOut(JSON.stringify(result));
+  } else {
+    writePostResult(runtime, result, room, 'Posted');
+  }
+  return 0;
+}
+
+function resolveNameAwareMessageBody(flags, positionals, runtime, CliInputError) {
+  if (hasStructuredBodySource(flags)) {
+    return resolveMessageBody(flags, runtime, CliInputError);
+  }
+  return positionals.join(' ').trim();
+}
+
+function hasStructuredBodySource(flags) {
+  return (
+    (typeof flags.msg === 'string' && flags.msg.length > 0) ||
+    (typeof flags.body === 'string' && flags.body.length > 0) ||
+    (typeof flags['msg-file'] === 'string' && flags['msg-file'].length > 0) ||
+    flags.stdin !== undefined ||
+    flags['msg-stdin'] !== undefined
+  );
+}
+
+async function postChatMessageToRoom(runtime, { roomId, body, flags, parentMessageId, CliInputError }) {
+  const payload = withDurableSessionIdentity(runtime, roomId, { body, pidChain: processIdentityChain(), ...paneFact() });
   if (flags.kind) {
     if (!ALLOWED_KIND_TAGS.has(flags.kind)) {
       throw new CliInputError(`--kind must be one of ${[...ALLOWED_KIND_TAGS].join(', ')}`);
     }
     payload.kind = flags.kind;
   }
-  if (flags['parent-message']) payload.parentMessageId = flags['parent-message'];
+  if (flags.handle) payload.authorHandle = flags.handle;
+  if (parentMessageId) payload.parentMessageId = parentMessageId;
 
   // JWPK msg_4tclr02hm5 (2026-05-19) — gate-fix: post-compaction the
   // shell pidChain often can't walk back to a registered terminal, so
@@ -317,18 +335,18 @@ async function runSend(flags, runtime, CliInputError) {
   // is satisfied by sending Origin matching Host (CLI is calling its own
   // localhost server). The mint server-side already verifies the handle
   // IS a room member, so this can't be used to spoof.
-  const messagesPath = `/api/chat-rooms/${encodeURIComponent(room)}/messages`;
+  const messagesPath = `/api/chat-rooms/${encodeURIComponent(roomId)}/messages`;
   // 0.1.8 slice H: prefer the per-room server_url stamped by
   // `ant invite redeem` over the global runtime.serverUrl. Explicit
   // ANT_SERVER_URL env still wins inside resolveRoomServerUrl.
-  const roomServerUrl = resolveRoomServerUrl(runtime, room);
+  const roomServerUrl = resolveRoomServerUrl(runtime, roomId);
   let result;
   try {
-    result = await sendJson(runtime, messagesPath, 'POST', payload, roomServerUrl, { ...attachmentHeaders(flags), ...durableSessionHeaders(runtime, room) });
+    result = await sendJson(runtime, messagesPath, 'POST', payload, roomServerUrl, { ...attachmentHeaders(flags), ...durableSessionHeaders(runtime, roomId) });
   } catch (firstAttemptError) {
     const isIdentityWedge = isPostIdentityWedge(firstAttemptError);
     if (!isIdentityWedge) throw firstAttemptError;
-    const mintedCookie = await mintAntCliBrowserSessionCookie(runtime, room, flags.handle);
+    const mintedCookie = await mintAntCliBrowserSessionCookie(runtime, roomId, flags.handle);
     if (!mintedCookie) throw firstAttemptError;
     result = await sendJsonWithCookie(
       runtime,
@@ -339,12 +357,7 @@ async function runSend(flags, runtime, CliInputError) {
       roomServerUrl
     );
   }
-  if (flags.json !== undefined) {
-    runtime.writeOut(JSON.stringify(result));
-  } else {
-    writePostResult(runtime, result, room, 'Posted');
-  }
-  return 0;
+  return result;
 }
 
 function writePostResult(runtime, result, roomLabel, messageVerb) {

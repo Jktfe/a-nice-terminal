@@ -337,6 +337,69 @@ describe('ant chat state wrappers', () => {
     expect(captured.requests[0].init.headers['x-ant-attachment']).toBe('lease-secret-env');
   });
 
+  it('S1g: name-aware send rejects reply-shaped broadcasts before resolving the room', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ chatRooms: [{ id: 'room-a', name: 'Alpha' }] }));
+
+    await expect(
+      handleChatVerb('Alpha', ['send', 'reply-to=msg_parent I agree'], runtime, { CliInputError })
+    ).rejects.toThrow(/looks like a reply/);
+
+    expect(captured.requests).toHaveLength(0);
+  });
+
+  it('S1h: name-aware send does not swallow structured body-source errors', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ chatRooms: [{ id: 'room-a', name: 'Alpha' }] }));
+    runtime.fs = {
+      readFileSync: () => {
+        throw new Error('ENOENT');
+      }
+    };
+
+    await expect(
+      handleChatVerb('Alpha', ['send', '--msg-file', '/tmp/missing.txt', 'fallback text'], runtime, { CliInputError })
+    ).rejects.toThrow(/--msg-file \/tmp\/missing\.txt could not be read: ENOENT/);
+
+    expect(captured.requests).toHaveLength(0);
+  });
+
+  it('S1i: name-aware send recovers daemon-witnessed 403 with the same browser-session retry as chat send', async () => {
+    const { runtime, captured } = makeRuntime((callIndex, { url }) => {
+      if (url.startsWith('http://test.local/api/chat-rooms?')) {
+        return okJson({ chatRooms: [{ id: 'room-a', name: 'Alpha' }] });
+      }
+      if (callIndex === 2) return failure(403, 'No daemon-witnessed binding for this terminal.');
+      if (callIndex === 3) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'set-cookie': 'ant_browser_session=session-name-aware; Path=/api/chat-rooms/room-a' }
+        });
+      }
+      return okJson({ message: { id: 'msg-name-aware-retry', authorHandle: '@serverlaptop' } }, 201);
+    });
+    runtime.config = {
+      tokens: {
+        'room-a': {
+          token: 'room-token-name-aware',
+          handle: '@serverlaptop',
+          server_url: 'http://remote.test'
+        }
+      }
+    };
+
+    await handleChatVerb('Alpha', ['send', '--msg', 'hello from name-aware shape'], runtime, { CliInputError });
+
+    expect(captured.requests).toHaveLength(4);
+    expect(captured.requests[0].url).toContain('http://test.local/api/chat-rooms?');
+    expect(captured.requests[1].url).toBe('http://remote.test/api/chat-rooms/room-a/messages');
+    expect(captured.requests[2].url).toBe('http://remote.test/api/chat-rooms/room-a/browser-session');
+    expect(captured.requests[2].init.headers.authorization).toBe('Bearer room-token-name-aware');
+    expect(captured.requests[3].url).toBe('http://remote.test/api/chat-rooms/room-a/messages');
+    expect(captured.requests[3].init.headers.cookie).toBe('ant_browser_session=session-name-aware');
+    expect(bodyAt(captured, 3).pidChain).toBeUndefined();
+    expect(bodyAt(captured, 3).pane).toBeUndefined();
+    expect(captured.stdout.join('\n')).toContain('Posted msg-name-aware-retry as @serverlaptop into "Alpha".');
+  });
+
   it('S2: reply derives the target room from the parent message id', async () => {
     const { runtime, captured } = makeRuntime((callIndex, { url }) => {
       const parsed = new URL(url);
