@@ -1,15 +1,18 @@
 <!--
-  AwayModeToggle — visible buttons for active / away-desk / away-office.
+  AwayModeToggle — visible buttons for active / away-desk / away-office / away-phone.
   JWPK 2026-05-23 (msg_fuvbzkd4wx, corrected voice-dictation reading):
   "Away from desk, brainstorming. Away from office should be deliveries."
   Canonical mapping per dictation + docs/contracts/room-state-away-mode-v1.md:
     active       → brainstorm  (default — agents respond freely)
     away-desk    → brainstorm  (open discussion, claims, no new direction)
     away-office  → heads-down  (claimed delivery only, page for blockers)
+    away-phone   → heads-down  (long absence, bank decisions, urgent only)
   Earlier mapping (away-desk → heads-down, away-office → closed) was
   flagged by JWPK 2026-05-24 in yz4clwzvbm as not matching the dictation.
   Two tiers share `brainstorm` room mode — the active vs away-desk
   difference is presence/notification posture, not chat semantics.
+  Two tiers share `heads-down` room mode — the away-office vs away-phone
+  difference is expected contactability and token-burn posture.
 
   Persistence shape (per @speedycodex CHANGES REQUESTED 2026-05-24,
   orsz2321qb msg_ul0qt6x80m): tier is server-side state in away_modes
@@ -35,13 +38,14 @@
 
   let { roomId, currentMode, currentTier, callerHandle, loadError = null, onModeChange, onTierChange }: Props = $props();
 
-  // Descriptions taken verbatim from docs/contracts/room-state-away-mode-v1.md
+  // Descriptions align with the server-side awayModeStore contract.
   // (JWPK flagged ad-hoc wording in yz4clwzvbm msg_jj50zw48fr — canonical text
-  // lives in the contract, not made up here).
+  // must stay shared, not made up here).
   const STATES: { id: AwayTier; label: string; roomMode: RoomMode; hint: string; description: string }[] = [
-    { id: 'active',      label: 'Working',          roomMode: 'brainstorm', hint: 'Working — present and engaged',          description: 'Shape ideas, challenge assumptions, compare options.' },
-    { id: 'away-desk',   label: 'Away from desk',   roomMode: 'brainstorm', hint: 'Away from desk — mobile or short break', description: 'User is mobile or temporarily unavailable.' },
-    { id: 'away-office', label: 'Away from office', roomMode: 'heads-down', hint: 'Away from office — several hours away',  description: 'User unavailable for several hours.' }
+    { id: 'active',      label: 'Working',          roomMode: 'brainstorm', hint: 'Working — present and engaged',            description: 'Shape ideas, challenge assumptions, compare options.' },
+    { id: 'away-desk',   label: 'Away from desk',   roomMode: 'brainstorm', hint: 'Away from desk — mobile or short break',   description: 'User is mobile or temporarily unavailable.' },
+    { id: 'away-office', label: 'Away from office', roomMode: 'heads-down', hint: 'Away from office — several hours away',    description: 'User unavailable for several hours.' },
+    { id: 'away-phone',  label: 'Away from phone',  roomMode: 'heads-down', hint: 'Away from phone — long absence, urgent only', description: 'User is away from phone; bank decisions and avoid token burn.' }
   ];
 
   let switching = $state(false);
@@ -206,7 +210,7 @@
     }
     .away-mode-toggle {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 0.25rem;
       overflow: visible;
       padding-bottom: 0;
@@ -217,7 +221,7 @@
       padding: 0 0.3rem;
       font-size: 0.68rem;
       line-height: 1.05;
-      white-space: nowrap;
+      white-space: normal;
     }
   }
 </style>
