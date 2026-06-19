@@ -7,6 +7,7 @@
   kinds render as links.
 -->
 <script lang="ts">
+  import { safeUrlForTrackerLink } from '$lib/chat/trackerRefs';
   import type { Task } from '$lib/server/taskStore';
   import ValidationBadge from './ValidationBadge.svelte';
 
@@ -361,7 +362,12 @@
             <li>
               <span class="kind">{e.kind}</span>
               {#if isLink(e.kind)}
-                <a href={e.ref} target="_blank" rel="noreferrer">{e.label ?? e.ref}</a>
+                {@const safeHref = safeUrlForTrackerLink(e.ref)}
+                {#if safeHref}
+                  <a href={safeHref} target="_blank" rel="noopener noreferrer">{e.label ?? e.ref}</a>
+                {:else}
+                  <span class="unsafe-ref" title="Not a safe URL">{e.label ?? e.ref}</span>
+                {/if}
               {:else}
                 <span>{e.label ?? e.ref}</span>
               {/if}
@@ -500,6 +506,7 @@
     font-size: 0.72rem; text-transform: uppercase;
   }
   .evidence a { color: var(--accent); word-break: break-all; }
+  .evidence .unsafe-ref { color: var(--ink-strong); word-break: break-all; }
   .verifier-card {
     display: flex;
     flex-direction: column;

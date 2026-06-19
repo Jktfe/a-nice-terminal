@@ -54,4 +54,24 @@ describe('TaskDetailPanel validation verifier affordance', () => {
 
     expect(body).not.toContain('Submit verifier evidence');
   });
+
+  it('renders task evidence refs through the safe link allowlist', () => {
+    const { body } = render(TaskDetailPanel, {
+      props: {
+        task: task({
+          evidence: [
+            { kind: 'url', ref: 'https://example.com/task-evidence', label: 'Safe evidence' },
+            { kind: 'url', ref: 'javascript:alert(1)', label: 'Unsafe evidence' }
+          ]
+        }),
+        onClose: vi.fn()
+      }
+    });
+
+    expect(body).toContain('href="https://example.com/task-evidence"');
+    expect(body).toContain('rel="noopener noreferrer"');
+    expect(body).toContain('Unsafe evidence');
+    expect(body).toContain('title="Not a safe URL"');
+    expect(body).not.toContain('href="javascript:alert(1)"');
+  });
 });
