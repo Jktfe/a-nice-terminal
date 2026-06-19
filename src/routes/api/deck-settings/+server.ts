@@ -10,14 +10,15 @@
  * the file layer (~/.ant/deck-settings.json). If the operator wants to
  * change the env-var entries, they edit their shell rc as before.
  *
- * Auth: admin-bearer only — only the local operator should be able to
- * see / edit which folders on their machine are deck roots.
+ * Auth: admin-bearer OR the configured operator's browser session — only
+ * the local operator should be able to see / edit which folders on their
+ * machine are deck roots.
  */
 
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { delimiter } from 'node:path';
-import { tryAdminBearer } from '$lib/server/chatRoomAuthGate';
+import { tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate';
 import {
   readDeckSettings,
   writeDeckSettings,
@@ -41,13 +42,18 @@ function payload() {
   };
 }
 
+function requireAdminOrOperator(request: Request): void {
+  if (tryAdminBearer(request) || tryOperatorSession(request)) return;
+  throw error(401, 'admin-bearer or operator session required');
+}
+
 export const GET: RequestHandler = async ({ request }) => {
-  if (!tryAdminBearer(request)) throw error(401, 'admin bearer required');
+  requireAdminOrOperator(request);
   return json(payload());
 };
 
 export const PUT: RequestHandler = async ({ request }) => {
-  if (!tryAdminBearer(request)) throw error(401, 'admin bearer required');
+  requireAdminOrOperator(request);
   const body = (await request.json().catch(() => null)) as
     | { decksRoots?: unknown; roomOverrides?: unknown }
     | null;

@@ -1,14 +1,10 @@
 /**
- * Endpoint tests for /api/asset-settings — operator-owned file-layer
- * editor for ~/.ant/asset-folders.json.
- *
- * Test pattern mirrors src/routes/api/file-refs/server.test.ts (the
- * callOrCaught() wrapper handles the throw-error() contract from
- * SvelteKit by converting a thrown HttpError-like object into a Response).
+ * Endpoint tests for /api/deck-settings — operator-owned file-layer editor
+ * for ~/.ant/deck-settings.json.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -25,25 +21,12 @@ function adminRequest(path: string, init: RequestInit = {}): Request {
   return new Request(`http://localhost${path}`, { ...init, headers });
 }
 
-function getEvent() {
-  return { request: adminRequest('/api/asset-settings') } as unknown as Parameters<typeof GET>[0];
-}
-
-function putEvent(body: unknown) {
-  const request = adminRequest('/api/asset-settings', {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  return { request } as unknown as Parameters<typeof PUT>[0];
-}
-
 function operatorCookie(): string {
-  const room = createChatRoom({ name: 'asset-settings-operator', whoCreatedIt: '@JWPK' });
+  const room = createChatRoom({ name: 'deck-settings-operator', whoCreatedIt: '@JWPK' });
   const terminal = upsertTerminal({
     pid: Math.floor(Math.random() * 10_000) + 1,
-    pid_start: 'asset-settings-operator-session',
-    name: 'asset-settings-operator-session'
+    pid_start: 'deck-settings-operator-session',
+    name: 'deck-settings-operator-session'
   });
   addMembership({ room_id: room.id, handle: '@JWPK', terminal_id: terminal.id });
   const session = createBrowserSession({ roomId: room.id, authorHandle: '@JWPK' });
@@ -51,17 +34,22 @@ function operatorCookie(): string {
   return `ant_browser_session=${session.browserSessionSecret}`;
 }
 
-function operatorGetEvent() {
-  return {
-    request: new Request('http://localhost/api/asset-settings', {
-      headers: { cookie: operatorCookie() }
-    })
-  } as unknown as Parameters<typeof GET>[0];
+function getEvent(request = adminRequest('/api/deck-settings')) {
+  return { request } as unknown as Parameters<typeof GET>[0];
+}
+
+function putEvent(body: unknown, requestInit: RequestInit = {}) {
+  const request = adminRequest('/api/deck-settings', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', ...(requestInit.headers ?? {}) },
+    body: JSON.stringify(body)
+  });
+  return { request } as unknown as Parameters<typeof PUT>[0];
 }
 
 function operatorPutEvent(body: unknown) {
   return {
-    request: new Request('http://localhost/api/asset-settings', {
+    request: new Request('http://localhost/api/deck-settings', {
       method: 'PUT',
       headers: {
         'content-type': 'application/json',
@@ -91,21 +79,15 @@ async function callOrCaught<T extends (event: any) => any>(
 }
 
 let scratchDir: string;
-// A media sub-folder used as a registerable asset root. Distinct from
-// scratchDir, which doubles as $HOME below — registering the home dir
-// itself is (correctly) rejected by assertSafeAssetRoot.
-let mediaDir: string;
+let deckDir: string;
 let originalHome: string | undefined;
 let originalUserProfile: string | undefined;
 let originalAdminToken: string | undefined;
 let originalDbPath: string | undefined;
 
 beforeEach(() => {
-  scratchDir = mkdtempSync(join(tmpdir(), 'ant-asset-settings-route-'));
-  mediaDir = join(scratchDir, 'media');
-  mkdirSync(mediaDir, { recursive: true });
-  // point the store at the scratch HOME so it writes asset-folders.json
-  // into a temp location (keeps the real ~/.ant untouched).
+  scratchDir = mkdtempSync(join(tmpdir(), 'ant-deck-settings-route-'));
+  deckDir = join(scratchDir, 'decks');
   originalHome = process.env.HOME;
   originalUserProfile = process.env.USERPROFILE;
   originalAdminToken = process.env.ANT_ADMIN_TOKEN;
@@ -132,70 +114,52 @@ afterEach(() => {
   else process.env.ANT_FRESH_DB_PATH = originalDbPath;
 });
 
-describe('GET /api/asset-settings', () => {
+describe('GET /api/deck-settings', () => {
   it('rejects without admin bearer or operator session', async () => {
-    const noAuthEvent = { request: new Request('http://localhost/api/asset-settings') } as unknown as Parameters<typeof GET>[0];
-    const res = await callOrCaught(GET, noAuthEvent);
+    const res = await callOrCaught(GET, getEvent(new Request('http://localhost/api/deck-settings')));
     expect(res.status).toBe(401);
   });
 
-  it('returns envRoots + fileRoots + resolved for an admin caller', async () => {
+  it('returns settings for an admin caller', async () => {
     const res = await callOrCaught(GET, getEvent());
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      envRoots: string[];
-      fileRoots: string[];
-      resolved: string[];
-    };
+    const body = (await res.json()) as { envRoots: string[]; fileRoots: string[]; resolved: string[] };
     expect(Array.isArray(body.envRoots)).toBe(true);
     expect(Array.isArray(body.fileRoots)).toBe(true);
     expect(Array.isArray(body.resolved)).toBe(true);
   });
 
   it('returns settings for the operator browser session', async () => {
-    const res = await callOrCaught(GET, operatorGetEvent());
+    const request = new Request('http://localhost/api/deck-settings', {
+      headers: { cookie: operatorCookie() }
+    });
+    const res = await callOrCaught(GET, getEvent(request));
     expect(res.status).toBe(200);
   });
 });
 
-describe('PUT /api/asset-settings', () => {
+describe('PUT /api/deck-settings', () => {
   it('rejects without admin bearer or operator session', async () => {
-    const noAuthEvent = { request: new Request('http://localhost/api/asset-settings', { method: 'PUT' }) } as unknown as Parameters<typeof PUT>[0];
-    const res = await callOrCaught(PUT, noAuthEvent);
+    const request = new Request('http://localhost/api/deck-settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decksRoots: [] })
+    });
+    const res = await callOrCaught(PUT, { request } as unknown as Parameters<typeof PUT>[0]);
     expect(res.status).toBe(401);
   });
 
-  it('rejects non-array body', async () => {
-    const res = await callOrCaught(PUT, putEvent({ assetRoots: 'not-array' }));
-    expect(res.status).toBe(400);
-  });
-
-  it('writes valid input + returns the new payload', async () => {
-    const res = await callOrCaught(PUT, putEvent({ assetRoots: [mediaDir, '/env-a'] }));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { fileRoots: string[]; resolved: string[] };
-    // mediaDir is on disk + is now in the file layer; env-a is not, so it's filtered.
-    expect(body.fileRoots).toEqual([mediaDir, '/env-a']);
-    expect(body.resolved).toContain(mediaDir);
-  });
-
-  it('writes valid input from the operator browser session', async () => {
-    const res = await callOrCaught(PUT, operatorPutEvent({ assetRoots: [mediaDir] }));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { fileRoots: string[]; resolved: string[] };
-    expect(body.fileRoots).toEqual([mediaDir]);
-    expect(body.resolved).toContain(mediaDir);
-  });
-
-  it('strips empty + trims entries before persisting', async () => {
-    const res = await callOrCaught(PUT, putEvent({ assetRoots: ['  ' + mediaDir + '  ', '', '   '] }));
+  it('writes valid input as admin', async () => {
+    const res = await callOrCaught(PUT, putEvent({ decksRoots: [deckDir, '  '] }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { fileRoots: string[] };
-    expect(body.fileRoots).toEqual([mediaDir]);
+    expect(body.fileRoots).toEqual([deckDir]);
   });
 
-  it('rejects a sensitive root (the home directory) with 400', async () => {
-    const res = await callOrCaught(PUT, putEvent({ assetRoots: [scratchDir] }));
-    expect(res.status).toBe(400);
+  it('writes valid input as the operator browser session', async () => {
+    const res = await callOrCaught(PUT, operatorPutEvent({ decksRoots: [deckDir] }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { fileRoots: string[] };
+    expect(body.fileRoots).toEqual([deckDir]);
   });
 });

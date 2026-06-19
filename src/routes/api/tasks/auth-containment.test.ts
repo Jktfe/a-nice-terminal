@@ -4,6 +4,9 @@ import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoom
 import { resetTasksStoreForTests, createTask as createJwpkTask } from '$lib/server/tasksStore';
 import { createTask as createLegacyTask } from '$lib/server/taskStore';
 import { resetIdentityDbForTests } from '$lib/server/db';
+import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
 
 const ADMIN_TOKEN_FOR_TESTS = 'tasks-route-test-admin-token';
 const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
@@ -33,10 +36,23 @@ function headers(withAuth: boolean): Record<string, string> {
   return withAuth ? { authorization: `Bearer ${ADMIN_TOKEN_FOR_TESTS}` } : {};
 }
 
-function getEventFor(urlPath: string, withAuth = true): AnyEvent {
+function operatorCookie(): string {
+  const room = createChatRoom({ name: 'tasks-operator-session', whoCreatedIt: '@JWPK' });
+  const terminal = upsertTerminal({
+    pid: Math.floor(Math.random() * 10_000) + 1,
+    pid_start: 'tasks-operator-session',
+    name: 'tasks-operator-session'
+  });
+  addMembership({ room_id: room.id, handle: '@JWPK', terminal_id: terminal.id });
+  const session = createBrowserSession({ roomId: room.id, authorHandle: '@JWPK' });
+  if (!session) throw new Error('createBrowserSession returned null');
+  return `ant_browser_session=${session.browserSessionSecret}`;
+}
+
+function getEventFor(urlPath: string, withAuth = true, extraHeaders: Record<string, string> = {}): AnyEvent {
   const url = new URL(`http://localhost${urlPath}`);
   return {
-    request: new Request(url.toString(), { headers: headers(withAuth) }),
+    request: new Request(url.toString(), { headers: { ...headers(withAuth), ...extraHeaders } }),
     params: {},
     url
   } as unknown as AnyEvent;
@@ -89,6 +105,28 @@ describe('/api/tasks auth containment', () => {
     expect(body.tasks[0].id).toBe('legacy_admin_task');
   });
 
+  it('allows operator browser-session no-room GET for the Plans unfiled lane', async () => {
+    createLegacyTask({ id: 'legacy_operator_task', subject: 'Operator visible task' });
+
+    const response = await run(GET, getEventFor('/api/tasks', false, { cookie: operatorCookie() }));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.tasks).toHaveLength(1);
+    expect(body.tasks[0].id).toBe('legacy_operator_task');
+  });
+
+  it('allows operator browser-session no-room JWPK filtered GET', async () => {
+    createJwpkTask({ id: 'jwpk_operator_task', title: 'Operator task', status: 'todo' });
+
+    const response = await run(GET, getEventFor('/api/tasks?status=todo', false, { cookie: operatorCookie() }));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.tasks).toHaveLength(1);
+    expect(body.tasks[0]).toMatchObject({ id: 'jwpk_operator_task', title: 'Operator task' });
+  });
+
   it('rejects unauthenticated room-filtered GET before returning room tasks', async () => {
     const room = createChatRoom({ name: 'task room', whoCreatedIt: '@you' });
     createJwpkTask({ id: 'jwpk_room_task', title: 'Sensitive room task', roomId: room.id });
@@ -115,9 +153,11 @@ describe('/api/tasks auth containment', () => {
     createLegacyTask({ id: 'deleted_sensitive_task', subject: 'Deleted sensitive task', status: 'deleted' });
 
     const unauth = await run(GET, getEventFor('/api/tasks?includeDeleted=1', false));
+    const operator = await run(GET, getEventFor('/api/tasks?includeDeleted=1', false, { cookie: operatorCookie() }));
     const admin = await run(GET, getEventFor('/api/tasks?includeDeleted=1'));
 
     expect(unauth.status).toBe(401);
+    expect(operator.status).toBe(401);
     expect(await unauth.text()).not.toContain('Deleted sensitive task');
     expect(admin.status).toBe(200);
     const body = await admin.json();

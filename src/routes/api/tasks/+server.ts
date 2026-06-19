@@ -1,7 +1,8 @@
 /**
  * /api/tasks — Lane-D PLANS S1 + JWPK TASKS-SUBSYSTEM (2026-05-16).
  * Auth containment (2026-05-23): room-linked ops require room gates;
- * no-room ops require admin-bearer.
+ * no-room reads require admin-bearer or the configured operator browser
+ * session; no-room writes and deleted reads remain admin-bearer only.
  */
 
 import { json, error } from '@sveltejs/kit';
@@ -21,7 +22,7 @@ import {
 } from '$lib/server/tasksStore';
 import { dispatchPlanEvent } from '$lib/server/planTriggerDispatcher';
 import { broadcastTaskChanged } from '$lib/server/taskPlanRealtime';
-import { requireChatRoomMutationAuth, tryAdminBearer } from '$lib/server/chatRoomAuthGate';
+import { requireChatRoomMutationAuth, tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate';
 import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 
@@ -35,6 +36,11 @@ function requireAdminBearer(request: Request): void {
   if (!tryAdminBearer(request)) {
     throw error(401, 'Authentication required.');
   }
+}
+
+function requireAdminOrOperator(request: Request): void {
+  if (tryAdminBearer(request) || tryOperatorSession(request)) return;
+  throw error(401, 'Authentication required.');
 }
 
 export const GET: RequestHandler = async ({ url, request }) => {
@@ -58,8 +64,8 @@ export const GET: RequestHandler = async ({ url, request }) => {
       await requireChatRoomReadAccess(request, roomEntity);
       filter.roomId = room;
     } else {
-      // No room filter — admin-bearer only tonight (containment)
-      requireAdminBearer(request);
+      // No room filter — global operator workbench read.
+      requireAdminOrOperator(request);
     }
     return json({ tasks: listJwpkTasks(filter) });
   }
@@ -67,8 +73,8 @@ export const GET: RequestHandler = async ({ url, request }) => {
   if (includeDeleted) {
     requireAdminBearer(request);
   } else {
-    // Legacy no-room GET — admin-bearer only tonight (containment)
-    requireAdminBearer(request);
+    // Legacy no-room GET — active operator workbench read.
+    requireAdminOrOperator(request);
   }
   return json({ tasks: listTasks({ includeDeleted }) });
 };
