@@ -61,6 +61,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "aws-sdk-client-mock": "^4.1.0",
+    "playwright": "^1.61.0",
     "svelte": "^5.46.4",
     "svelte-check": "^4.0.0",
     "typescript": "^6.0.3",
