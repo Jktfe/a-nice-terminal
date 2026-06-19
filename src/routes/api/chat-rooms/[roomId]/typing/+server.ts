@@ -35,7 +35,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const bodyAsObject = await parseRequiredJsonBody(request);
   // LAUNCH-BLOCKER CVE FIX D (2026-05-20): identity-gate typing POST.
   // High-frequency endpoint — the gate cascade is cheap (one resolver call).
-  requireChatRoomMutationAuth(params.roomId, request, bodyAsObject);
+  const auth = requireChatRoomMutationAuth(params.roomId, request, bodyAsObject);
 
   const memberHandleField = bodyAsObject.memberHandle;
   if (typeof memberHandleField !== 'string') {
@@ -48,6 +48,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const isMemberOfRoom = room.members.some((member) => member.handle === handleWithAtSign);
   if (!isMemberOfRoom) {
     throw error(404, `${handleWithAtSign} is not a member of this room.`);
+  }
+  if (!auth.isAdminBearer && auth.handle !== handleWithAtSign) {
+    throw error(403, `caller ${auth.handle} cannot record typing as ${handleWithAtSign}`);
   }
 
   try {

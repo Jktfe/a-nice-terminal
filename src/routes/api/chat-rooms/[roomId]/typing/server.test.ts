@@ -12,6 +12,9 @@ import {
 } from '$lib/server/chatRoomStore';
 import { listActiveTypersInRoom } from '$lib/server/typingIndicatorStore';
 import { resetTypingIndicatorStoreForTests } from '$lib/server/typingIndicatorStore';
+import { resetIdentityDbForTests } from '$lib/server/db';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
 
 // LAUNCH-BLOCKER CVE FIX D (2026-05-20): typing POST now requires
 // chatRoomAuthGate. Tests supply admin Bearer by default.
@@ -31,6 +34,22 @@ type CallOptions = {
   body?: string;
   withAuth?: boolean;
 };
+
+function bindIdentityMembership(
+  roomId: string,
+  handle: string,
+  pid: number
+): { pidChain: { pid: number; pid_start: string | null }[] } {
+  const pidStart = `typing-pid-start-${pid}`;
+  const terminal = upsertTerminal({
+    pid,
+    pid_start: pidStart,
+    name: `typing-${handle}-${pid}`,
+    ttlSeconds: 60 * 60
+  });
+  addMembership({ room_id: roomId, handle, terminal_id: terminal.id });
+  return { pidChain: [{ pid: terminal.pid, pid_start: terminal.pid_start }] };
+}
 
 async function callPost(options: CallOptions): Promise<Response> {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -78,6 +97,8 @@ async function callGet(roomId: string): Promise<Response> {
 
 describe('POST + GET /api/chat-rooms/:roomId/typing', () => {
   beforeEach(() => {
+    process.env.ANT_FRESH_DB_PATH = ':memory:';
+    resetIdentityDbForTests();
     resetChatRoomStoreForTests();
     resetTypingIndicatorStoreForTests();
   });
@@ -167,6 +188,37 @@ describe('POST + GET /api/chat-rooms/:roomId/typing', () => {
 
     const typers = listActiveTypersInRoom(room.id);
     expect(typers.some((t) => t.memberHandle === '@kimi')).toBe(true);
+  });
+
+  it('POST accepts a non-admin caller recording their own typing heartbeat', async () => {
+    const room = createChatRoom({ name: 'self-typing', whoCreatedIt: '@caller' });
+    const caller = bindIdentityMembership(room.id, '@caller', 91_001);
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ memberHandle: '@caller', pidChain: caller.pidChain }),
+      withAuth: false
+    });
+
+    expect(response.status).toBe(201);
+    expect(listActiveTypersInRoom(room.id).map((typer) => typer.memberHandle)).toEqual([
+      '@caller'
+    ]);
+  });
+
+  it('POST rejects a non-admin caller spoofing another room member typing', async () => {
+    const room = createChatRoom({ name: 'typing-spoof', whoCreatedIt: '@caller' });
+    const caller = bindIdentityMembership(room.id, '@caller', 91_002);
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@target' });
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ memberHandle: '@target', pidChain: caller.pidChain }),
+      withAuth: false
+    });
+
+    expect(response.status).toBe(403);
+    expect(listActiveTypersInRoom(room.id)).toEqual([]);
   });
 
   it('POST returns 400 when the body is a JSON array (typeof object trap)', async () => {
