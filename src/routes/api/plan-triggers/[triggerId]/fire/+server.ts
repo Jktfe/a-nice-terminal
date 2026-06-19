@@ -15,7 +15,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { requireAdminAuth } from '$lib/server/chatInviteAuth';
 import { getTrigger } from '$lib/server/planTriggerStore';
-import { dispatchPlanEvent } from '$lib/server/planTriggerDispatcher';
+import { dispatchSinglePlanTrigger } from '$lib/server/planTriggerDispatcher';
 
 export const POST: RequestHandler = async ({ params, request }) => {
   requireAdminAuth(request);
@@ -35,6 +35,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
     throw error(400, 'wildcard trigger requires a planId in the body to fire.');
   }
 
-  dispatchPlanEvent(trigger.event, { planId });
-  return json({ fired: true, triggerId: trigger.id, event: trigger.event, planId });
+  const fired = dispatchSinglePlanTrigger(trigger, { planId });
+  return json({ fired, triggerId: trigger.id, event: trigger.event, planId });
 };

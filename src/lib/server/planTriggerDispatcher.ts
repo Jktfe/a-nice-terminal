@@ -71,15 +71,34 @@ export function dispatchPlanEvent(event: PlanTriggerEvent, ctx: DispatchContext)
   const completion = ctx.completion ?? (ctx.planId !== null ? lazyCompletion(ctx.planId) : null);
 
   for (const t of triggers) {
-    try {
-      runAction(t, event, ctx, completion);
-      recordTriggerFired(t.id);
-    } catch (cause) {
-      console.error(
-        `[planTriggerDispatcher] trigger ${t.id} (${t.action} on ${event}) failed:`,
-        cause
-      );
-    }
+    runTriggerAction(t, event, ctx, completion);
+  }
+}
+
+/** Fire exactly one trigger. Used by the manual test endpoint so a single
+ * trigger's webhook/message/action can be tested without invoking siblings
+ * that happen to share the same plan/event subscription. */
+export function dispatchSinglePlanTrigger(t: PlanTrigger, ctx: DispatchContext): boolean {
+  const completion = ctx.completion ?? (ctx.planId !== null ? lazyCompletion(ctx.planId) : null);
+  return runTriggerAction(t, t.event, ctx, completion);
+}
+
+function runTriggerAction(
+  t: PlanTrigger,
+  event: PlanTriggerEvent,
+  ctx: DispatchContext,
+  completion: { total: number; completed: number; pct: number; title: string | null } | null
+): boolean {
+  try {
+    runAction(t, event, ctx, completion);
+    recordTriggerFired(t.id);
+    return true;
+  } catch (cause) {
+    console.error(
+      `[planTriggerDispatcher] trigger ${t.id} (${t.action} on ${event}) failed:`,
+      cause
+    );
+    return false;
   }
 }
 

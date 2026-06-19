@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resetIdentityDbForTests } from '$lib/server/db';
 import {
   addTrigger,
+  getTrigger,
   _resetPlanTriggerStoreForTests
 } from '$lib/server/planTriggerStore';
 import { POST } from './+server';
@@ -74,6 +75,34 @@ describe('/api/plan-triggers/:triggerId/fire', () => {
     expect(body.fired).toBe(true);
     expect(body.triggerId).toBe(trigger.id);
     expect(body.planId).toBe('p-1');
+    expect(getTrigger(trigger.id)?.fireCount).toBe(1);
+  });
+
+  it('POST fires only the requested trigger, not siblings matching the same plan/event', async () => {
+    const selected = addTrigger({
+      event: 'plan.completed',
+      action: 'console.log',
+      actionConfig: { message: 'selected {planId}' },
+      planId: 'p-1'
+    });
+    const sibling = addTrigger({
+      event: 'plan.completed',
+      action: 'console.log',
+      actionConfig: { message: 'sibling {planId}' },
+      planId: 'p-1'
+    });
+    const wildcardSibling = addTrigger({
+      event: 'plan.completed',
+      action: 'console.log',
+      actionConfig: { message: 'wildcard {planId}' }
+    });
+
+    const res = await run(POST as unknown as AnyHandler, eventFor(selected.id));
+
+    expect(res.status).toBe(200);
+    expect(getTrigger(selected.id)?.fireCount).toBe(1);
+    expect(getTrigger(sibling.id)?.fireCount).toBe(0);
+    expect(getTrigger(wildcardSibling.id)?.fireCount).toBe(0);
   });
 
   it('POST 200 fires wildcard trigger with body planId override', async () => {
