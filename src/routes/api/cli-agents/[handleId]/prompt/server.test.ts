@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetIdentityDbForTests } from '\$lib/server/db';
-import { registerCliAgentForTests, resetCliAgentRegistryForTests } from '\$lib/server/cliAgentRegistry';
+import { resetIdentityDbForTests } from '$lib/server/db';
+import { registerCliAgentForTests, resetCliAgentRegistryForTests } from '$lib/server/cliAgentRegistry';
 import { POST } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
 const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
-const TEST_ADMIN_TOKEN = 'cli-command-test-admin';
+const TEST_ADMIN_TOKEN = 'cli-prompt-test-admin';
 
 type AnyHandler = (event: unknown) => unknown;
 
 function eventFor(handleId: string, body?: unknown, authenticated = true) {
-  const url = new URL(`http://localhost/api/cli-agents/${handleId}/command`);
+  const url = new URL(`http://localhost/api/cli-agents/${handleId}/prompt`);
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (authenticated) headers.authorization = `Bearer ${TEST_ADMIN_TOKEN}`;
   return {
@@ -67,50 +67,33 @@ afterEach(() => {
   else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
-describe('/api/cli-agents/:handleId/command', () => {
-  it('POST rejects anonymous command delivery before touching the agent', async () => {
+describe('/api/cli-agents/:handleId/prompt', () => {
+  it('POST rejects anonymous prompt delivery before touching the agent', async () => {
     const agent = mockAgent('codex-1');
     registerCliAgentForTests(agent);
-    const res = await run(POST as unknown as AnyHandler, eventFor('codex-1', { method: 'test' }, false));
+    const res = await run(POST as unknown as AnyHandler, eventFor('codex-1', { text: 'hello' }, false));
     expect(res.status).toBe(401);
-    expect(agent.sendCommand).not.toHaveBeenCalled();
+    expect(agent.sendPrompt).not.toHaveBeenCalled();
   });
 
-  it('POST sends command and returns result', async () => {
+  it('POST sends a prompt and returns the bridge thread id', async () => {
     const agent = mockAgent('codex-1');
     registerCliAgentForTests(agent);
-    const res = await run(POST as unknown as AnyHandler, eventFor('codex-1', { method: 'test' }));
+    const res = await run(POST as unknown as AnyHandler, eventFor('codex-1', { text: 'hello' }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.result.ok).toBe(true);
-    expect(agent.sendCommand).toHaveBeenCalledWith({ method: 'test' });
+    expect(body.threadId).toBe('sess-codex-1');
+    expect(agent.sendPrompt).toHaveBeenCalledWith('hello');
   });
 
-  it('POST 404 for unknown handle', async () => {
-    const res = await run(POST as unknown as AnyHandler, eventFor('missing', { method: 'test' }));
-    expect(res.status).toBe(404);
-  });
-
-  it('POST 400 on invalid JSON body', async () => {
-    const agent = mockAgent('codex-1');
-    registerCliAgentForTests(agent);
-    const res = await run(POST as unknown as AnyHandler, {
-      request: new Request('http://localhost/api/cli-agents/codex-1/command', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${TEST_ADMIN_TOKEN}` },
-        body: 'not-json'
-      }),
-      url: new URL('http://localhost/api/cli-agents/codex-1/command'),
-      params: { handleId: 'codex-1' }
-    });
+  it('POST 400 for blank prompt text', async () => {
+    registerCliAgentForTests(mockAgent('codex-1'));
+    const res = await run(POST as unknown as AnyHandler, eventFor('codex-1', { text: '   ' }));
     expect(res.status).toBe(400);
   });
 
-  it('POST 500 when sendCommand throws', async () => {
-    const agent = mockAgent('codex-1');
-    agent.sendCommand = vi.fn().mockRejectedValue(new Error('boom'));
-    registerCliAgentForTests(agent);
-    const res = await run(POST as unknown as AnyHandler, eventFor('codex-1', { method: 'test' }));
-    expect(res.status).toBe(500);
+  it('POST 404 for unknown handle after auth succeeds', async () => {
+    const res = await run(POST as unknown as AnyHandler, eventFor('missing', { text: 'hello' }));
+    expect(res.status).toBe(404);
   });
 });
