@@ -16,6 +16,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { fuzzyMatch } from './commandPaletteFuzzy';
+  import { terminalHref } from '$lib/terminal/terminalDeepLink';
 
   type Item = {
     kind: 'room' | 'plan' | 'terminal' | 'search';
@@ -95,10 +96,7 @@
             id: term.sessionId,
             title: term.name || term.sessionId,
             subtitle: term.sessionId,
-            // /terminals/<id> is not a route (404) — the list page is the
-            // terminal surface and carries id="term-<sessionId>" anchors on
-            // each desk chip, so deep-link to the chip on the list instead.
-            href: `/terminals#term-${term.sessionId}`
+            href: terminalHref(term.sessionId)
           });
         }
       }

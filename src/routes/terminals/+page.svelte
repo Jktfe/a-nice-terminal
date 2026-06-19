@@ -19,6 +19,7 @@
   import type { UsagePayload } from '$lib/usage/types';
   import { agentKinds } from '$lib/stores/agentKinds.svelte';
   import { terminalClasses } from '$lib/stores/terminalClasses.svelte';
+  import { terminalAnchorId } from '$lib/terminal/terminalDeepLink';
 
   type TerminalRecord = {
     sessionId: string;
@@ -476,8 +477,8 @@
                     <h5 class="model-subheading"><span class="model-marker">●</span>{subgroup.label}</h5>
                     <div class="chips">
                       {#each subgroup.records as record (record.sessionId)}
-                        <!-- Anchor target for the /agents card "go to terminal" deep-link. -->
-                        <span class="desk-chip" id={`term-${record.sessionId}`}>
+                        <!-- Anchor target for terminal deep-links. -->
+                        <span class="desk-chip" id={terminalAnchorId(record.sessionId)}>
                           <button
                             type="button"
                             class="chip ant-chip"
