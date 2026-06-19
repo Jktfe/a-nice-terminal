@@ -14,6 +14,7 @@ import { handleArtefactVerb } from './ant-cli-artefact.mjs';
 import { handleAskVerb } from './ant-cli-ask.mjs';
 import { handleAttachVerb } from './ant-cli-attach.mjs';
 import { handleAuditVerb } from './ant-cli-audit.mjs';
+import { handleAwayVerb } from './ant-cli-away.mjs';
 import { handleBindVerb } from './ant-cli-bind.mjs';
 // Namespace import: robust against a stale generated constants file that
 // predates the cutover flag (missing property reads as undefined, no link error).
@@ -76,7 +77,7 @@ const DEFAULT_SERVER_URL = 'http://127.0.0.1:6174';
 const ENV_SERVER_URL = process.env.ANT_SERVER_URL?.trim();
 
 const DISPATCH = {
-  plan: handlePlanVerb, ask: handleAskVerb, artefact: handleArtefactVerb, attach: handleAttachVerb, bind: handleBindVerb, invite: handleInviteVerb, chat: handleChatVerb, connect: handleConnectVerb, room: handleRoomVerb,
+  plan: handlePlanVerb, ask: handleAskVerb, artefact: handleArtefactVerb, attach: handleAttachVerb, away: handleAwayVerb, bind: handleBindVerb, invite: handleInviteVerb, chat: handleChatVerb, connect: handleConnectVerb, room: handleRoomVerb,
   queue: handleQueueVerb, reaction: handleReactionVerb, reclaim: handleReclaimVerb, handle: handleHandleVerb, status: handleStatusVerb, delivery: handleDeliveryVerb, audit: handleAuditVerb, docs: handleDocsVerb,
   deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, tools: handleToolsVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, request: handleRequestVerb, task: handleTaskVerb, memory: handleMemoryVerb, brief: handleBriefVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, vote: handleVoteVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb, whoami: handleWhoamiVerb, helper: handleHelperVerb
 };
@@ -527,6 +528,7 @@ Verbs:
   room members|add-member|aliases     Manage room admission and aliases.
   reaction list|add|remove|heard      Manage message reactions.
   status show --room ROOM_ID          Show pane/terminal delivery status per room member.
+  away get|set|clear|list             Read or change server-visible away mode tiers.
   delivery verify --terminal ID       Show delivery state (verified/stale/unknown) + reason.
   audit permissions --room ROOM_ID    Audit identity proofs for every room member.
   docs generate --from-cli            Generate manifest-derived markdown.
