@@ -9,8 +9,10 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 import { listDigestNotes } from '$lib/server/chairDigestNoteStore';
 
-export const GET: RequestHandler = () => {
+export const GET: RequestHandler = ({ request }) => {
+  requireAggregateReadAuth(request, '/api/chair/notes');
   return json({ notes: listDigestNotes() });
 };

@@ -94,6 +94,14 @@ describe('/api/chair-enabled + Chair-disabled boot guardrail', () => {
     expect((await turnedOff.json()).enabled).toBe(false);
   });
 
+  it('GET /api/chair-enabled rejects anonymous reads', async () => {
+    const response = await runHandler(
+      chairEnabledGet as unknown as AnyHandler,
+      eventFor('GET', '/api/chair-enabled', undefined, { withAuth: false })
+    );
+    expect(response.status).toBe(401);
+  });
+
   it('M4.4 T2: PUT 403 when pidChain missing', async () => {
     const response = await runHandler(
       chairEnabledPut as unknown as AnyHandler,

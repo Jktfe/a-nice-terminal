@@ -10,6 +10,7 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireAggregateReadAuth, resolveAggregateAuthActor } from '$lib/server/aggregateReadAuth';
 import { deleteMemory, getMemory } from '$lib/server/memoriesStore';
 
 function resolveKey(rawKey: string | undefined): string {
@@ -23,7 +24,8 @@ function resolveKey(rawKey: string | undefined): string {
   return rawKey.replace(/%2F/gi, '/');
 }
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ request, params }) => {
+  requireAggregateReadAuth(request, '/api/memories/key');
   const key = resolveKey(params.key);
   const memory = getMemory(key);
   if (!memory) {
@@ -32,10 +34,10 @@ export const GET: RequestHandler = async ({ params }) => {
   return json({ memory });
 };
 
-export const DELETE: RequestHandler = async ({ params, url }) => {
+export const DELETE: RequestHandler = async ({ request, params }) => {
+  const actorHandle = resolveAggregateAuthActor(request, '/api/memories/key', null);
   const key = resolveKey(params.key);
-  const byHandle = url.searchParams.get('byHandle');
-  const wasDeleted = deleteMemory(key, byHandle);
+  const wasDeleted = deleteMemory(key, actorHandle);
   if (!wasDeleted) {
     throw error(404, `No memory at key "${key}".`);
   }

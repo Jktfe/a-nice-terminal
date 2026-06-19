@@ -5,6 +5,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getIdentityDb } from '$lib/server/db';
+import { resolveAggregateAuthActor } from '$lib/server/aggregateReadAuth';
 
 const ALLOWED_STATUSES = new Set(['open', 'addressed', 'dismissed']);
 
@@ -14,6 +15,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) throw error(400, 'JSON body required');
+  const addressedByHandle = resolveAggregateAuthActor(request, '/api/manual/suggestions/:id', body);
 
   const status = typeof body.status === 'string' ? body.status : null;
   if (!status || !ALLOWED_STATUSES.has(status)) {
@@ -21,9 +23,6 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   }
 
   const addressedNote = typeof body.addressedNote === 'string' ? body.addressedNote : null;
-  const addressedByHandle = typeof body.addressedByHandle === 'string' && body.addressedByHandle.length > 0
-    ? body.addressedByHandle : null;
-
   const db = getIdentityDb();
   const isResolved = status === 'addressed' || status === 'dismissed';
   const result = db.prepare(

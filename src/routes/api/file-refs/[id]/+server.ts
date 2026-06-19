@@ -7,14 +7,17 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getFileRef, removeFileRef } from '$lib/server/fileRefsStore';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ request, params }) => {
+  requireOperatorLikeAuth(request);
   const ref = getFileRef(params.id);
   if (!ref) throw error(404, 'file_ref not found.');
   return json({ fileRef: ref });
 };
 
-export const DELETE: RequestHandler = async ({ params }) => {
+export const DELETE: RequestHandler = async ({ request, params }) => {
+  requireOperatorLikeAuth(request);
   const wasRemoved = removeFileRef(params.id);
   if (!wasRemoved) throw error(404, 'file_ref not found.');
   return new Response(null, { status: 204 });

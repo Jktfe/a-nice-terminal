@@ -15,12 +15,14 @@
  * Key-by-path read/delete live at /api/memories/key/[...key]/+server.ts.
  * Audit read lives at /api/memories/audit/+server.ts.
  *
- * No auth yet — same maturity as /api/memory-recall. The pidChain identity
- * gate lands when the broader memory ACL design ships.
+ * Auth: read/write require a browser/antchat identity, a local pidChain, or
+ * admin-bearer. The write audit actor is resolved server-side; callers cannot
+ * spoof `byHandle` in the request body.
  */
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireAggregateReadAuth, resolveAggregateAuthActor } from '$lib/server/aggregateReadAuth';
 import {
   listMemoriesByPrefix,
   listMemoriesForScope,
@@ -34,7 +36,8 @@ function parseScopeParam(raw: string | null): MemoryScope | null {
   return null;
 }
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ request, url }) => {
+  requireAggregateReadAuth(request, '/api/memories');
   const scopeParam = parseScopeParam(url.searchParams.get('scope'));
   const targetParam = url.searchParams.get('target');
   const prefixParam = url.searchParams.get('prefix');
@@ -52,6 +55,7 @@ export const POST: RequestHandler = async ({ request }) => {
   if (!rawBody || typeof rawBody !== 'object') {
     throw error(400, 'Send a JSON body with at least key + value fields.');
   }
+  const actorHandle = resolveAggregateAuthActor(request, '/api/memories', rawBody);
   const body = rawBody as Record<string, unknown>;
   const key = body.key;
   const value = body.value;
@@ -72,20 +76,13 @@ export const POST: RequestHandler = async ({ request }) => {
       : typeof body.scopeTarget === 'string'
         ? body.scopeTarget
         : null;
-  const byHandleRaw =
-    typeof body.byHandle === 'string'
-      ? body.byHandle
-      : typeof body.by_handle === 'string'
-        ? body.by_handle
-        : null;
-
   try {
     const result = putMemory({
       key,
       value,
       scope: scope ?? 'global',
       scopeTarget: scopeTargetRaw,
-      byHandle: byHandleRaw
+      byHandle: actorHandle
     });
     return json(result, { status: result.created ? 201 : 200 });
   } catch (causeOfFailure) {

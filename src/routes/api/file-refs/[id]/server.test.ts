@@ -4,13 +4,19 @@ import { addFileRef, resetFileRefsStoreForTests } from '\$lib/server/fileRefsSto
 import { GET, DELETE } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+const ADMIN_TOKEN = 'file-refs-id-test-admin-token';
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
 
 type AnyHandler = (event: unknown) => unknown;
 
-function eventFor(id: string, method: 'GET' | 'DELETE') {
+function eventFor(
+  id: string,
+  method: 'GET' | 'DELETE',
+  headers: HeadersInit = { authorization: `Bearer ${ADMIN_TOKEN}` }
+) {
   const url = new URL(`http://localhost/api/file-refs/${id}`);
   return {
-    request: new Request(url, { method }),
+    request: new Request(url, { method, headers }),
     url,
     params: { id }
   };
@@ -31,6 +37,7 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN;
   resetIdentityDbForTests();
   resetFileRefsStoreForTests();
 });
@@ -40,9 +47,21 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
 describe('/api/file-refs/:id', () => {
+  it('GET and DELETE reject anonymous access', async () => {
+    const ref = addFileRef({ filePath: '/tmp/test.txt', scope: 'global' });
+
+    const read = await run(GET as unknown as AnyHandler, eventFor(ref.id, 'GET', {}));
+    expect(read.status).toBe(401);
+
+    const deleted = await run(DELETE as unknown as AnyHandler, eventFor(ref.id, 'DELETE', {}));
+    expect(deleted.status).toBe(401);
+  });
+
   it('GET returns the file_ref', async () => {
     const ref = addFileRef({ filePath: '/tmp/test.txt', scope: 'global' });
     const res = await run(GET as unknown as AnyHandler, eventFor(ref.id, 'GET'));

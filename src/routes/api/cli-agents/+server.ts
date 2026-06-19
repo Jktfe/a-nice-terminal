@@ -23,6 +23,7 @@ import {
   startCliAgent,
   type CliAgentKind
 } from '$lib/server/cliAgentRegistry';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 import { serialiseCliAgent } from '$lib/server/cliAgentSerialise';
 
 function rejectRemoteBridgeBearer(request: Request): void {
@@ -34,7 +35,8 @@ function rejectRemoteBridgeBearer(request: Request): void {
 
 const serialiseAgent = serialiseCliAgent;
 
-export const GET: RequestHandler = () => {
+export const GET: RequestHandler = ({ request }) => {
+  requireAggregateReadAuth(request, '/api/cli-agents');
   return json({ agents: listCliAgents().map(serialiseAgent) });
 };
 

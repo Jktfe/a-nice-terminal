@@ -44,9 +44,8 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
 
   throw error(410, {
     message: 'Backfill not available (events not persisted in v0). Resume from latest_seq.',
-    // SvelteKit error bodies are { message } by default; we attach the
-    // recovery hint as a header so consumers can recover without
-    // string-parsing the message.
+    // Keep the recovery hint structured in the JSON error body so consumers
+    // can recover without string-parsing the message.
     latest_seq: latestSeq
   } as unknown as { message: string });
 };

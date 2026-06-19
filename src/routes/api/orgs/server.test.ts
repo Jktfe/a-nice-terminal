@@ -13,6 +13,7 @@ import { resetOrgsStoreForTests } from '$lib/server/orgsStore';
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
 const previousAdminBearer = process.env.ANT_ADMIN_BEARER;
+const previousAdminToken = process.env.ANT_ADMIN_TOKEN;
 const TEST_ADMIN = 'rba_test_token_for_orgs';
 
 type AnyHandler = (event: unknown) => unknown;
@@ -47,6 +48,7 @@ beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-orgs-route-'));
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
   process.env.ANT_ADMIN_BEARER = TEST_ADMIN;
+  process.env.ANT_ADMIN_TOKEN = TEST_ADMIN;
   resetIdentityDbForTests();
   resetOrgsStoreForTests();
 });
@@ -58,6 +60,8 @@ afterEach(() => {
   else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
   if (previousAdminBearer === undefined) delete process.env.ANT_ADMIN_BEARER;
   else process.env.ANT_ADMIN_BEARER = previousAdminBearer;
+  if (previousAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = previousAdminToken;
 });
 
 describe('/api/orgs POST', () => {
@@ -128,14 +132,22 @@ describe('/api/orgs POST', () => {
 });
 
 describe('/api/orgs GET', () => {
-  it('O8: lists orgs (newest first), open read no auth', async () => {
+  it('O8: rejects anonymous org listing', async () => {
+    const event = eventFor('GET', '/api/orgs', {});
+    const response = await runHandler(GET as unknown as AnyHandler, event);
+    expect(response.status).toBe(401);
+  });
+
+  it('O9: lists orgs (newest first) for authenticated callers', async () => {
     await runHandler(POST as unknown as AnyHandler, authedPost({
       id: 'a', display_name: 'A', namespace_prefix: 'org.a', created_by: '@x'
     }));
     await runHandler(POST as unknown as AnyHandler, authedPost({
       id: 'b', display_name: 'B', namespace_prefix: 'org.b', created_by: '@x'
     }));
-    const event = eventFor('GET', '/api/orgs', {});
+    const event = eventFor('GET', '/api/orgs', {
+      headers: { authorization: `Bearer ${TEST_ADMIN}` }
+    });
     const response = await runHandler(GET as unknown as AnyHandler, event);
     expect(response.status).toBe(200);
     const body = await response.json();
@@ -143,8 +155,10 @@ describe('/api/orgs GET', () => {
     expect(body.orgs.map((o: { id: string }) => o.id).sort()).toEqual(['a', 'b']);
   });
 
-  it('O9: GET returns empty list when no orgs', async () => {
-    const event = eventFor('GET', '/api/orgs', {});
+  it('O10: GET returns empty list when no orgs', async () => {
+    const event = eventFor('GET', '/api/orgs', {
+      headers: { authorization: `Bearer ${TEST_ADMIN}` }
+    });
     const response = await runHandler(GET as unknown as AnyHandler, event);
     expect(response.status).toBe(200);
     const body = await response.json();

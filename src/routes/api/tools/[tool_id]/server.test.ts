@@ -29,10 +29,10 @@ afterEach(() => {
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeGet(toolId: string): any {
+function makeGet(toolId: string, headers: HeadersInit = { authorization: `Bearer ${ADMIN_TOKEN}` }): any {
   const url = `http://localhost/api/tools/${toolId}`;
   return {
-    request: new Request(url),
+    request: new Request(url, { headers }),
     params: { tool_id: toolId },
     url: new URL(url)
   };
@@ -80,6 +80,12 @@ async function callOrUnwrap(invoke: () => unknown): Promise<Response> {
 }
 
 describe('GET /api/tools/[tool_id]', () => {
+  it('401 rejects anonymous tool detail reads', async () => {
+    const tool = registerTool({ toolSlug: 'x', kind: 'skill', name: 'X' });
+    const res = await callOrUnwrap(() => GET(makeGet(tool.toolId, {})));
+    expect(res.status).toBe(401);
+  });
+
   it('200 returns the tool', async () => {
     const tool = registerTool({ toolSlug: 'x', kind: 'skill', name: 'X' });
     const res = await callOrUnwrap(() => GET(makeGet(tool.toolId)));

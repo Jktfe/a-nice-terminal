@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getTunnelBySlug, updateTunnel, deleteTunnel } from '$lib/server/tunnelStore';
+import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 
 function serialize(t: NonNullable<ReturnType<typeof getTunnelBySlug>>) {
   return {
@@ -17,17 +18,19 @@ function serialize(t: NonNullable<ReturnType<typeof getTunnelBySlug>>) {
   };
 }
 
-export const GET: RequestHandler = async ({ params, locals }) => {
+export const GET: RequestHandler = async ({ request, params }) => {
   const tunnel = getTunnelBySlug(params.slug);
   if (!tunnel) throw error(404, 'Tunnel not found');
+  requireChatRoomMutationAuth(tunnel.owner_room_id, request, null);
   return json({ tunnel: serialize(tunnel) });
 };
 
-export const PATCH: RequestHandler = async ({ params, request, locals }) => {
+export const PATCH: RequestHandler = async ({ params, request }) => {
   const tunnel = getTunnelBySlug(params.slug);
   if (!tunnel) throw error(404, 'Tunnel not found');
 
   const body = await request.json().catch(() => ({}));
+  requireChatRoomMutationAuth(tunnel.owner_room_id, request, body);
   const updated = updateTunnel(params.slug, {
     title: body.title,
     public_url: body.public_url,
@@ -40,9 +43,10 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
   return json({ tunnel: serialize(updated) });
 };
 
-export const DELETE: RequestHandler = async ({ params, locals }) => {
+export const DELETE: RequestHandler = async ({ request, params }) => {
   const tunnel = getTunnelBySlug(params.slug);
   if (!tunnel) throw error(404, 'Tunnel not found');
+  requireChatRoomMutationAuth(tunnel.owner_room_id, request, null);
   deleteTunnel(params.slug);
   return json({ slug: params.slug });
 };

@@ -133,7 +133,11 @@ describe('ant memory CLI', () => {
     });
     const code = await handleMemoryVerb('get', ['k1'], runtime, { CliInputError });
     expect(code).toBe(0);
-    expect(seen[0]).toBe('http://test.local/api/memories/key/k1');
+    const calledUrl = new URL(seen[0]);
+    expect(calledUrl.pathname).toBe('/api/memories/key/k1');
+    expect(JSON.parse(calledUrl.searchParams.get('pidChain'))).toEqual(
+      expect.arrayContaining([expect.objectContaining({ pid: expect.any(Number) })])
+    );
     expect(captured.stdout[0]).toContain('k1');
     expect(captured.stdout[0]).toContain('v1');
   });
@@ -166,6 +170,9 @@ describe('ant memory CLI', () => {
     expect(captured.init.method).toBe('POST');
     const body = JSON.parse(captured.init.body);
     expect(body).toMatchObject({ key: 'k1', value: 'v1', byHandle: '@a', scope: 'global' });
+    expect(body.pidChain).toEqual(
+      expect.arrayContaining([expect.objectContaining({ pid: expect.any(Number) })])
+    );
     expect(streams.stdout[0]).toMatch(/^Created/);
   });
 
@@ -189,7 +196,12 @@ describe('ant memory CLI', () => {
       { CliInputError }
     );
     expect(code).toBe(0);
-    expect(seen[0]).toBe('http://test.local/api/memories?prefix=agents%2F');
+    const calledUrl = new URL(seen[0]);
+    expect(calledUrl.pathname).toBe('/api/memories');
+    expect(calledUrl.searchParams.get('prefix')).toBe('agents/');
+    expect(JSON.parse(calledUrl.searchParams.get('pidChain'))).toEqual(
+      expect.arrayContaining([expect.objectContaining({ pid: expect.any(Number) })])
+    );
   });
 
   it('memory list rejects --prefix combined with --terminal', async () => {
@@ -206,7 +218,9 @@ describe('ant memory CLI', () => {
 
   it('memory delete sends DELETE and prints Deleted on 204', async () => {
     let seenMethod;
-    const { runtime, captured } = makeRuntime(async (_url, init) => {
+    let seenUrl;
+    const { runtime, captured } = makeRuntime(async (url, init) => {
+      seenUrl = url;
       seenMethod = init?.method;
       return new Response(null, { status: 204 });
     });
@@ -218,6 +232,11 @@ describe('ant memory CLI', () => {
     );
     expect(code).toBe(0);
     expect(seenMethod).toBe('DELETE');
+    const calledUrl = new URL(seenUrl);
+    expect(calledUrl.pathname).toBe('/api/memories/key/agents/r/role');
+    expect(JSON.parse(calledUrl.searchParams.get('pidChain'))).toEqual(
+      expect.arrayContaining([expect.objectContaining({ pid: expect.any(Number) })])
+    );
     expect(captured.stdout[0]).toMatch(/^Deleted/);
   });
 

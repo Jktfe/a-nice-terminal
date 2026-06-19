@@ -13,10 +13,12 @@
 
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 import { requireAdminAuth } from '$lib/server/chatInviteAuth';
 import { findToolById, retireTool } from '$lib/server/toolsCatalogStore';
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ request, params }) => {
+  requireAggregateReadAuth(request, '/api/tools/:tool_id');
   const toolId = params.tool_id ?? '';
   if (toolId.length === 0) throw error(400, 'tool_id required');
   const tool = findToolById(toolId);

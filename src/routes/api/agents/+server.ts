@@ -15,8 +15,8 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listAgents, getAgent, updateAgentMetadata } from '$lib/server/agentRegistryStore';
 import { listFleetAgents } from '$lib/server/agentFleetStore';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 import { doesChatRoomExist } from '$lib/server/chatRoomStore';
-import { tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate';
 import { listTerminals } from '$lib/server/ptyClient';
 
 const DEFAULT_FLEET_LIVE_SESSION_CACHE_MS = 3_000;
@@ -69,12 +69,8 @@ export function _resetAgentsLiveSessionCacheForTests(): void {
   liveSessionRefresh = null;
 }
 
-function requireAdminOrOperator(request: Request): void {
-  if (tryAdminBearer(request) || tryOperatorSession(request)) return;
-  throw error(401, 'admin-bearer or operator session required');
-}
-
 export const GET: RequestHandler = async ({ url, request }) => {
+  requireAggregateReadAuth(request, '/api/agents');
   const roomId = url.searchParams.get('roomId');
   if (roomId) {
     if (!doesChatRoomExist(roomId)) {
@@ -82,7 +78,6 @@ export const GET: RequestHandler = async ({ url, request }) => {
     }
   }
   if (url.searchParams.get('view') === 'fleet') {
-    requireAdminOrOperator(request);
     const liveSessionIds = await liveSessionIdsForFleet();
     return json({ agents: listFleetAgents(liveSessionIds) });
   }

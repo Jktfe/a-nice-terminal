@@ -7,8 +7,8 @@
  * green/amber/red list BEFORE a human hits a 403 on chat. Read-only:
  * listRoomHealth() issues SELECTs only and writes to no identity table.
  *
- * No auth gate beyond DB reachability (matches /api/health + the other
- * decorative read feeds). Cheap enough for a 30s client poll.
+ * Auth: this exposes the cross-room terminal/handle roster, so callers need
+ * an authenticated ANT identity or admin-bearer.
  *
  * Also carries `durableActivation` — the read-only "deployed-but-dormant"
  * verdict for the durable-identity model (ant_sessions / room_handle_leases).
@@ -19,10 +19,12 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 import { listRoomHealth, summariseRoomHealth } from '$lib/server/roomHealthStore';
 import { summariseDurableActivation } from '$lib/server/durableActivationHealth';
 
-export const GET: RequestHandler = () => {
+export const GET: RequestHandler = ({ request }) => {
+  requireAggregateReadAuth(request, '/api/room-health');
   const terminals = listRoomHealth();
   const summary = summariseRoomHealth(terminals);
   const durableActivation = summariseDurableActivation();

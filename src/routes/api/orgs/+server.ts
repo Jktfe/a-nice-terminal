@@ -13,6 +13,7 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 import { createOrg, listOrgs, type OrgTier } from '$lib/server/orgsStore';
 
 const VALID_TIERS = new Set<OrgTier>(['oss', 'premium', 'enterprise']);
@@ -28,7 +29,8 @@ function requireAdminBearer(request: Request): void {
   }
 }
 
-export const GET: RequestHandler = () => {
+export const GET: RequestHandler = ({ request }) => {
+  requireAggregateReadAuth(request, '/api/orgs');
   return json({ orgs: listOrgs() });
 };
 

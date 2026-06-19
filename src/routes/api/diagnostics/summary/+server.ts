@@ -1,12 +1,13 @@
 /**
- * GET /api/diagnostics/summary — public operator trust surface.
+ * GET /api/diagnostics/summary — operator trust surface.
  *
- * B2-8 parity. Returns safe diagnostics that do NOT require admin auth.
- * Read-only. No secrets. Used by /diagnostics page.
+ * B2-8 parity. Read-only, but includes process/db/SSE internals, so callers
+ * need operator/admin auth like /api/diagnostics.
  */
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 import { getIdentityDb, getDbFilePath } from '$lib/server/db';
 import { eventBroadcastStatsForRoom } from '$lib/server/eventBroadcast';
 import { listChatRooms } from '$lib/server/chatRoomStore';
@@ -62,7 +63,8 @@ function cliHookLagDistribution(sampleSize = 100): {
   } catch { return { latestMs: -1, p50Ms: -1, p99Ms: -1, count: -1 }; }
 }
 
-export const GET: RequestHandler = async () => {
+export const GET: RequestHandler = async ({ request }) => {
+  requireOperatorLikeAuth(request);
   const dbPath = getDbFilePath();
   const db = getIdentityDb();
 

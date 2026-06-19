@@ -5,14 +5,21 @@ import { createTunnel } from '\$lib/server/tunnelStore';
 import { GET, PATCH, DELETE } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+const ADMIN_TOKEN = 'single-tunnel-admin-token';
 
 type AnyHandler = (event: unknown) => unknown;
 
-function eventFor(slug: string, method: 'GET' | 'PATCH' | 'DELETE', body?: unknown) {
+function eventFor(
+  slug: string,
+  method: 'GET' | 'PATCH' | 'DELETE',
+  body?: unknown,
+  headers: HeadersInit = { authorization: `Bearer ${ADMIN_TOKEN}` }
+) {
   const url = new URL(`http://localhost/api/tunnels/${slug}`);
-  const init: RequestInit = { method };
+  const init: RequestInit = { method, headers };
   if (body !== undefined) {
-    init.headers = { 'content-type': 'application/json' };
+    init.headers = { 'content-type': 'application/json', ...headers };
     init.body = JSON.stringify(body);
   }
   return {
@@ -37,6 +44,7 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN;
   resetIdentityDbForTests();
   resetChatRoomStoreForTests();
 });
@@ -46,6 +54,8 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
 
 describe('/api/tunnels/:slug', () => {
@@ -57,6 +67,13 @@ describe('/api/tunnels/:slug', () => {
     const body = await res.json();
     expect(body.tunnel.slug).toBe('s1');
     expect(body.tunnel.public_url).toBe('https://s1.test');
+  });
+
+  it('GET rejects anonymous tunnel detail reads', async () => {
+    const room = createChatRoom({ name: 'T Room', whoCreatedIt: '@you' });
+    createTunnel({ slug: 's1', public_url: 'https://s1.test', owner_room_id: room.id, access_required: false, allowed_room_ids: [], status: 'linked' });
+    const res = await run(GET as unknown as AnyHandler, eventFor('s1', 'GET', undefined, {}));
+    expect(res.status).toBe(401);
   });
 
   it('GET 404 for missing tunnel', async () => {
@@ -79,6 +96,13 @@ describe('/api/tunnels/:slug', () => {
     expect(body.tunnel.status).toBe('offline');
   });
 
+  it('PATCH rejects anonymous updates', async () => {
+    const room = createChatRoom({ name: 'T Room', whoCreatedIt: '@you' });
+    createTunnel({ slug: 's1', public_url: 'https://s1.test', owner_room_id: room.id, access_required: false, allowed_room_ids: [], status: 'linked' });
+    const res = await run(PATCH as unknown as AnyHandler, eventFor('s1', 'PATCH', { title: 'Updated' }, {}));
+    expect(res.status).toBe(401);
+  });
+
   it('PATCH 404 for missing tunnel', async () => {
     const res = await run(PATCH as unknown as AnyHandler, eventFor('missing', 'PATCH', { title: 'X' }));
     expect(res.status).toBe(404);
@@ -91,6 +115,13 @@ describe('/api/tunnels/:slug', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.slug).toBe('s1');
+  });
+
+  it('DELETE rejects anonymous deletes', async () => {
+    const room = createChatRoom({ name: 'T Room', whoCreatedIt: '@you' });
+    createTunnel({ slug: 's1', public_url: 'https://s1.test', owner_room_id: room.id, access_required: false, allowed_room_ids: [], status: 'linked' });
+    const res = await run(DELETE as unknown as AnyHandler, eventFor('s1', 'DELETE', undefined, {}));
+    expect(res.status).toBe(401);
   });
 
   it('DELETE 404 for missing tunnel', async () => {

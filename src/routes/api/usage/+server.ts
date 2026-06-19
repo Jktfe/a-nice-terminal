@@ -6,17 +6,16 @@
  * UsagePayload without crossing the $lib/server boundary on the
  * client. JWPK msg_300r0u8dlx antV4 2026-05-28.
  *
- * No auth gate: per [[cli-integration-matrix-directive]] this endpoint
- * is operator-only context (your own local daemon, your own machine)
- * and behaves identically whether you're signed in or not. The proxy
- * itself soft-fails when the daemon is missing, so an unauthenticated
- * call still gets a well-formed response.
+ * Auth: quota/spend telemetry is local operational state, so callers need
+ * an authenticated ANT identity or admin-bearer.
  */
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
 import { fetchUsage } from '$lib/server/openUsageProxy';
 
-export const GET: RequestHandler = async () => {
+export const GET: RequestHandler = async ({ request }) => {
+  requireAggregateReadAuth(request, '/api/usage');
   const payload = await fetchUsage();
   return json(payload);
 };

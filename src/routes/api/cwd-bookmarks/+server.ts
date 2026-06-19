@@ -6,8 +6,8 @@
  *   posting an already-bookmarked path returns the existing record (200),
  *   new path returns 201.
  *
- * Per JWPK 2026-05-15 lock (same as quick-shortcuts): global scope, no auth
- * gate (user prefs, easy to recreate). Empty path after trim fails with 400.
+ * Auth: these expose local filesystem working directories, so callers need
+ * operator/admin auth. Empty path after trim fails with 400.
  */
 
 import { json, error } from '@sveltejs/kit';
@@ -16,12 +16,15 @@ import {
   createCwdBookmark,
   listCwdBookmarks
 } from '$lib/server/cwdBookmarksStore';
+import { requireOperatorLikeAuth } from '$lib/server/operatorLikeAuth';
 
-export const GET: RequestHandler = async () => {
+export const GET: RequestHandler = async ({ request }) => {
+  requireOperatorLikeAuth(request);
   return json({ bookmarks: listCwdBookmarks() });
 };
 
 export const POST: RequestHandler = async ({ request }) => {
+  requireOperatorLikeAuth(request);
   const rawBody = await request.json().catch(() => null);
   if (!rawBody || typeof rawBody !== 'object') {
     throw error(400, 'Send a JSON body with a path field.');
