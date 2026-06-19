@@ -12,6 +12,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { tryAdminBearer, tryOperatorSession } from '$lib/server/chatRoomAuthGate';
 import { getTerminalById, setTerminalAgentKind } from '$lib/server/terminalsStore';
+import { updateTerminalRecord } from '$lib/server/terminalRecordsStore';
 
 function requireOperatorOrAdmin(request: Request): void {
   if (tryAdminBearer(request) || tryOperatorSession(request)) return;
@@ -28,7 +29,9 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   if (!body || typeof body !== 'object') throw error(400, 'JSON body required.');
   const v = body.cli;
   if (v !== null && typeof v !== 'string') throw error(400, 'cli must be a string or null.');
-  const ok = setTerminalAgentKind(id, v ?? null);
+  const agentKind = typeof v === 'string' && v.trim().length > 0 ? v.trim() : null;
+  const ok = setTerminalAgentKind(id, agentKind);
   if (!ok) throw error(404, 'terminal not found.');
-  return json({ ok: true });
+  updateTerminalRecord(id, { agentKind });
+  return json({ ok: true, sessionId: id, agentKind });
 };

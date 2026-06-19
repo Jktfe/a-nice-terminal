@@ -140,29 +140,34 @@ describe('ant terminal name-aware verbs', () => {
     expect(captured.stdout.join(' ')).toMatch(/Renamed terminal t_abc/);
   });
 
-  it('terminal <name> setcli <kind>: PATCHes agentKind', async () => {
+  it('terminal <name> setcli <kind>: PATCHes the dedicated CLI route with admin auth', async () => {
     const patches = [];
     const { runtime, captured } = makeRuntime({
       '/api/terminals': ok(TERMINALS_FIXTURE),
-      '/api/terminals/t_abc': (n, { init }) => {
+      '/api/terminals/t_abc/cli': (n, { init }) => {
         if (init.method === 'PATCH') {
-          patches.push(JSON.parse(init.body));
-          return ok({ sessionId: 't_abc', agentKind: 'codex' });
+          patches.push({ body: JSON.parse(init.body), authorization: init.headers.authorization });
+          return ok({ ok: true, sessionId: 't_abc', agentKind: 'agy' });
         }
         return ok({});
       }
     });
-    await handleTerminalVerb('T1', ['setcli', 'codex'], runtime, { CliInputError });
+    runtime.env = { ANT_ADMIN_TOKEN: 'admin-secret' };
+    await handleTerminalVerb('T1', ['setcli', 'agy'], runtime, { CliInputError });
     expect(patches).toHaveLength(1);
-    expect(patches[0].agentKind).toBe('codex');
+    expect(patches[0]).toMatchObject({
+      body: { cli: 'agy' },
+      authorization: 'Bearer admin-secret'
+    });
     expect(captured.stdout.join(' ')).toMatch(/agentKind/);
   });
 
-  it('terminal <name> setcli: rejects unknown kind', async () => {
-    const { runtime } = makeRuntime({ '/api/terminals': ok(TERMINALS_FIXTURE) });
+  it('terminal <name> setcli: requires admin auth before mutating the CLI route', async () => {
+    const { runtime, captured } = makeRuntime({ '/api/terminals': ok(TERMINALS_FIXTURE) });
     await expect(
-      handleTerminalVerb('T1', ['setcli', 'sausage'], runtime, { CliInputError })
-    ).rejects.toThrow(/unknown kind/);
+      handleTerminalVerb('T1', ['setcli', 'agy'], runtime, { CliInputError })
+    ).rejects.toThrow(/setcli requires admin auth/);
+    expect(captured.requests).toHaveLength(0);
   });
 
   it('terminal <name> adopt --pid <pid> --pid-start <start>: POSTs adopt route', async () => {

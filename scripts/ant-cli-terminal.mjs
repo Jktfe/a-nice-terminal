@@ -27,7 +27,6 @@ import {
 } from './ant-cli-shared-resolve.mjs';
 
 const BOOLEAN_FLAGS = new Set(['json']);
-const KNOWN_AGENT_KINDS = new Set(['claude', 'codex', 'pi', 'gemini', 'qwen', 'copilot']);
 const RESERVED_ACTIONS = new Set([
   'name', 'handle',
   'namechange', 'post', 'localtmux', 'sshtmux', 'whatcli', 'setcli',
@@ -127,7 +126,7 @@ function writeUsage(runtime) {
   runtime.writeOut('  <name> localtmux                           print local tmux attach command');
   runtime.writeOut('  <name> sshtmux [--host HOST]               print ssh tmux attach command');
   runtime.writeOut('  <name> whatcli                             show agent_kind');
-  runtime.writeOut('  <name> setcli <kind>                       set agent_kind (claude|codex|pi|gemini|qwen|copilot)');
+  runtime.writeOut('  <name> setcli <kind> [--admin-token TOKEN] set agent_kind (configured CLI slug)');
   runtime.writeOut('  <name> adopt --pid PID [--pid-start START] [--ttl SEC] [--reason TEXT] [--admin-token TOKEN]');
   runtime.writeOut('  <name> history [--since 5m|1h] [--grep text] [--limit N] [--raw] [--json]  query terminal history');
 }
@@ -284,18 +283,24 @@ async function runWhatCli(identifier, args, runtime, CliInputError) {
 
 async function runSetCli(identifier, args, runtime, CliInputError) {
   const { flags, positionals } = parseFlags(args, CliInputError);
-  const kind = positionals[0] ?? flags.kind;
-  if (!kind) throw new CliInputError('setcli needs a kind argument (e.g. claude, codex, pi, gemini, qwen, copilot)');
-  if (!KNOWN_AGENT_KINDS.has(kind)) {
-    throw new CliInputError(`unknown kind "${kind}". Must be one of: ${[...KNOWN_AGENT_KINDS].join(', ')}`);
+  const kind = (positionals[0] ?? flags.kind)?.trim();
+  if (!kind) throw new CliInputError('setcli needs a configured CLI slug (for example claude, codex, pi, qwen, agy)');
+  const adminToken = flags['admin-token'] ?? runtime.env?.ANT_ADMIN_TOKEN ?? process.env.ANT_ADMIN_TOKEN;
+  if (!adminToken) {
+    throw new CliInputError('setcli requires admin auth; pass --admin-token or set ANT_ADMIN_TOKEN');
   }
   const terminal = await resolveTerminalIdentifier(runtime, identifier, CliInputError);
   const sendJson = makeStandardSendJson(runtime);
-  const updated = await sendJson(`/api/terminals/${encodeURIComponent(terminal.sessionId)}`, 'PATCH', { agentKind: kind });
+  const updated = await sendJson(
+    `/api/terminals/${encodeURIComponent(terminal.sessionId)}/cli`,
+    'PATCH',
+    { cli: kind },
+    { authorization: `Bearer ${adminToken}` }
+  );
   if (flags.json !== undefined) {
-    runtime.writeOut(JSON.stringify(updated));
+    runtime.writeOut(JSON.stringify({ sessionId: terminal.sessionId, agentKind: updated.agentKind ?? kind, ...updated }));
   } else {
-    runtime.writeOut(`Set agentKind on ${terminal.sessionId}: ${terminal.agentKind ?? '(unset)'} → ${updated.agentKind}`);
+    runtime.writeOut(`Set agentKind on ${terminal.sessionId}: ${terminal.agentKind ?? '(unset)'} → ${updated.agentKind ?? kind}`);
   }
   return 0;
 }
