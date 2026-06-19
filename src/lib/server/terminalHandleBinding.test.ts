@@ -8,6 +8,7 @@ import { bindRoomHandleToLiveTerminal } from './terminalHandleBinding';
 import { ensureSessionForTerminal } from './antSessionStore';
 import { isMember as leaseIsMember, claimHandle } from './roomHandleLeaseClean';
 import { resolveMember as cleanMembershipSession } from './membershipStore';
+import { getLiveBinding } from './handleBindingsStore';
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
@@ -219,6 +220,9 @@ describe('bindRoomHandleToLiveTerminal — self-heals the clean POST-gate surfac
     expect(leaseIsMember(ROOM_ID, session.id)).toBe(true);
     // And the clean membership is bound to the same session (delivery surface).
     expect(cleanMembershipSession(ROOM_ID, HANDLE)).toBe(session.id);
+    const binding = getLiveBinding(HANDLE);
+    expect(binding?.terminal_id).toBe(live.id);
+    expect(binding?.pid).toBe(7000);
   });
 
   it('re-keys the clean lease to the live session when a STALE session holds it (the @speedy multi-record case)', () => {

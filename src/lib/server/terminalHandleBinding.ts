@@ -13,6 +13,7 @@ import { addMember, rebindMemberSessionIfStale } from './membershipStore';
 import { reclaimCleanHandleIfStale } from './roomHandleLeaseClean';
 import { resolveOrNull } from './sessionResolver';
 import { mirrorAddMembership } from './v02ChatRoomBridge';
+import { bindHandle, getLiveBinding } from './handleBindingsStore';
 
 function normalizeHandle(rawHandle: string): string {
   const trimmed = rawHandle.trim();
@@ -58,7 +59,32 @@ function isExistingTerminalStillLive(terminal: TerminalRow): boolean {
  * the fresh case (no clean row yet) and claims the lease. No auth gate is
  * touched — this is a WRITE that makes the existing gate find the row it requires.
  */
-function selfHealCleanBinding(roomId: string, handle: string, terminalId: string): void {
+function selfHealCleanBinding(
+  roomId: string,
+  handle: string,
+  terminalId: string,
+  actor: string | null = null
+): void {
+  const terminal = getTerminalById(terminalId);
+  if (terminal) {
+    const currentBinding = getLiveBinding(handle);
+    if (
+      currentBinding?.terminal_id !== terminal.id ||
+      currentBinding.pane !== terminal.tmux_target_pane ||
+      currentBinding.pid !== terminal.pid ||
+      currentBinding.pid_start !== terminal.pid_start
+    ) {
+      bindHandle({
+        handle,
+        pane: terminal.tmux_target_pane,
+        pid: terminal.pid,
+        pidStart: terminal.pid_start,
+        spawnedBy: actor,
+        terminalId: terminal.id
+      });
+    }
+  }
+
   const session = ensureSessionForTerminal({ terminalId });
   // Ensure a clean membership row exists (+ claim lease) for the fresh case.
   // On a stale-but-non-null incumbent this no-ops the session (hijack guard);
@@ -89,7 +115,8 @@ function selfHealCleanBinding(roomId: string, handle: string, terminalId: string
 export function bindRoomHandleToLiveTerminal(
   roomId: string,
   rawHandle: string,
-  callerPidChain: PidChainEntry[] = []
+  callerPidChain: PidChainEntry[] = [],
+  actor: string | null = null
 ): string | null {
   const handle = normalizeHandle(rawHandle);
   if (roomId.trim().length === 0 || handle.length === 0) return null;
@@ -104,7 +131,7 @@ export function bindRoomHandleToLiveTerminal(
     // Existing legacy binding is live — but the clean session-keyed surfaces the
     // POST gate reads may still be missing/stale (the @speedy 0djd8b8cjq case:
     // room_memberships live, lease absent). Self-heal them before returning.
-    selfHealCleanBinding(roomId, handle, existingTerminal.id);
+    selfHealCleanBinding(roomId, handle, existingTerminal.id, actor);
     return existingTerminal.id;
   }
 
@@ -120,7 +147,7 @@ export function bindRoomHandleToLiveTerminal(
     const liveTerminal = lookupTerminalByPidChain(callerPidChain);
     if (liveTerminal && isExistingTerminalStillLive(liveTerminal)) {
       addMembership({ room_id: roomId, handle, terminal_id: liveTerminal.id });
-      selfHealCleanBinding(roomId, handle, liveTerminal.id);
+      selfHealCleanBinding(roomId, handle, liveTerminal.id, actor);
       return liveTerminal.id;
     }
   }
@@ -152,6 +179,6 @@ export function bindRoomHandleToLiveTerminal(
 
   if (!terminal) return null;
   addMembership({ room_id: roomId, handle, terminal_id: terminal.id });
-  selfHealCleanBinding(roomId, handle, terminal.id);
+  selfHealCleanBinding(roomId, handle, terminal.id, actor);
   return terminal.id;
 }

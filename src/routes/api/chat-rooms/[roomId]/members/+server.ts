@@ -38,6 +38,7 @@ import { ensureSessionForTerminal } from '$lib/server/antSessionStore';
 import { findTerminalRecordByHandle } from '$lib/server/terminalRecordsStore';
 import { addMembership, removeMembership } from '$lib/server/roomMembershipsStore';
 import { addMember } from '$lib/server/membershipStore';
+import { bindRoomHandleToLiveTerminal } from '$lib/server/terminalHandleBinding';
 import {
   mirrorAddMembership,
   mirrorRemoveMembership
@@ -163,6 +164,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
   // M3.6a-v1 T2: identity gate on invite-an-agent. Cookie-first → pidChain →
   // deprecation gate (warning header today, strict 403 after cutover).
   const auth = resolveCallerIdentityOrDeprecate('members-post', params.roomId, request, rawBody);
+  const authActor = auth.kind === 'identity' ? auth.handle : null;
 
   // INVITE-VALIDATE (2026-05-15, JWPK): participants must bind to a real
   // terminal — refuse free-form handles that don't resolve. Without this
@@ -202,6 +204,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
         terminal_id: terminalRecord.session_id
       });
       addMember(params.roomId, normalisedAgentHandle, durableSession.id);
+      bindRoomHandleToLiveTerminal(params.roomId, normalisedAgentHandle, [], authActor);
       // M9c dual-write: mirror the agent rebind into v02_memberships.
       mirrorAddMembership({
         roomId: params.roomId,
@@ -225,6 +228,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
       terminal_id: terminalRecord.session_id
     });
     addMember(params.roomId, normalisedAgentHandle, durableSession.id);
+    bindRoomHandleToLiveTerminal(params.roomId, normalisedAgentHandle, [], authActor);
     // M9c dual-write: mirror the new agent member into v02_memberships.
     mirrorAddMembership({
       roomId: params.roomId,

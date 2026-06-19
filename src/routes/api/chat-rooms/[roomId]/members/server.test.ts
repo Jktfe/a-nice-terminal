@@ -31,6 +31,7 @@ import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembership
 import { resolveMember } from '$lib/server/membershipStore';
 import { getSession } from '$lib/server/antSessionStore';
 import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
+import { getLiveBinding } from '$lib/server/handleBindingsStore';
 import { issueToken } from '$lib/server/antchatAuthStore';
 import { installFixtureOrgHandleMap } from '$lib/server/testSupport/orgIdentityFixtures';
 import {
@@ -193,6 +194,7 @@ describe('/api/chat-rooms/:roomId/members', () => {
       const sessionId = resolveMember(room.id, '@evolveantcodex');
       expect(sessionId).toBeTruthy();
       expect(getSession(sessionId!)?.terminal_id).toBe(terminalId);
+      expect(getLiveBinding('@evolveantcodex')?.terminal_id).toBe(terminalId);
       const systemMessages = listMessagesInRoom(room.id).filter((m) => m.kind === 'system');
       expect(systemMessages.some((m) => m.body.includes('joined'))).toBe(true);
     });
@@ -215,6 +217,7 @@ describe('/api/chat-rooms/:roomId/members', () => {
       const sessionId = resolveMember(room.id, '@evolveantcodex');
       expect(sessionId).toBeTruthy();
       expect(getSession(sessionId!)?.terminal_id).toBe(terminalId);
+      expect(getLiveBinding('@evolveantcodex')?.terminal_id).toBe(terminalId);
       const systemMessages = listMessagesInRoom(room.id).filter((m) => m.kind === 'system');
       expect(systemMessages.filter((m) => m.body.includes('joined'))).toHaveLength(0);
     });
