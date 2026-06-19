@@ -62,4 +62,13 @@ describe('VotesRoomPanel', () => {
     expect(source).toContain('Could not load votes for this room. Try refreshing in a moment.');
     expect(source).not.toContain('liveVotes = [];\n        return;');
   });
+
+  it('renders a seeded fetch failure before the client retry runs', () => {
+    const { body } = render(VotesRoomPanel, {
+      props: { roomId: 'room_alpha', initialVotes: [], initialFetchFailed: true }
+    });
+
+    expect(body).toContain('Could not load votes for this room. Try refreshing in a moment.');
+    expect(body).not.toContain('No votes in this room yet.');
+  });
 });

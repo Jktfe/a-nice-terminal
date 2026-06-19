@@ -9,6 +9,7 @@ import type { Ask } from '$lib/server/askStore';
 import type { TaskForRoom } from '$lib/server/taskStore';
 import type { FocusEntry } from '$lib/server/focusModeStore';
 import type { RoomMode } from '$lib/server/roomModesStore';
+import type { VoteView } from '$lib/server/voteStore';
 
 type SharedFileMetadata = Omit<SharedFile, 'contentsBase64'>;
 type AsksFetchResult = { asks: Ask[]; asksFetchFailed: boolean };
@@ -28,6 +29,7 @@ type PlansFetchResult = {
   plansFetchFailed: boolean;
 };
 type TasksFetchResult = { tasks: TaskForRoom[]; tasksFetchFailed: boolean };
+type VotesFetchResult = { votes: VoteView[]; votesFetchFailed: boolean };
 type RoomModeFetchResult = { mode: RoomMode };
 type ResponderFetchResult = {
   responders: {
@@ -66,7 +68,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
   // POST entirely. onMount runs in the browser on every fresh room view
   // and on every route remount.
 
-  const [messagesBody, aliasesBody, agentEventsBody, attachmentsBody, asksBody, plansBody, tasksBody, focusBody, roomModeBody, respondersBody, allRoomsBody] =
+  const [messagesBody, aliasesBody, agentEventsBody, attachmentsBody, asksBody, plansBody, tasksBody, votesBody, focusBody, roomModeBody, respondersBody, allRoomsBody] =
     await Promise.all([
       // Emergency cap: 10 messages until we virtualise the message list.
       // Larger limits compound with markdown rendering + per-row
@@ -127,6 +129,18 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
                 tasksFetchFailed: false
               }
             : { tasks: [] as TaskForRoom[], tasksFetchFailed: true }
+      ),
+      // Votes are the fourth room work surface. Load them with plans/tasks so
+      // the More menu and pinned rail can show a truthful count before the
+      // lazy panel mounts.
+      fetch(`/api/votes?roomId=${encodeURIComponent(params.roomId)}`).then(
+        async (response): Promise<VotesFetchResult> =>
+          response.ok
+            ? {
+                votes: ((await response.json()) as { votes: VoteView[] }).votes,
+                votesFetchFailed: false
+              }
+            : { votes: [] as VoteView[], votesFetchFailed: true }
       ),
       // #78 focus mode: active focused members in this room.
       fetch(`/api/chat-rooms/${encodeURIComponent(params.roomId)}/focus-mode`).then(
@@ -205,6 +219,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
     plansFetchFailed: plansBody.plansFetchFailed,
     tasksForRoom: tasksBody.tasks,
     tasksFetchFailed: tasksBody.tasksFetchFailed,
+    votesForRoom: votesBody.votes,
+    votesFetchFailed: votesBody.votesFetchFailed,
     focusedMembers: (focusBody as { focusedMembers: FocusEntry[] }).focusedMembers,
     roomMode: roomModeBody.mode,
     responders: (respondersBody as ResponderFetchResult).responders,

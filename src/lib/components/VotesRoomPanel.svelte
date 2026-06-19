@@ -12,14 +12,17 @@
   type Props = {
     roomId: string;
     initialVotes?: VoteView[];
+    initialFetchFailed?: boolean;
   };
 
-  let { roomId, initialVotes = [] }: Props = $props();
+  let { roomId, initialVotes = [], initialFetchFailed = false }: Props = $props();
 
+  const voteLoadError = 'Could not load votes for this room. Try refreshing in a moment.';
   let liveVotes = $state<VoteView[] | null>(null);
   const visibleVotes = $derived(liveVotes ?? initialVotes);
   let isLoading = $state(false);
   let errorText = $state('');
+  const visibleError = $derived(errorText || (initialFetchFailed && liveVotes === null ? voteLoadError : ''));
 
   onMount(() => {
     void refreshVotes();
@@ -35,7 +38,7 @@
     try {
       const response = await fetch(`/api/votes?roomId=${encodeURIComponent(roomId)}`);
       if (response.status === 401 || response.status === 403 || response.status === 404) {
-        throw new Error('Could not load votes for this room. Try refreshing in a moment.');
+        throw new Error(voteLoadError);
       }
       if (!response.ok) throw new Error(`Could not load votes (${response.status}).`);
       const body = (await response.json()) as { votes?: VoteView[] };
@@ -85,13 +88,13 @@
     </button>
   </header>
 
-  {#if errorText}
-    <p class="vote-error" role="alert">{errorText}</p>
+  {#if visibleError}
+    <p class="vote-error" role="alert">{visibleError}</p>
   {/if}
 
   {#if isLoading}
     <p class="vote-empty">Loading votes...</p>
-  {:else if visibleVotes.length === 0}
+  {:else if visibleVotes.length === 0 && !visibleError}
     <div class="vote-empty-card">
       <p>No votes in this room yet.</p>
       <code>{createCommand()}</code>

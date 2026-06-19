@@ -65,6 +65,7 @@
   import type { FocusEntry } from '$lib/server/focusModeStore';
   import type { RoomMode } from '$lib/server/roomModesStore';
   import type { AwayTier } from '$lib/server/awayModeStore';
+  import type { VoteView } from '$lib/server/voteStore';
 
   type SharedFileMetadata = Omit<SharedFile, 'contentsBase64'>;
 
@@ -98,6 +99,8 @@
     plansFetchFailed: boolean;
     tasksForRoom: TaskForRoom[];
     tasksFetchFailed: boolean;
+    votesForRoom: VoteView[];
+    votesFetchFailed: boolean;
     focusedMembers: FocusEntry[];
     roomMode?: RoomMode;
     allRoomLabels?: Record<string, string>;
@@ -149,6 +152,8 @@
   const plansFetchFailed = $derived<boolean>(data.plansFetchFailed ?? false);
   const tasksForRoom = $derived<TaskForRoom[]>(data.tasksForRoom ?? []);
   const tasksFetchFailed = $derived<boolean>(data.tasksFetchFailed ?? false);
+  const votesForRoom = $derived<VoteView[]>(data.votesForRoom ?? []);
+  const votesFetchFailed = $derived<boolean>(data.votesFetchFailed ?? false);
   const roomMode = $derived<RoomMode>(data.roomMode ?? 'brainstorm');
   const primaryRoomPlanHref = $derived(
     plansForRoom[0]?.planId
@@ -524,6 +529,8 @@
       {plansFetchFailed}
       {tasksForRoom}
       {tasksFetchFailed}
+      {votesForRoom}
+      {votesFetchFailed}
       {sharedFilesFromServer}
       {callerHandle}
       {pinnedSectionIds}
@@ -639,6 +646,8 @@
       {plansFetchFailed}
       {tasksForRoom}
       {tasksFetchFailed}
+      {votesForRoom}
+      {votesFetchFailed}
       {sharedFilesFromServer}
       {callerHandle}
       {pinnedSectionIds}

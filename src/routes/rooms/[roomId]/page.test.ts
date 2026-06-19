@@ -151,7 +151,7 @@ describe('/rooms/[roomId] load', () => {
     expect(loaded.roomMode).toBe('heads-down');
   });
 
-  it('marks room plan and task read failures instead of treating them as empty panels', async () => {
+  it('marks room work-surface read failures instead of treating them as empty panels', async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === '/api/chat-rooms/r_panels') {
@@ -176,6 +176,7 @@ describe('/rooms/[roomId] load', () => {
       if (url.includes('/api/asks')) return jsonResponse({ asks: [] });
       if (url.includes('/plans')) return jsonResponse({ message: 'plans unavailable' }, 500);
       if (url.includes('/tasks')) return jsonResponse({ message: 'tasks unavailable' }, 401);
+      if (url.includes('/api/votes')) return jsonResponse({ message: 'votes unavailable' }, 403);
       if (url.includes('/focus-mode')) return jsonResponse({ focusedMembers: [] });
       if (url.includes('/mode')) return jsonResponse({ roomId: 'r_panels', mode: 'brainstorm' });
       if (url.includes('/responders')) return jsonResponse({ responders: [] });
@@ -195,7 +196,81 @@ describe('/rooms/[roomId] load', () => {
       plansForRoom: [],
       plansFetchFailed: true,
       tasksForRoom: [],
-      tasksFetchFailed: true
+      tasksFetchFailed: true,
+      votesForRoom: [],
+      votesFetchFailed: true
+    });
+  });
+
+  it('loads room votes so the menu can show a real vote count before the panel opens', async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/chat-rooms/r_votes') {
+        return jsonResponse({
+          chatRoom: {
+            id: 'r_votes',
+            name: 'Vote room',
+            summary: null,
+            attentionState: null,
+            lastUpdate: null,
+            whenItWasCreated: '2026-06-19T00:00:00.000Z',
+            whoCreatedIt: '@you',
+            creationOrder: 1,
+            members: [{ handle: '@you', displayName: '@you', displayColor: '#dc2626', displayIcon: 'Y' }]
+          }
+        });
+      }
+      if (url === '/api/votes?roomId=r_votes') {
+        return jsonResponse({
+          votes: [
+            {
+              id: 'vote_1',
+              title: 'Ship it?',
+              body: null,
+              status: 'open',
+              state: 'open',
+              open: true,
+              complete: false,
+              eligibleVoters: ['@you'],
+              missingVoters: ['@you'],
+              roomIds: ['r_votes'],
+              options: [],
+              ballots: [],
+              tally: [],
+              createdByHandle: '@you',
+              createdAtMs: 1,
+              closedByHandle: null,
+              closedAtMs: null
+            }
+          ]
+        });
+      }
+      if (url.includes('/messages')) return jsonResponse({ messages: [] });
+      if (url.includes('/aliases')) return jsonResponse({ aliases: [] });
+      if (url.includes('/agent-events')) return jsonResponse({ agentEvents: [] });
+      if (url.includes('/attachments')) return jsonResponse({ sharedFiles: [] });
+      if (url.includes('/api/asks')) return jsonResponse({ asks: [] });
+      if (url.includes('/plans')) return jsonResponse({ plans: [] });
+      if (url.includes('/tasks')) return jsonResponse({ tasks: [] });
+      if (url.includes('/focus-mode')) return jsonResponse({ focusedMembers: [] });
+      if (url.includes('/mode')) return jsonResponse({ roomId: 'r_votes', mode: 'brainstorm' });
+      if (url.includes('/responders')) return jsonResponse({ responders: [] });
+      if (url === '/api/chat-rooms') return jsonResponse({ chatRooms: [] });
+      if (url === '/api/capabilities') return jsonResponse({ featureFlags: {}, operatorHandle: '@JWPK' });
+      return jsonResponse({}, 404);
+    });
+
+    const event = {
+      fetch,
+      params: { roomId: 'r_votes' },
+      url: new URL('http://localhost/rooms/r_votes')
+    } as unknown as Parameters<typeof load>[0];
+    const data = await load(event);
+
+    expect(fetch).toHaveBeenCalledWith('/api/votes?roomId=r_votes');
+    expect(data).toMatchObject({
+      votesFetchFailed: false,
+      votesForRoom: [{ id: 'vote_1', title: 'Ship it?' }]
     });
   });
 
@@ -207,17 +282,22 @@ describe('/rooms/[roomId] load', () => {
     expect(source).toContain('href="#tasks"');
   });
 
-  it('threads room work-panel fetch failures into dropdown and pinned rail panels', () => {
+  it('threads room work-panel data and fetch failures into dropdown and pinned rail panels', () => {
     const roomPageSource = readFileSync('src/routes/rooms/[roomId]/+page.svelte', 'utf8');
     const moreMenuSource = readFileSync('src/lib/components/RoomDetailMoreMenu.svelte', 'utf8');
     const railSource = readFileSync('src/lib/components/RoomDetailContextRail.svelte', 'utf8');
 
     expect(roomPageSource).toContain('plansFetchFailed');
     expect(roomPageSource).toContain('tasksFetchFailed');
+    expect(roomPageSource).toContain('votesFetchFailed');
     expect(moreMenuSource).toContain('<RoomPlansPanel plans={plansForRoom} {plansFetchFailed}');
     expect(moreMenuSource).toContain('<RoomTasksPanel tasks={tasksForRoom} {tasksFetchFailed}');
+    expect(moreMenuSource).toContain('count={votesFetchFailed ?');
+    expect(moreMenuSource).toContain('<VotesRoomPanel roomId={room.id} initialVotes={votesForRoom} initialFetchFailed={votesFetchFailed}');
     expect(railSource).toContain('<RoomPlansPanel plans={plansForRoom} {plansFetchFailed}');
     expect(railSource).toContain('<RoomTasksPanel tasks={tasksForRoom} {tasksFetchFailed}');
+    expect(railSource).toContain('count={votesFetchFailed ?');
+    expect(railSource).toContain('<VotesRoomPanel roomId={room.id} initialVotes={votesForRoom} initialFetchFailed={votesFetchFailed}');
   });
 
   it('surfaces room session failures with a retry action', () => {

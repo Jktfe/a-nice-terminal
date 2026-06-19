@@ -28,6 +28,7 @@
   import type { SharedFile } from '$lib/server/chatAttachmentStore';
   import type { FocusEntry } from '$lib/server/focusModeStore';
   import type { TaskForRoom } from '$lib/server/taskStore';
+  import type { VoteView } from '$lib/server/voteStore';
 
   type SharedFileMetadata = Omit<SharedFile, 'contentsBase64'>;
   type RoomPlanLink = {
@@ -53,6 +54,8 @@
     plansFetchFailed: boolean;
     tasksForRoom: TaskForRoom[];
     tasksFetchFailed: boolean;
+    votesForRoom: VoteView[];
+    votesFetchFailed: boolean;
     sharedFilesFromServer: SharedFileMetadata[];
     callerHandle: string;
     pinnedSectionIds: Set<string>;
@@ -82,6 +85,8 @@
     plansFetchFailed,
     tasksForRoom,
     tasksFetchFailed,
+    votesForRoom,
+    votesFetchFailed,
     sharedFilesFromServer,
     callerHandle,
     pinnedSectionIds,
@@ -176,8 +181,8 @@
 {/if}
 
 {#if !pinnedSectionIds.has('votes')}
-<CollapsibleSection id="votes" title="Votes" pinRoomId={room.id}>
-  <VotesRoomPanel roomId={room.id} />
+<CollapsibleSection id="votes" title="Votes" count={votesFetchFailed ? '!' : votesForRoom.length} pinRoomId={room.id}>
+  <VotesRoomPanel roomId={room.id} initialVotes={votesForRoom} initialFetchFailed={votesFetchFailed} />
 </CollapsibleSection>
 {/if}
 
