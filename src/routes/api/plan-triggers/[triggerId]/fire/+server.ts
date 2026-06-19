@@ -7,8 +7,8 @@
  * NULL) since the dispatcher needs a concrete plan to template
  * against.
  *
- * 200 { fired: true } on success. 404 unknown trigger. 400 when a
- * wildcard trigger is fired without a planId.
+ * 200 { fired, outcome } with the concrete result. 404 unknown trigger.
+ * 400 when a wildcard trigger is fired without a planId.
  */
 
 import { error, json } from '@sveltejs/kit';
@@ -35,6 +35,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
     throw error(400, 'wildcard trigger requires a planId in the body to fire.');
   }
 
-  const fired = dispatchSinglePlanTrigger(trigger, { planId });
-  return json({ fired, triggerId: trigger.id, event: trigger.event, planId });
+  const outcome = dispatchSinglePlanTrigger(trigger, { planId });
+  return json({
+    fired: outcome.fired,
+    triggerId: trigger.id,
+    event: trigger.event,
+    planId,
+    outcome
+  });
 };

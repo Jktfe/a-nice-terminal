@@ -55,8 +55,33 @@ export type DispatchContext = {
   };
 };
 
+export type TriggerDispatchStatus =
+  | 'logged'
+  | 'posted'
+  | 'webhook_started'
+  | 'task_created'
+  | 'skipped_no_plan'
+  | 'skipped_no_rooms'
+  | 'skipped_missing_url'
+  | 'skipped_unknown_action'
+  | 'blocked'
+  | 'failed';
+
+export type TriggerDispatchOutcome = {
+  triggerId: string;
+  event: PlanTriggerEvent;
+  action: PlanTrigger['action'];
+  fired: boolean;
+  status: TriggerDispatchStatus;
+  message: string;
+  roomsPosted?: number;
+  roomsFailed?: number;
+  taskId?: string;
+  url?: string;
+};
+
 /** Public entry point. Synchronous; per-trigger errors are swallowed + logged. */
-export function dispatchPlanEvent(event: PlanTriggerEvent, ctx: DispatchContext): void {
+export function dispatchPlanEvent(event: PlanTriggerEvent, ctx: DispatchContext): TriggerDispatchOutcome[] {
   let triggers: PlanTrigger[];
   try {
     // planId=null context: only wildcard triggers match (standalone-task
@@ -64,21 +89,23 @@ export function dispatchPlanEvent(event: PlanTriggerEvent, ctx: DispatchContext)
     triggers = listTriggers({ planId: ctx.planId, event });
   } catch (cause) {
     console.error('[planTriggerDispatcher] listTriggers failed', cause);
-    return;
+    return [];
   }
-  if (triggers.length === 0) return;
+  if (triggers.length === 0) return [];
 
   const completion = ctx.completion ?? (ctx.planId !== null ? lazyCompletion(ctx.planId) : null);
+  const outcomes: TriggerDispatchOutcome[] = [];
 
   for (const t of triggers) {
-    runTriggerAction(t, event, ctx, completion);
+    outcomes.push(runTriggerAction(t, event, ctx, completion));
   }
+  return outcomes;
 }
 
 /** Fire exactly one trigger. Used by the manual test endpoint so a single
  * trigger's webhook/message/action can be tested without invoking siblings
  * that happen to share the same plan/event subscription. */
-export function dispatchSinglePlanTrigger(t: PlanTrigger, ctx: DispatchContext): boolean {
+export function dispatchSinglePlanTrigger(t: PlanTrigger, ctx: DispatchContext): TriggerDispatchOutcome {
   const completion = ctx.completion ?? (ctx.planId !== null ? lazyCompletion(ctx.planId) : null);
   return runTriggerAction(t, t.event, ctx, completion);
 }
@@ -88,17 +115,17 @@ function runTriggerAction(
   event: PlanTriggerEvent,
   ctx: DispatchContext,
   completion: { total: number; completed: number; pct: number; title: string | null } | null
-): boolean {
+): TriggerDispatchOutcome {
   try {
-    runAction(t, event, ctx, completion);
-    recordTriggerFired(t.id);
-    return true;
+    const outcome = runAction(t, event, ctx, completion);
+    if (outcome.fired) recordTriggerFired(t.id);
+    return outcome;
   } catch (cause) {
     console.error(
       `[planTriggerDispatcher] trigger ${t.id} (${t.action} on ${event}) failed:`,
       cause
     );
-    return false;
+    return outcomeFor(t, event, 'failed', `Trigger action failed: ${String(cause)}`);
   }
 }
 
@@ -121,7 +148,7 @@ function runAction(
   event: PlanTriggerEvent,
   ctx: DispatchContext,
   c: { total: number; completed: number; pct: number; title: string | null } | null
-): void {
+): TriggerDispatchOutcome {
   const planId = ctx.planId ?? '';
   switch (t.action) {
     case 'console.log': {
@@ -129,31 +156,56 @@ function runAction(
         ? t.actionConfig.message
         : `[plan-trigger] ${event} on ${planId}`;
       console.log(renderTemplate(raw, event, ctx, c));
-      return;
+      return outcomeFor(t, event, 'logged', 'Logged trigger output to the server console.');
     }
     case 'room.message': {
-      if (planId === '') return; // standalone-task events have no rooms
+      if (planId === '') {
+        return outcomeFor(t, event, 'skipped_no_plan', 'Room message trigger skipped because this event has no plan.');
+      }
       const tpl = typeof t.actionConfig.messageTemplate === 'string'
         ? t.actionConfig.messageTemplate
         : `Plan **${c?.title ?? planId}** — ${event} (${c?.completed ?? 0}/${c?.total ?? 0}, ${Math.round((c?.pct ?? 0) * 100)}%)`;
       const body = renderTemplate(tpl, event, ctx, c);
       const rooms = listRoomsForPlan(planId);
-      if (rooms.length === 0) return;
+      if (rooms.length === 0) {
+        return outcomeFor(t, event, 'skipped_no_rooms', `No rooms are attached to plan ${planId}.`);
+      }
+      let roomsPosted = 0;
+      let roomsFailed = 0;
       for (const r of rooms) {
         try {
           postSystemMessage({ roomId: r.roomId, body });
+          roomsPosted += 1;
         } catch (cause) {
+          roomsFailed += 1;
           console.error(`[planTriggerDispatcher] postSystemMessage to ${r.roomId} failed:`, cause);
         }
       }
-      return;
+      if (roomsPosted === 0) {
+        return {
+          ...outcomeFor(t, event, 'failed', `Could not post to any attached room for plan ${planId}.`),
+          roomsFailed
+        };
+      }
+      return {
+        ...outcomeFor(
+          t,
+          event,
+          'posted',
+          roomsFailed > 0
+            ? `Posted to ${roomsPosted} attached room(s); ${roomsFailed} room post(s) failed.`
+            : `Posted to ${roomsPosted} attached room(s).`
+        ),
+        roomsPosted,
+        roomsFailed
+      };
     }
     case 'webhook.post': {
       const urlTpl = typeof t.actionConfig.url === 'string' ? t.actionConfig.url : '';
       const url = urlTpl === '' ? '' : renderTemplate(urlTpl, event, ctx, c);
       if (url === '') {
         console.warn('[planTriggerDispatcher] webhook.post: missing url in actionConfig');
-        return;
+        return outcomeFor(t, event, 'skipped_missing_url', 'Webhook trigger skipped because actionConfig.url is missing.');
       }
       const headers: Record<string, string> = { 'content-type': 'application/json' };
       const cfgHeaders = t.actionConfig.headers;
@@ -190,7 +242,10 @@ function runAction(
       const safetyCheck = isWebhookUrlSafe(url);
       if (!safetyCheck.ok) {
         console.error(`[planTriggerDispatcher] webhook.post BLOCKED url=${url} reason=${safetyCheck.reason}`);
-        return;
+        return {
+          ...outcomeFor(t, event, 'blocked', `Webhook URL blocked: ${safetyCheck.reason}`),
+          url
+        };
       }
       const { init, timeout } = webhookFetchOptions('plan-trigger');
       // Merge operator-supplied headers on top of webhookFetchOptions
@@ -205,7 +260,10 @@ function runAction(
           console.error(`[planTriggerDispatcher] webhook.post ${url} failed:`, cause);
         })
         .finally(() => clearTimeout(timeout));
-      return;
+      return {
+        ...outcomeFor(t, event, 'webhook_started', 'Webhook POST started asynchronously.'),
+        url
+      };
     }
     case 'task.create': {
       const subjectTpl = typeof t.actionConfig.subject === 'string'
@@ -239,12 +297,35 @@ function runAction(
         planId: newPlanId,
         assignedAgent
       });
-      return;
+      return {
+        ...outcomeFor(t, event, 'task_created', `Created follow-up task ${newId}.`),
+        taskId: newId
+      };
     }
     default: {
       console.warn(`[planTriggerDispatcher] unknown action: ${t.action}`);
+      return outcomeFor(t, event, 'skipped_unknown_action', `Unknown trigger action: ${t.action}`);
     }
   }
+}
+
+function outcomeFor(
+  t: PlanTrigger,
+  event: PlanTriggerEvent,
+  status: TriggerDispatchStatus,
+  message: string
+): TriggerDispatchOutcome {
+  return {
+    triggerId: t.id,
+    event,
+    action: t.action,
+    fired: status === 'logged'
+      || status === 'posted'
+      || status === 'webhook_started'
+      || status === 'task_created',
+    status,
+    message
+  };
 }
 
 function renderTemplate(

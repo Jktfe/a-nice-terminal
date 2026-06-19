@@ -75,6 +75,11 @@ describe('/api/plan-triggers/:triggerId/fire', () => {
     expect(body.fired).toBe(true);
     expect(body.triggerId).toBe(trigger.id);
     expect(body.planId).toBe('p-1');
+    expect(body.outcome).toMatchObject({
+      fired: true,
+      status: 'logged',
+      action: 'console.log'
+    });
     expect(getTrigger(trigger.id)?.fireCount).toBe(1);
   });
 
@@ -103,6 +108,50 @@ describe('/api/plan-triggers/:triggerId/fire', () => {
     expect(getTrigger(selected.id)?.fireCount).toBe(1);
     expect(getTrigger(sibling.id)?.fireCount).toBe(0);
     expect(getTrigger(wildcardSibling.id)?.fireCount).toBe(0);
+  });
+
+  it('POST reports skipped_no_rooms instead of claiming a room-message trigger fired', async () => {
+    const trigger = addTrigger({
+      event: 'plan.completed',
+      action: 'room.message',
+      actionConfig: { messageTemplate: 'Plan done' },
+      planId: 'p-without-rooms'
+    });
+
+    const res = await run(POST as unknown as AnyHandler, eventFor(trigger.id));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.fired).toBe(false);
+    expect(body.outcome).toMatchObject({
+      fired: false,
+      status: 'skipped_no_rooms',
+      action: 'room.message'
+    });
+    expect(getTrigger(trigger.id)?.fireCount).toBe(0);
+  });
+
+  it('POST reports blocked webhook urls instead of claiming they fired', async () => {
+    const trigger = addTrigger({
+      event: 'plan.completed',
+      action: 'webhook.post',
+      actionConfig: { url: 'http://127.0.0.1:6174/hook' },
+      planId: 'p-1'
+    });
+
+    const res = await run(POST as unknown as AnyHandler, eventFor(trigger.id));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.fired).toBe(false);
+    expect(body.outcome).toMatchObject({
+      fired: false,
+      status: 'blocked',
+      action: 'webhook.post',
+      url: 'http://127.0.0.1:6174/hook'
+    });
+    expect(String(body.outcome.message)).toContain('private/loopback/metadata');
+    expect(getTrigger(trigger.id)?.fireCount).toBe(0);
   });
 
   it('POST 200 fires wildcard trigger with body planId override', async () => {
