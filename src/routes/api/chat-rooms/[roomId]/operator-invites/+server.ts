@@ -105,9 +105,9 @@ export const GET: RequestHandler = ({ params, request, url }) => {
   if (!findChatRoomById(params.roomId)) throw error(404, 'Room not found.');
   requireOperatorBrowserSession(request, params.roomId);
   const serverUrl = publicOrigin(url);
-  const invites = listActiveInvitesWithUsageForRoom(params.roomId).map((row) =>
-    withUsageShares(row, serverUrl)
-  );
+  const invites = listActiveInvitesWithUsageForRoom(params.roomId)
+    .toSorted((left, right) => right.created_at.localeCompare(left.created_at))
+    .map((row) => withUsageShares(row, serverUrl));
   return json({ invites });
 };
 
