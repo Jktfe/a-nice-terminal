@@ -460,6 +460,27 @@ describe('ant chat state wrappers', () => {
       .rejects.toThrow('ant chat send <roomId> --parent-message msg_parent --stdin');
   });
 
+  it('S2d: reply POST auth failure tells the agent the resolved-room fallback command', async () => {
+    const { runtime, captured } = makeRuntime((callIndex, { url }) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === '/api/chat-rooms/messages/msg_parent') {
+        return okJson({ message: { id: 'msg_parent', roomId: 'room-a', authorHandle: '@you', body: 'Question?' } });
+      }
+      if (callIndex === 2 && url === 'http://test.local/api/chat-rooms/room-a/messages') {
+        return failure(401, '{"message":"Authentication required."}');
+      }
+      return failure(404, 'unexpected path');
+    });
+    runtime.fs = { readFileSync: () => 'Reply body.\n' };
+
+    await expect(handleChatVerb('reply', ['msg_parent', '--stdin'], runtime, { CliInputError }))
+      .rejects.toThrow('ant chat send room-a --parent-message msg_parent --stdin');
+
+    expect(captured.requests).toHaveLength(2);
+    expect(captured.requests[0].init.method).toBe('GET');
+    expect(captured.requests[1].init.method).toBe('POST');
+  });
+
   it('C1: break POSTs a context break with reason and pidChain', async () => {
     const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'break-1', body: 'Context break.' } }, 201));
 

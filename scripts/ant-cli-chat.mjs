@@ -421,17 +421,29 @@ async function runReply(flags, runtime, CliInputError) {
     );
   } catch (firstAttemptError) {
     const isIdentityWedge = isPostIdentityWedge(firstAttemptError);
-    if (!isIdentityWedge) throw firstAttemptError;
+    if (!isIdentityWedge) {
+      if (isAuthLookupFailure(firstAttemptError)) {
+        throw replyPostAuthError(parentMessageId, parent.roomId, firstAttemptError, CliInputError);
+      }
+      throw firstAttemptError;
+    }
     const mintedCookie = await mintAntCliBrowserSessionCookie(runtime, parent.roomId, flags.handle);
-    if (!mintedCookie) throw firstAttemptError;
-    result = await sendJsonWithCookie(
-      runtime,
-      messagesPath,
-      'POST',
-      browserSessionRetryPayload(payload),
-      mintedCookie,
-      roomServerUrl
-    );
+    if (!mintedCookie) throw replyPostAuthError(parentMessageId, parent.roomId, firstAttemptError, CliInputError);
+    try {
+      result = await sendJsonWithCookie(
+        runtime,
+        messagesPath,
+        'POST',
+        browserSessionRetryPayload(payload),
+        mintedCookie,
+        roomServerUrl
+      );
+    } catch (retryError) {
+      if (isAuthLookupFailure(retryError)) {
+        throw replyPostAuthError(parentMessageId, parent.roomId, retryError, CliInputError);
+      }
+      throw retryError;
+    }
   }
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
@@ -444,6 +456,14 @@ async function runReply(flags, runtime, CliInputError) {
 
 function isAuthLookupFailure(cause) {
   return cause instanceof Error && /\breturned (401|403)\b/.test(cause.message);
+}
+
+function replyPostAuthError(parentMessageId, roomId, cause, CliInputError) {
+  return new CliInputError(
+    `Resolved parent message ${parentMessageId} to room ${roomId}, but this terminal identity could not post the reply. ` +
+    `Use \`ant chat send ${roomId} --parent-message ${parentMessageId} --stdin\` from a terminal with write access, or rebind this terminal with \`ant register\`.\n` +
+    `Original post failure: ${cause.message}`
+  );
 }
 
 /**
