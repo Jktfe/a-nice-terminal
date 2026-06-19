@@ -24,9 +24,9 @@ import { resolveCallerIdentityStrict } from '$lib/server/authGate';
 /**
  * GET /api/chat-rooms/:roomId/interviews
  *
- * Public-read for the room interview UI (Task #80). Returns the active
- * interview row (if any) plus the most recent 50 interviews for the
- * room so the UI can render banner + recent-history without an N+1.
+ * Room-read-gated interview UI feed (Task #80). Returns the active interview
+ * row (if any) plus the most recent 50 interviews for the room so the UI can
+ * render banner + recent-history without an N+1.
  */
 export const GET: RequestHandler = ({ params }) => {
   if (!doesChatRoomExist(params.roomId)) throw error(404, 'Room not found.');

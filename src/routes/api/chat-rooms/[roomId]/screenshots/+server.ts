@@ -4,7 +4,8 @@
  * POST /api/chat-rooms/:roomId/screenshots - receive a captured PNG, write
  *   to the per-room canonical path with dedup-before-write (T3c).
  *
- * GET (T3a Q6) matches the /messages GET precedent: room-exists only.
+ * GET (T3a Q6) matches the /messages GET precedent: hooks.server.ts enforces
+ * room read access before this handler runs.
  * POST (T3c) is IDENTITY-GATE-strict via resolveCallerIdentityStrict
  * (M3.6a-v1). Body { bytes: base64 PNG, takenBy, topic?, dimensions?,
  *   parentSha?, deckSlug?, pidChain }.

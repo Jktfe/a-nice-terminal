@@ -7,7 +7,7 @@
  * All writes go through IDENTITY-GATE (strict 403 via parsePidChainFromBody +
  * resolveServerSideHandle from $lib/server/identityGate, the same helpers
  * already in use by M3.b.4 mode route + M3.b.5 responders route + M3.7b
- * revoke route). GET is unauthenticated (read-only metadata).
+ * revoke route). GET is protected by the central room-read hook.
  *
  * Wire JSON convention (per B1 lock): inner field names = snake_case
  * matching DB columns; top-level wrapper keys = camelCase (roomId,

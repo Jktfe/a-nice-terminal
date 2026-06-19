@@ -10,8 +10,9 @@
  * can see exactly who can write into a room and which terminal-row each
  * handle resolves to. Surfaces the identity proof chain for every member.
  *
- * No pidChain required — this is read-only metadata. last_activity_at is
- * intentionally NOT in v1 (would require per-member message scan; punted
+ * No pidChain field is required in this handler because hooks.server.ts
+ * enforces room read access before room-scoped GET APIs run. last_activity_at
+ * is intentionally NOT in v1 (would require per-member message scan; punted
  * to a v2 if/when requested).
  */
 

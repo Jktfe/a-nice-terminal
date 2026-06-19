@@ -399,7 +399,8 @@ export function canManageTerminalDesk(input: {
   for (const owner of handleRow?.owners ?? []) {
     addNormalisedHandle(allowed, owner);
   }
-  return allowed.size === 0 || allowed.has(actor);
+  if (allowed.size === 0) return false;
+  return allowed.has(actor);
 }
 
 function requireRecord(deskId: string): TerminalRecord {

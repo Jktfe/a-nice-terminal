@@ -3,8 +3,8 @@
  * POST   /api/chat-rooms/:roomId/file-refs                 flag a file path
  * DELETE /api/chat-rooms/:roomId/file-refs?fileRefId=…     soft-delete
  *
- * Task #111 v3-parity. Public-read; no membership check at this layer,
- * matching plans/tasks/artefacts patterns.
+ * Task #111 v3-parity. Read access is enforced centrally by hooks.server.ts
+ * for room-scoped GET APIs before this handler runs.
  */
 
 import { error, json } from '@sveltejs/kit';

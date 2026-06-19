@@ -4,9 +4,10 @@
  * DELETE /api/chat-rooms/:roomId/artefacts?artefactId=     soft-delete
  *
  * Backs Task #91/#98 artefacts panel (HTML/decks/spreadsheets/docs/
- * mockups/other) for a room. Public-read membership-style; LAUNCH-BLOCKER
- * CVE FIX C (Finding #3, 2026-05-20) identity-gated write paths — the
- * comment "v1 unauthenticated" no longer reflects reality.
+ * mockups/other) for a room. Read access is enforced centrally by
+ * hooks.server.ts for room-scoped GET APIs; LAUNCH-BLOCKER CVE FIX C
+ * (Finding #3, 2026-05-20) identity-gated write paths — the comment
+ * "v1 unauthenticated" no longer reflects reality.
  */
 
 import { error, json } from '@sveltejs/kit';

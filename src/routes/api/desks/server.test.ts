@@ -18,6 +18,7 @@ import { POST as DELETE_DESK } from './[deskId]/delete/+server';
 import { POST as ADOPT_PANE } from './adopt-pane/+server';
 import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
 import { appendTerminalRunEvent } from '$lib/server/terminalRunEventsStore';
+import { createBrowserSession } from '$lib/server/browserSessionStore';
 import {
   bindHandle,
   ensureHandleOwnedBy,
@@ -28,6 +29,7 @@ import {
   getTerminalRecord
 } from '$lib/server/terminalRecordsStore';
 import { createChatRoom, findChatRoomById } from '$lib/server/chatRoomStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
 
 let tmpDir: string;
 const previousDbPath = process.env.ANT_FRESH_DB_PATH;
@@ -42,12 +44,13 @@ function eventFor(
   path: string,
   params: Record<string, string> = {},
   body?: Record<string, unknown>,
-  opts: { withAuth?: boolean } = {}
+  opts: { withAuth?: boolean; cookie?: string } = {}
 ): unknown {
   const url = new URL(`http://localhost${path}`);
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (opts.withAuth !== false) headers.authorization = `Bearer ${TEST_ADMIN_TOKEN}`;
+  if (opts.cookie) headers.cookie = opts.cookie;
   return {
     params,
     url,
@@ -777,5 +780,54 @@ describe('/api/desks facade', () => {
     );
 
     expect(response.status).toBe(401);
+  });
+
+  it('denies non-operator Desk writes when ownership cannot be identified', async () => {
+    createTerminalRecord({
+      sessionId: 't_ownerless',
+      name: 'Ownerless Desk',
+      createdBy: null,
+      handle: null,
+      allowlist: null,
+      tmuxTargetPane: 't_ownerless:0.0'
+    });
+    seedTerminalRow({
+      id: 't_ownerless',
+      pid: 999,
+      pidStart: 'ownerless-start',
+      pane: 't_ownerless:0.0',
+      name: 'Ownerless Desk'
+    });
+    const actorRoom = createChatRoom({ name: 'Desk auth actor', whoCreatedIt: '@JWPK' });
+    seedTerminalRow({
+      id: 't_stranger',
+      pid: 1_111,
+      pidStart: 'stranger-start',
+      pane: 'stranger:0.0',
+      name: '@stranger'
+    });
+    addMembership({ room_id: actorRoom.id, handle: '@stranger', terminal_id: 't_stranger' });
+    const browserSession = createBrowserSession({ roomId: actorRoom.id, authorHandle: '@stranger' });
+    if (!browserSession) throw new Error('createBrowserSession returned null for @stranger');
+
+    const response = await run(
+      UPDATE_CONFIG as unknown as AnyHandler,
+      eventFor(
+        'PATCH',
+        '/api/desks/t_ownerless/config',
+        { deskId: 't_ownerless' },
+        { persistence: '1h' },
+        {
+          withAuth: false,
+          cookie: `ant_browser_session=${browserSession.browserSessionSecret}`
+        }
+      )
+    );
+
+    expect(response.status).toBe(403);
+    const terminalMeta = getIdentityDb()
+      .prepare(`SELECT meta FROM terminals WHERE id = ?`)
+      .get('t_ownerless') as { meta: string };
+    expect(JSON.parse(terminalMeta.meta)).not.toHaveProperty('persistence');
   });
 });

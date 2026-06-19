@@ -6,8 +6,8 @@
  * rollup (computed at read time via planCompletion, no caching). Lets
  * the /rooms/:id "Plans" panel render donut + label without an N+1.
  *
- * Public-read (same model as /api/plans/:planId/rooms). Admin auth only
- * gates writes, which happen via /api/plans/:planId/rooms.
+ * Read access is enforced centrally by hooks.server.ts for room-scoped
+ * GET APIs before this handler runs. Writes happen via /api/plans/:planId/rooms.
  *
  *   200 { plans: [{ planId, attachedAtMs, attachedBy, completion }] }
  *   400 missing roomId

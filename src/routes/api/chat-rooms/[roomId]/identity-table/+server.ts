@@ -13,9 +13,10 @@
  *     like "Yo Codex, ask the Claude to do this" can look up which PID is
  *     "the Claude" without having to guess from the chat text.
  *
- * Slice 4 of the PID-as-identity work. Read-only — no auth gate beyond the
- * room-existence check; lookup table is the same information the room
- * member list already exposes, just denormalised for agent consumption.
+ * Slice 4 of the PID-as-identity work. Read access is enforced centrally by
+ * hooks.server.ts for room-scoped GET APIs before this handler runs. The
+ * lookup table is the same information the room member list already exposes,
+ * just denormalised for agent consumption.
  */
 
 import { json, error } from '@sveltejs/kit';

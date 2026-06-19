@@ -7,8 +7,8 @@
  * linked terminal still appear so the footer can render an unknown chip
  * (rather than silently dropping them).
  *
- * Task #115 — v3 footer parity. Read-only, no auth gate beyond room
- * existence (matches digest/file-refs/artefacts patterns).
+ * Task #115 — v3 footer parity. Read access is enforced centrally by
+ * hooks.server.ts for room-scoped GET APIs before this handler runs.
  */
 
 import { error, json } from '@sveltejs/kit';

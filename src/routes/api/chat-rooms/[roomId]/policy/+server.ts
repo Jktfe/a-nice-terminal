@@ -10,9 +10,9 @@
  * (getRoomPolicy) and does NOT mutate or reimplement it. A room with no
  * explicit row gets A's documented default (invite-join, allowed-read).
  *
- * No auth gate beyond room existence — matches the agent-statuses /
- * digest / artefacts read-only patterns. The badge is informational; the
- * actual enforcement happens in roomAccessGate at the post/join path.
+ * Read access is enforced centrally by hooks.server.ts for room-scoped
+ * GET APIs before this handler runs. The badge is informational; write/join
+ * enforcement still happens in roomAccessGate at the post/join path.
  */
 
 import { error, json } from '@sveltejs/kit';

@@ -3,17 +3,21 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { handle, _testResetPollerBoot } from './hooks.server';
 import { _testResetPoller } from '$lib/server/agentStatusPoller';
+import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
   _testResetPollerBoot();
   _testResetPoller();
+  resetChatRoomStoreForTests();
 });
 afterEach(() => {
   _testResetPollerBoot();
   _testResetPoller();
+  resetChatRoomStoreForTests();
   delete process.env.ANT_FRESH_DB_PATH;
   delete process.env.ANT_REQUIRE_LOGIN;
+  delete process.env.ANT_ADMIN_TOKEN;
 });
 
 function fakeEvent() {
@@ -32,6 +36,17 @@ function pageEvent(path: string) {
   const url = new URL(`http://localhost${path}`);
   return {
     request: new Request(url),
+    url,
+    cookies: { get: () => undefined, getAll: () => [], set: () => {}, delete: () => {} },
+    locals: {}, params: {}, platform: undefined, route: { id: null }, isDataRequest: false,
+    isSubRequest: false, getClientAddress: () => '127.0.0.1', setHeaders: () => {}
+  } as unknown as Parameters<typeof handle>[0]['event'];
+}
+
+function apiEvent(path: string, headers: Record<string, string> = {}) {
+  const url = new URL(`http://localhost${path}`);
+  return {
+    request: new Request(url, { headers }),
     url,
     cookies: { get: () => undefined, getAll: () => [], set: () => {}, delete: () => {} },
     locals: {}, params: {}, platform: undefined, route: { id: null }, isDataRequest: false,
@@ -102,5 +117,34 @@ describe('hooks.server — boot poller on first request', () => {
       event: pageEvent('/artefacts/private-artefact'),
       resolve: passResolve
     })).rejects.toMatchObject({ status: 303 });
+  });
+
+  it('gates room-scoped API reads before their route handlers run', async () => {
+    const room = createChatRoom({ name: 'hook-read-gate', whoCreatedIt: '@you' });
+    let routeHandlerCalled = false;
+    const resolve = () => {
+      routeHandlerCalled = true;
+      return Promise.resolve(new Response('route handler reached'));
+    };
+
+    await expect(handle({
+      event: apiEvent(`/api/chat-rooms/${room.id}/docs`),
+      resolve
+    })).rejects.toMatchObject({ status: 401 });
+    expect(routeHandlerCalled).toBe(false);
+  });
+
+  it('allows admin-bearer room-scoped API reads through to the route handler', async () => {
+    process.env.ANT_ADMIN_TOKEN = 'hook-admin-token';
+    const room = createChatRoom({ name: 'hook-admin-read-gate', whoCreatedIt: '@you' });
+    const res = await handle({
+      event: apiEvent(`/api/chat-rooms/${room.id}/docs`, {
+        authorization: 'Bearer hook-admin-token'
+      }),
+      resolve: passResolve
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ok');
   });
 });
