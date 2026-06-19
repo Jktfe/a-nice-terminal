@@ -1,17 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { GET, POST } from './+server';
 import { resetPlanModeStoreForTests, type PlanEvent } from '$lib/server/planModeStore';
+import { resetIdentityDbForTests } from '$lib/server/db';
+import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
 
+const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
 const PREV_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
 const TEST_ADMIN_TOKEN = 'plan-mode-route-test-admin';
 
 beforeEach(() => {
+  process.env.ANT_FRESH_DB_PATH = ':memory:';
   process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
+  resetIdentityDbForTests();
+  resetChatRoomStoreForTests();
   resetPlanModeStoreForTests();
 });
 
 afterEach(() => {
   resetPlanModeStoreForTests();
+  resetChatRoomStoreForTests();
+  resetIdentityDbForTests();
+  if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
+  else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
   if (PREV_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
   else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN_TOKEN;
 });
@@ -34,6 +47,41 @@ function makePostEvent(planId: string, bodyValue: unknown, authenticated = true)
     request: new Request(`http://test.local/api/plan/${planId}`, {
       method: 'POST',
       headers,
+      body: bodyText
+    })
+  } as unknown as HandlerEvent;
+}
+
+function makeBrowserSessionFor(handle: string): string {
+  const room = createChatRoom({ name: 'plan reader room', whoCreatedIt: handle });
+  const terminal = upsertTerminal({
+    pid: 99_101,
+    pid_start: `plan-browser-${handle}`,
+    name: `browser ${handle}`,
+    ttlSeconds: 60 * 60
+  });
+  addMembership({ room_id: room.id, handle, terminal_id: terminal.id });
+  const session = createBrowserSession({ roomId: room.id, authorHandle: handle });
+  if (!session) throw new Error('createBrowserSession returned null');
+  return session.browserSessionSecret;
+}
+
+function makeBrowserGetEvent(planId: string, browserSessionSecret: string): HandlerEvent {
+  return {
+    params: { planId },
+    request: new Request(`http://test.local/api/plan/${planId}`, {
+      headers: { cookie: `ant_browser_session=${browserSessionSecret}` }
+    })
+  } as unknown as HandlerEvent;
+}
+
+function makeBrowserPostEvent(planId: string, bodyValue: unknown, browserSessionSecret: string): HandlerEvent {
+  const bodyText = typeof bodyValue === 'string' ? bodyValue : JSON.stringify(bodyValue);
+  return {
+    params: { planId },
+    request: new Request(`http://test.local/api/plan/${planId}`, {
+      method: 'POST',
+      headers: { cookie: `ant_browser_session=${browserSessionSecret}` },
       body: bodyText
     })
   } as unknown as HandlerEvent;
@@ -67,6 +115,20 @@ describe('plan endpoint', () => {
   it('auth: rejects anonymous GET and POST', async () => {
     await expectRejectedWith(GET(makeGetEvent('plan-a', false)), 401);
     await expectRejectedWith(POST(makePostEvent('plan-a', validEventBody(), false)), 401);
+  });
+
+  it('auth: browser-session aggregate readers can GET but cannot append plan events', async () => {
+    const browserSessionSecret = makeBrowserSessionFor('@reader');
+
+    const getResponse = await GET(makeBrowserGetEvent('plan-a', browserSessionSecret));
+    expect(getResponse.status).toBe(200);
+
+    await expectRejectedWith(
+      POST(makeBrowserPostEvent('plan-a', validEventBody(), browserSessionSecret)),
+      401
+    );
+    const after = (await (await GET(makeGetEvent('plan-a'))).json()) as { events: PlanEvent[] };
+    expect(after.events).toEqual([]);
   });
 
   it('E1: GET returns 200 + empty events for unknown plan_id', async () => {

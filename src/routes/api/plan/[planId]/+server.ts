@@ -38,6 +38,7 @@ import {
   type ProvenanceRef
 } from '$lib/server/planModeStore';
 import { requireAggregateReadAuth } from '$lib/server/aggregateReadAuth';
+import { requireOperatorLikeAuthAsync } from '$lib/server/operatorLikeAuth';
 
 const ALLOWED_KINDS: ReadonlySet<PlanEventKind> = new Set([
   'plan_section',
@@ -189,7 +190,7 @@ export const GET: RequestHandler = async ({ params, request }) => {
 };
 
 export const POST: RequestHandler = async ({ params, request }) => {
-  requireAggregateReadAuth(request, `/api/plan/${params.planId ?? ''}`);
+  await requireOperatorLikeAuthAsync(request, 'operator auth required for plan event mutation');
   const planIdFromUrl = params.planId ?? '';
   if (planIdFromUrl.length === 0) {
     throw error(400, 'URL planId must be non-empty.');
