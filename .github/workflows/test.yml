@@ -36,7 +36,7 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Fail fast if redacted PII/secrets (operator/company email addresses,
       # the compromised demo-password literal) reappear in tracked files.
