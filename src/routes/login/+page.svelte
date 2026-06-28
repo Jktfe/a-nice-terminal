@@ -44,10 +44,11 @@
   async function checkAvailability(): Promise<void> {
     try {
       const response = await fetch('/api/auth/demo-login');
-      if (!response.ok) {
+      if (response.status === 503) {
         loginAvailable = true;
         return;
       }
+      if (!response.ok) return;
       const body = (await response.json()) as { available?: boolean };
       loginAvailable = body.available === true;
     } catch {
@@ -124,7 +125,7 @@
       }
       // Cookie is set server-side via Set-Cookie. Hop back to wherever
       // the operator was originally trying to reach (or /rooms by default).
-      await goto(nextDestination);
+      await goto(nextDestination, { replaceState: true });
     } catch (cause) {
       errorMessage = cause instanceof Error ? cause.message : 'Sign-in failed.';
     } finally {

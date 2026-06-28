@@ -94,7 +94,7 @@
         { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) }
       );
       if (!response.ok) {
-        throw new Error(`Delete failed (${response.status}).`);
+        throw new Error(await describeDeleteFailure(response));
       }
       // Optimistic flip — SSE message_updated will reconcile.
       message.deletedAtMs = Date.now();
@@ -105,6 +105,18 @@
     } finally {
       deleteBusy = false;
     }
+  }
+
+  async function describeDeleteFailure(response: Response): Promise<string> {
+    try {
+      const body = (await response.json()) as { message?: unknown };
+      if (typeof body.message === 'string' && body.message.trim().length > 0) {
+        return body.message;
+      }
+    } catch {
+      /* fall back to status-only message */
+    }
+    return `Delete failed (${response.status}).`;
   }
 
   // Outside-click disarm — install only while armed so we don't leak

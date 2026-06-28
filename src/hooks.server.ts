@@ -13,7 +13,11 @@ import { ensurePermissionRequestsSweepBooted } from '$lib/server/permissionReque
 import { ensureUsageSnapshotPollerBooted } from '$lib/server/usageSnapshotPoller';
 import { projectAntRegistryFileBestEffort } from '$lib/server/antRegistryFile';
 import { ensureSessionRecoveryBooted } from '$lib/server/sessionRecoveryBoot';
-import { resolveBrowserSessionSecretIgnoringRoom } from '$lib/server/browserSessionStore';
+import {
+  DEFAULT_BROWSER_SESSION_TTL_MS,
+  resolveBrowserSessionSecretIgnoringRoom,
+  touchBrowserSessionLastSeen
+} from '$lib/server/browserSessionStore';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import {
   requireChatRoomReadAccess,
@@ -147,16 +151,42 @@ function gateIsEnabled(): boolean {
   return process.env.ANT_REQUIRE_LOGIN === '1';
 }
 
-function isAuthenticated(event: { request: Request }): boolean {
+type BrowserPageSession = {
+  cookieSecret: string;
+};
+
+function resolveBrowserPageSession(event: { request: Request }): BrowserPageSession | null {
   const secrets = readAllCookies(event.request.headers.get('cookie'), 'ant_browser_session');
-  if (secrets.length === 0) return false;
+  if (secrets.length === 0) return null;
   // ANY of the multiple cookies resolving counts as authenticated. Fixes
   // JWPK msg_6556jggvwk /plans/triggers redirect loop where the first-
   // returned cookie was room-scoped + the demo-login cookie sorted second.
   for (const secret of secrets) {
-    if (resolveBrowserSessionSecretIgnoringRoom(secret) !== null) return true;
+    const resolved = resolveBrowserSessionSecretIgnoringRoom(secret);
+    if (resolved !== null) {
+      touchBrowserSessionLastSeen(resolved.session_id);
+      return { cookieSecret: secret };
+    }
   }
-  return false;
+  return null;
+}
+
+function hasBrowserSessionCookie(event: { request: Request }): boolean {
+  return readAllCookies(event.request.headers.get('cookie'), 'ant_browser_session').length > 0;
+}
+
+function rootBrowserSessionCookieHeader(secret: string): string {
+  return [
+    `ant_browser_session=${secret}`,
+    'HttpOnly',
+    'SameSite=Lax',
+    'Path=/',
+    `Max-Age=${Math.floor(DEFAULT_BROWSER_SESSION_TTL_MS / 1000)}`
+  ].join('; ');
+}
+
+function clearRootBrowserSessionCookieHeader(): string {
+  return 'ant_browser_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0';
 }
 
 async function gateChatRoomReadApi(event: Parameters<Handle>[0]['event']): Promise<void> {
@@ -200,16 +230,28 @@ export const handle: Handle = async ({ event, resolve }) => {
   bootPollerOnce();
   await gateChatRoomReadApi(event);
 
+  const pageUsesLoginGate = !isGateBypassPath(event.url.pathname);
+  const browserPageSession = pageUsesLoginGate ? resolveBrowserPageSession(event) : null;
+
   // Login gate runs before route handling so anonymous visitors
   // never see app pages while the gate is on. JWPK msg about repeated
   // "I get redirected and can't get back where I was" pain (2026-05-19):
   // preserve the originally-requested URL as `?next=` so /login can hop
   // the operator back after sign-in, instead of always dumping to /rooms.
-  if (gateIsEnabled() && !isGateBypassPath(event.url.pathname) && !isAuthenticated(event)) {
+  if (gateIsEnabled() && pageUsesLoginGate && !browserPageSession) {
     const nextPath = event.url.pathname + event.url.search;
     const loginUrl = nextPath && nextPath !== '/'
       ? `/login?next=${encodeURIComponent(nextPath)}`
       : '/login';
+    if (hasBrowserSessionCookie(event)) {
+      return new Response(null, {
+        status: 303,
+        headers: {
+          location: loginUrl,
+          'set-cookie': clearRootBrowserSessionCookieHeader()
+        }
+      });
+    }
     throw redirect(303, loginUrl);
   }
 
@@ -223,6 +265,9 @@ export const handle: Handle = async ({ event, resolve }) => {
   const contentType = response.headers.get('content-type') ?? '';
   if (contentType.startsWith('text/html')) {
     response.headers.set('cache-control', 'no-cache, no-store, must-revalidate');
+    if (browserPageSession) {
+      response.headers.append('set-cookie', rootBrowserSessionCookieHeader(browserPageSession.cookieSecret));
+    }
   }
   return response;
 };

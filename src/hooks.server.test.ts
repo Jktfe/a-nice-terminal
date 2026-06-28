@@ -3,18 +3,29 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { handle, _testResetPollerBoot } from './hooks.server';
 import { _testResetPoller } from '$lib/server/agentStatusPoller';
+import { resetIdentityDbForTests } from '$lib/server/db';
+import {
+  createBrowserSession,
+  resetBrowserSessionStoreForTests
+} from '$lib/server/browserSessionStore';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  resetIdentityDbForTests();
+  resetChatRoomStoreForTests();
+  resetBrowserSessionStoreForTests();
   _testResetPollerBoot();
   _testResetPoller();
-  resetChatRoomStoreForTests();
 });
 afterEach(() => {
   _testResetPollerBoot();
   _testResetPoller();
+  resetBrowserSessionStoreForTests();
   resetChatRoomStoreForTests();
+  resetIdentityDbForTests();
   delete process.env.ANT_FRESH_DB_PATH;
   delete process.env.ANT_REQUIRE_LOGIN;
   delete process.env.ANT_ADMIN_TOKEN;
@@ -32,10 +43,10 @@ function fakeEvent() {
 
 const passResolve = () => Promise.resolve(new Response('ok'));
 
-function pageEvent(path: string) {
+function pageEvent(path: string, cookie?: string) {
   const url = new URL(`http://localhost${path}`);
   return {
-    request: new Request(url),
+    request: new Request(url, cookie ? { headers: { cookie } } : undefined),
     url,
     cookies: { get: () => undefined, getAll: () => [], set: () => {}, delete: () => {} },
     locals: {}, params: {}, platform: undefined, route: { id: null }, isDataRequest: false,
@@ -146,5 +157,44 @@ describe('hooks.server — boot poller on first request', () => {
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('ok');
+  });
+
+  it('clears a stale root browser cookie when redirecting to login', async () => {
+    process.env.ANT_REQUIRE_LOGIN = '1';
+
+    const response = await handle({
+      event: pageEvent('/rooms/fnokx03pud?panel=tasks', 'ant_browser_session=bws_stale_root_cookie'),
+      resolve: passResolve
+    });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get('location')).toBe('/login?next=%2Frooms%2Ffnokx03pud%3Fpanel%3Dtasks');
+    expect(response.headers.get('set-cookie')).toContain('ant_browser_session=;');
+    expect(response.headers.get('set-cookie')).toContain('Path=/');
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
+  });
+
+  it('refreshes the root browser cookie on authenticated page HTML responses', async () => {
+    process.env.ANT_REQUIRE_LOGIN = '1';
+    const room = createChatRoom({ name: 'auth refresh', whoCreatedIt: '@JWPK' });
+    const terminal = upsertTerminal({ pid: 42, pid_start: 'pst', name: 'browser-proof' });
+    addMembership({ room_id: room.id, handle: '@JWPK', terminal_id: terminal.id });
+    const session = createBrowserSession({
+      roomId: room.id,
+      authorHandle: '@JWPK',
+      browserSessionId: 'bs_hook_refresh',
+      nowMs: Date.now()
+    });
+    expect(session).not.toBeNull();
+
+    const response = await handle({
+      event: pageEvent(`/rooms/${room.id}`, `ant_browser_session=${session!.browserSessionSecret}`),
+      resolve: () => Promise.resolve(new Response('<h1>ok</h1>', { headers: { 'content-type': 'text/html' } }))
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('set-cookie')).toContain(`ant_browser_session=${session!.browserSessionSecret}`);
+    expect(response.headers.get('set-cookie')).toContain('Path=/');
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=2592000');
   });
 });

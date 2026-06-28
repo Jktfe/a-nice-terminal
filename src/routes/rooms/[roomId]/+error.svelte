@@ -7,6 +7,12 @@
     try { return page.error?.message ?? "We couldn't find that room."; }
     catch { return "We couldn't find that room."; }
   })();
+  const status = (() => {
+    try { return page.status ?? 500; }
+    catch { return 500; }
+  })();
+  const isNotFound = $derived(status === 404);
+  const isDenied = $derived(status === 403);
 </script>
 
 <svelte:head>
@@ -14,9 +20,13 @@
 </svelte:head>
 
 <SimplePageShell
-  eyebrow="Room unavailable"
-  title="This room is not here."
-  summary="The room may have been deleted, expired, or created in another process."
+  eyebrow={isNotFound ? 'Room not found' : isDenied ? 'Room access' : `Room error ${status}`}
+  title={isNotFound ? 'This room is not here.' : isDenied ? 'You do not have access to this room.' : 'This room could not load.'}
+  summary={isNotFound
+    ? 'The room may have been deleted, expired, or created in another process.'
+    : isDenied
+      ? 'Your signed-in account does not have permission to read this room.'
+      : 'Your sign-in was kept. Refresh this room or open Rooms to choose another room.'}
 >
   <p class="error-detail" role="alert">{errorMessage}</p>
   <a class="back-link" href="/rooms" aria-label="Back to all rooms">

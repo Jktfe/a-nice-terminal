@@ -31,3 +31,13 @@ or ported file needs a note that states:
 - Update `docs/capability-ledger.md` whenever a capability is implemented,
   redesigned, deduped, deferred, or rejected.
 
+## Superpowers
+
+- Keep `AGENTS.md` as the canonical project contract.
+- Keep CLI-specific files such as `CLAUDE.md`, `CODEX.md`, `GEMINI.md`,
+  `QWEN.md`, `COPILOT.md`, and `PI.md` as thin adapters, not blind symlinks.
+- Pin Superpowers through `superpowers/sync-manifest.json`.
+- Use `bun run superpowers:drift` before claiming terminal skills/tools are
+  current.
+- Use `bun run superpowers:sync -- --write` to refresh the ignored local mirror
+  at `.ant-runtime/superpowers/current`.

@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "source": {
+    "repo": "https://github.com/obra/Superpowers.git",
+    "branch": "main",
+    "pinnedCommit": "896224c4b1879920ab573417e68fd51d2ccc9072",
+    "checkedAt": "2026-06-28"
+  },
+  "localMirror": ".ant-runtime/superpowers/current",
+  "policy": {
+    "canonicalProjectInstructions": "AGENTS.md",
+    "adapterPolicy": "superpowers/adapter-policy.md",
+    "writeRequiresExplicitFlag": true,
+    "noBlindSymlinkToAgents": true
+  },
+  "syncRoots": [
+    {
+      "name": "skills",
+      "kind": "skills",
+      "upstream": "skills",
+      "local": "skills",
+      "required": true
+    },
+    {
+      "name": "hooks",
+      "kind": "hooks",
+      "upstream": "hooks",
+      "local": "hooks",
+      "required": true
+    },
+    {
+      "name": "claude-plugin",
+      "kind": "adapter",
+      "upstream": ".claude-plugin",
+      "local": "plugins/claude-code",
+      "required": true
+    },
+    {
+      "name": "codex-plugin",
+      "kind": "adapter",
+      "upstream": ".codex-plugin",
+      "local": "plugins/codex",
+      "required": true
+    },
+    {
+      "name": "kimi-plugin",
+      "kind": "adapter",
+      "upstream": ".kimi-plugin",
+      "local": "plugins/kimi",
+      "required": false
+    },
+    {
+      "name": "pi",
+      "kind": "adapter",
+      "upstream": ".pi",
+      "local": "plugins/pi",
+      "required": false
+    },
+    {
+      "name": "gemini",
+      "kind": "adapter",
+      "upstream": "GEMINI.md",
+      "local": "adapters/GEMINI.md",
+      "required": false
+    }
+  ],
+  "cliAdapters": [
+    {
+      "cli": "codex",
+      "projectFile": "AGENTS.md",
+      "adapterFile": "CODEX.md",
+      "upstreamRoot": ".codex-plugin"
+    },
+    {
+      "cli": "claude-code",
+      "projectFile": "CLAUDE.md",
+      "adapterFile": "CLAUDE.md",
+      "upstreamRoot": ".claude-plugin"
+    },
+    {
+      "cli": "gemini-antigravity",
+      "projectFile": "GEMINI.md",
+      "adapterFile": "GEMINI.md",
+      "upstreamRoot": "GEMINI.md"
+    },
+    {
+      "cli": "qwen-code",
+      "projectFile": "QWEN.md",
+      "adapterFile": "QWEN.md",
+      "upstreamRoot": "skills"
+    },
+    {
+      "cli": "github-copilot-cli",
+      "projectFile": "COPILOT.md",
+      "adapterFile": "COPILOT.md",
+      "upstreamRoot": "skills"
+    },
+    {
+      "cli": "pi-local",
+      "projectFile": "PI.md",
+      "adapterFile": "PI.md",
+      "upstreamRoot": ".pi"
+    }
+  ]
+}

@@ -64,13 +64,23 @@ function runScrubbedTmux(args: string[], stdinData?: string | Buffer): SpawnSync
   return spawn(TMUX_BIN, args, { input: stdinData, env: childEnv as NodeJS.ProcessEnv });
 }
 
-export type PaneVerifyOutcome = 'verified' | 'stale' | 'unknown';
+export type PaneVerifyOutcome = 'verified' | 'stale' | 'unknown' | 'shell-mode';
+
+export type DeliveryPostProbeOutcome = {
+  kind: 'ok' | 'stale' | 'unknown' | 'shell-mode';
+  agentKind: string | null;
+};
+
+function paneTail(captured: string, lineCount = 20): string {
+  return captured
+    .split('\n')
+    .slice(-lineCount)
+    .join('\n')
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
+}
 
 function isQwenShellCommandMode(captured: string): boolean {
-  const tail = captured
-    .split('\n')
-    .slice(-20)
-    .join('\n');
+  const tail = paneTail(captured);
   return (
     /\bshell mode enabled\s*\(\s*esc to disable\s*\)/i.test(tail)
     || /^\s*[x✗]\s+Shell Command\b/im.test(tail)
@@ -80,26 +90,48 @@ function isQwenShellCommandMode(captured: string): boolean {
   );
 }
 
+function lastNonEmptyLine(captured: string): string {
+  const lines = paneTail(captured)
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0);
+  return lines[lines.length - 1] ?? '';
+}
+
+function isCopilotShellCommandMode(captured: string): boolean {
+  const lastLine = lastNonEmptyLine(captured).trim();
+  return /^!\s*$/.test(lastLine);
+}
+
 function isClaudeCodeAgent(agentKind: string | null): boolean {
   return agentKind === 'claude-code' || agentKind === 'claude';
 }
 
-function matchReadyStateFor(agentKind: string | null, captured: string): boolean {
+function isCopilotAgent(agentKind: string | null): boolean {
+  return new Set(['copilot', 'copilot-cli', 'github-copilot-cli']).has(agentKind ?? '');
+}
+
+function shellCommandModeFor(agentKind: string | null, captured: string): boolean {
   const normalized = normalizeAgentKind(agentKind);
+  if (normalized === 'qwen' || normalized === 'qwen-cli') return isQwenShellCommandMode(captured);
+  if (isCopilotAgent(normalized)) return isCopilotShellCommandMode(captured);
+  return false;
+}
+
+function classifyReadyStateFor(agentKind: string | null, captured: string): 'ready' | 'unknown' | 'shell-mode' {
+  const normalized = normalizeAgentKind(agentKind);
+  if (shellCommandModeFor(normalized, captured)) return 'shell-mode';
   if (isClaudeCodeAgent(normalized)) {
     const hasPromptIndicator = captured.includes('│ >') || captured.includes('❯');
     const isStreaming = captured.includes('esc to interrupt');
-    return hasPromptIndicator && !isStreaming;
-  }
-  if (normalized === 'qwen' || normalized === 'qwen-cli') {
-    return !isQwenShellCommandMode(captured);
+    return hasPromptIndicator && !isStreaming ? 'ready' : 'unknown';
   }
   // T1c (2026-05-14): non-claude_code agents have no per-CLI ready-state
   // semantics. Default to "ready" so fanout delivery proceeds for bare
   // shells, codex, gemini, etc. — matches v3 PtyInjectionAdapter behaviour
   // (unconditional ptmWrite + \r). claude_code keeps its prompt-aware
   // verify because its TUI buffers input differently.
-  return true;
+  return 'ready';
 }
 
 // Witness hardening (AC3 Step 1, ant-handles-rooms-ownership-contract.md
@@ -135,26 +167,18 @@ export function verifyPaneTargetState(terminal: TerminalRow): PaneVerifyOutcome 
   const captured = (result.stdout ?? Buffer.alloc(0)).toString('utf8');
   if (captured.length === 0) return 'unknown';
 
-  let agentKind = terminal.agent_kind;
-  if (!agentKind && terminal.id) {
-    try {
-      const db = getIdentityDb();
-      const row = db
-        .prepare(`SELECT agent_kind FROM terminal_records WHERE session_id = ? AND superseded_at_ms IS NULL`)
-        .get(terminal.id) as { agent_kind: string | null } | undefined;
-      if (row && row.agent_kind) {
-        agentKind = row.agent_kind;
-      }
-    } catch {
-      // ignore
-    }
-  }
+  const agentKind = resolveAgentKindForDelivery({
+    terminalId: terminal.id,
+    pane: terminal.tmux_target_pane,
+    agentKind: terminal.agent_kind
+  });
 
-  if (matchReadyStateFor(agentKind, captured)) {
+  const readyState = classifyReadyStateFor(agentKind, captured);
+  if (readyState === 'ready') {
     markPaneVerified(terminal.id);
     return 'verified';
   }
-  return 'unknown';
+  return readyState;
 }
 
 class InjectTmuxFailure extends Error {}
@@ -209,6 +233,48 @@ function normalizeAgentKind(agentKind: string | null): string | null {
   return agentKind.trim().toLowerCase().replace(/_/g, '-');
 }
 
+function resolveAgentKindForDelivery(input: {
+  terminalId?: string | null;
+  pane?: string | null;
+  agentKind: string | null;
+}): string | null {
+  const fallbackKind = normalizeAgentKind(input.agentKind);
+  try {
+    const db = getIdentityDb();
+    if (input.terminalId) {
+      const row = db
+        .prepare(`SELECT agent_kind FROM terminal_records WHERE session_id = ? AND superseded_at_ms IS NULL`)
+        .get(input.terminalId) as { agent_kind: string | null } | undefined;
+      if (row?.agent_kind) return normalizeAgentKind(row.agent_kind);
+    }
+    if (input.pane) {
+      const recordRow = db
+        .prepare(
+          `SELECT agent_kind FROM terminal_records
+            WHERE tmux_target_pane = ?
+              AND superseded_at_ms IS NULL
+            LIMIT 1`
+        )
+        .get(input.pane) as { agent_kind: string | null } | undefined;
+      if (recordRow?.agent_kind) return normalizeAgentKind(recordRow.agent_kind);
+    }
+    if (fallbackKind) return fallbackKind;
+    if (input.pane) {
+      const terminalRow = db
+        .prepare(
+          `SELECT agent_kind FROM terminals
+            WHERE tmux_target_pane = ?
+            LIMIT 1`
+        )
+        .get(input.pane) as { agent_kind: string | null } | undefined;
+      if (terminalRow?.agent_kind) return normalizeAgentKind(terminalRow.agent_kind);
+    }
+  } catch {
+    // Delivery must keep working from the caller-supplied kind if identity lookup is unavailable.
+  }
+  return fallbackKind;
+}
+
 function isNewlineFragileAgent(agentKind: string | null): boolean {
   return new Set([
     'pi',
@@ -234,7 +300,11 @@ function needsBracketedPaste(agentKind: string | null): boolean {
 
 function needsDoubleEnter(agentKind: string | null): boolean {
   return isClaudeCodeAgent(agentKind)
-    || new Set(['copilot', 'copilot-cli', 'github-copilot-cli']).has(agentKind ?? '');
+    || isCopilotAgent(agentKind);
+}
+
+function needsPostDeliveryProbe(agentKind: string | null): boolean {
+  return isNewlineFragileAgent(agentKind);
 }
 
 function transformBodyForAgent(text: string, agentKind: string | null): string {
@@ -258,41 +328,19 @@ export function twoCallSubmit(
   text: string,
   agentKind: string | null,
   onScheduledFailure: (cause: unknown) => void = () => {},
-  scheduler: (cb: () => void, ms: number) => void = setTimeout
+  scheduler: (cb: () => void, ms: number) => void = setTimeout,
+  onPostDeliveryProbe: (outcome: DeliveryPostProbeOutcome) => void = () => {}
 ): void {
-  let resolvedAgentKind = normalizeAgentKind(agentKind);
-  if (!resolvedAgentKind && pane) {
-    try {
-      const db = getIdentityDb();
-      const recordRow = db
-        .prepare(
-          `SELECT agent_kind FROM terminal_records
-            WHERE tmux_target_pane = ?
-              AND superseded_at_ms IS NULL
-            LIMIT 1`
-        )
-        .get(pane) as { agent_kind: string | null } | undefined;
-      if (recordRow && recordRow.agent_kind) {
-        resolvedAgentKind = normalizeAgentKind(recordRow.agent_kind);
-      } else {
-        const termRow = db
-          .prepare(
-            `SELECT agent_kind FROM terminals
-              WHERE tmux_target_pane = ?
-            LIMIT 1`
-          )
-          .get(pane) as { agent_kind: string | null } | undefined;
-        if (termRow && termRow.agent_kind) {
-          resolvedAgentKind = normalizeAgentKind(termRow.agent_kind);
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
+  const resolvedAgentKind = resolveAgentKindForDelivery({ pane, agentKind });
 
   const transformed = transformBodyForAgent(text, resolvedAgentKind);
   pasteBufferToTarget(pane, transformed, { bracketedPaste: needsBracketedPaste(resolvedAgentKind) });
+  const schedulePostDeliveryProbe = () => {
+    if (!needsPostDeliveryProbe(resolvedAgentKind)) return;
+    scheduler(() => {
+      onPostDeliveryProbe(probePostDeliveryState(pane, resolvedAgentKind));
+    }, 250);
+  };
   scheduler(() => {
     try {
       sendEnterToTarget(pane);
@@ -300,14 +348,29 @@ export function twoCallSubmit(
         needsDoubleEnter(resolvedAgentKind)
       ) {
         scheduler(() => {
-          try { sendEnterToTarget(pane); }
+          try {
+            sendEnterToTarget(pane);
+            schedulePostDeliveryProbe();
+          }
           catch (cause) { onScheduledFailure(cause); }
         }, 150);
+      } else {
+        schedulePostDeliveryProbe();
       }
     } catch (cause) {
       onScheduledFailure(cause);
     }
   }, 150);
+}
+
+export function probePostDeliveryState(pane: string, agentKind: string | null): DeliveryPostProbeOutcome {
+  const normalized = normalizeAgentKind(agentKind);
+  const result = runScrubbedTmux(['capture-pane', '-t', pane, '-p', '-S', '-20']);
+  if (result.status !== 0) return { kind: 'stale', agentKind: normalized };
+  const captured = (result.stdout ?? Buffer.alloc(0)).toString('utf8');
+  if (captured.length === 0) return { kind: 'unknown', agentKind: normalized };
+  if (shellCommandModeFor(normalized, captured)) return { kind: 'shell-mode', agentKind: normalized };
+  return { kind: 'ok', agentKind: normalized };
 }
 
 export type EnvelopeMessage = {
@@ -474,7 +537,7 @@ export function formatEnvelope(input: EnvelopeInput): string {
     `[room ${head.roomName} id=${head.roomId}] ${renderMessageWithReplyContext(head)}`,
     ...extras.map((m) => `[room ${m.roomName} id=${m.roomId}] ${renderMessageWithReplyContext(m)}`)
   ].join(', ');
-  const deliveryLines = [head, ...extras].map(deliveryEnvelopeLine).join('');
+  const deliveryLines = [head, ...extras].map(deliverySupportLines).join('');
   return `${header} ${extras.length + 1} messages: ${all}${deliveryLines}\n\n[ANT reply instruction: respond to the relevant message with: ant chat reply MESSAGE_ID --stdin]`;
 }
 
@@ -493,7 +556,7 @@ export function shouldEmitStaleMarker(roomId: string, handle: string): boolean {
 
 export type InjectOutcome = {
   kind: 'paste' | 'marker' | 'marker-suppressed';
-  reason: 'verified' | 'stale' | 'unknown' | 'no-pane';
+  reason: 'verified' | 'stale' | 'unknown' | 'shell-mode' | 'no-pane';
 };
 
 export function injectToTerminal(
@@ -513,8 +576,22 @@ export function injectToTerminal(
         emitSystemMarker(roomId, recipientHandle, 'stale');
       }
     };
+    const onPostDeliveryProbe = (outcome: DeliveryPostProbeOutcome) => {
+      if (outcome.kind === 'ok') return;
+      if (outcome.kind === 'stale') markPaneStale(terminal.id);
+      if (shouldEmitStaleMarker(roomId, recipientHandle)) {
+        emitSystemMarker(roomId, recipientHandle, outcome.kind);
+      }
+    };
     try {
-      twoCallSubmit(terminal.tmux_target_pane, envelope, terminal.agent_kind, onScheduledFailure);
+      twoCallSubmit(
+        terminal.tmux_target_pane,
+        envelope,
+        terminal.agent_kind,
+        onScheduledFailure,
+        setTimeout,
+        onPostDeliveryProbe
+      );
       return { kind: 'paste', reason: 'verified' };
     } catch (cause) {
       if (cause instanceof InjectTmuxFailure) {

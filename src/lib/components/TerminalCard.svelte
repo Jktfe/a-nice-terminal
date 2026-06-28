@@ -514,6 +514,7 @@
   open={settingsModalOpen}
   {terminalId}
   terminalName={currentName}
+  terminalHandle={derivedHandle}
   {roomAgentHandles}
   onClose={() => { settingsModalOpen = false; }}
 />

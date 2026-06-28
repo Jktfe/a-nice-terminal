@@ -9,7 +9,7 @@ import { canonicaliseOperatorHandle } from './operatorHandle';
 // — the 24h re-auth loop was unworkable for daily-driver use. Matches
 // SURFACE-SIZE-ONLY pattern: long-lived by default, manual logout +
 // revoked_at_ms are the actual end-of-life signals.
-const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+export const DEFAULT_BROWSER_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type BrowserSessionRow = {
   id: string;
@@ -87,7 +87,7 @@ export function createBrowserSession(input: CreateBrowserSessionInput): CreateBr
 
   const db = getIdentityDb();
   const nowMs = input.nowMs ?? Date.now();
-  const ttlMs = input.ttlMs ?? DEFAULT_TTL_MS;
+  const ttlMs = input.ttlMs ?? DEFAULT_BROWSER_SESSION_TTL_MS;
   const expiresAtMs = nowMs + ttlMs;
   const nowSec = Math.floor(nowMs / 1000);
   const sessionId = input.browserSessionId ?? newBrowserSessionId();
@@ -195,7 +195,7 @@ export function resolveBrowserSessionSecretIgnoringRoom(
  * + UPDATE terminals) on EVERY authenticated request. Under load that's
  * a write per read on the hot path.
  *
- * Safe to debounce because the TTL is 30 DAYS (DEFAULT_TTL_MS). Skipping
+ * Safe to debounce because the TTL is 30 DAYS (DEFAULT_BROWSER_SESSION_TTL_MS). Skipping
  * the touch for 30 seconds means the session's expires_at_ms is at most
  * 30s "stale" relative to the latest activity — invisible relative to a
  * 30-day TTL. last_seen_at_ms is also a presence-tracking field that
@@ -210,7 +210,7 @@ const recentlyTouchedAtMs = new Map<string, number>();
 export function touchBrowserSessionLastSeen(
   sessionId: string,
   nowMs: number = Date.now(),
-  ttlMs: number = DEFAULT_TTL_MS
+  ttlMs: number = DEFAULT_BROWSER_SESSION_TTL_MS
 ): boolean {
   // Debounce: if we touched this session within the last 30s, skip the
   // write transaction. Returns true because the session is presumed

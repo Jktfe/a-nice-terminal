@@ -31,7 +31,13 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs', 'scripts/**/*.test.ts'],
-    exclude: [...configDefaults.exclude, '**/.worktrees/**', '**/.claude/worktrees/**'],
+    exclude: [
+      ...configDefaults.exclude,
+      '**/.worktrees/**',
+      '**/.claude/worktrees/**',
+      'scripts/**/*.draft.test.mjs',
+      'scripts/**/*.draft.test.ts'
+    ],
     // 30s default — the 5s vitest default was timing out on spawn-heavy
     // CLI/preflight tests under parallel worker load. The work is fast
     // in isolation; the timeout was overrun, not the test logic.

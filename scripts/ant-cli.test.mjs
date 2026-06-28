@@ -243,86 +243,23 @@ describe('ant-cli', () => {
   });
 
   describe('rooms post', () => {
-    const previousAntSessionId = process.env.ANT_SESSION_ID;
-    const previousTmuxPane = process.env.TMUX_PANE;
-
-    afterEach(() => {
-      if (previousAntSessionId === undefined) delete process.env.ANT_SESSION_ID;
-      else process.env.ANT_SESSION_ID = previousAntSessionId;
-      if (previousTmuxPane === undefined) delete process.env.TMUX_PANE;
-      else process.env.TMUX_PANE = previousTmuxPane;
-    });
-
-    it('rejects an empty message', async () => {
-      const { runner, writtenErr } = setupRunner();
+    it('is tombstoned at the identity cutover', async () => {
+      const { runner, writtenErr, fetchCalls } = setupRunner();
       const exitCode = await runner.run(['rooms', 'post', 'r1']);
-      expect(exitCode).toBe(1);
-      expect(writtenErr.join(' ')).toContain('non-empty message');
+      expect(exitCode).toBe(9);
+      expect(writtenErr.join('\n')).toContain('ant rooms post: retired at the identity cutover.');
+      expect(writtenErr.join('\n')).toContain('ant chat send <room> --msg');
+      expect(fetchCalls).toHaveLength(0);
     });
 
-    it('POSTs the body and pidChain without overriding the server-resolved author', async () => {
-      const { runner, fetchCalls } = setupRunner({
-        fetchReplies: [makeJsonResponse({ message: { id: 'm1' } }, 201)]
-      });
+    it('does not send a network request even when a message is present', async () => {
+      const { runner, writtenErr, fetchCalls } = setupRunner();
       const exitCode = await runner.run(['rooms', 'post', 'r1', 'hello', 'there']);
-      expect(exitCode).toBe(0);
-      expect(fetchCalls[0].url).toBe('http://localhost:4321/api/chat-rooms/r1/messages');
-      const body = JSON.parse(fetchCalls[0].init.body);
-      expect(body.body).toBe('hello there');
-      expect(body.authorHandle).toBeUndefined();
-      expect(Array.isArray(body.pidChain)).toBe(true);
-      expect(body.pidChain.length).toBeGreaterThan(0);
+      expect(exitCode).toBe(9);
+      expect(writtenErr.join('\n')).toContain('Use instead:');
+      expect(fetchCalls).toHaveLength(0);
     });
 
-    it('attaches durable session identity from the current pane when posting', async () => {
-      process.env.TMUX_PANE = '%roompost';
-      const { runner, fetchCalls } = setupRunner({
-        fetchReplies: [makeJsonResponse({ message: { id: 'm1' } }, 201)],
-        config: {
-          antSessions: {
-            byPane: {
-              '%roompost': 'sess-roompost-1'
-            }
-          }
-        }
-      });
-      const exitCode = await runner.run(['rooms', 'post', 'r1', 'hello']);
-      expect(exitCode).toBe(0);
-      expect(fetchCalls[0].init.headers['x-ant-session-id']).toBe('sess-roompost-1');
-      expect(JSON.parse(fetchCalls[0].init.body).sessionId).toBe('sess-roompost-1');
-    });
-
-    it('uses the chat send recovery path for daemon-witnessed remote posting', async () => {
-      const { runner, fetchCalls, writtenOut } = setupRunner({
-        config: {
-          tokens: {
-            r1: {
-              token: 'room-token-1',
-              handle: '@serverlaptop',
-              server_url: 'http://remote.test'
-            }
-          }
-        },
-        fetchReplies: [
-          makeTextResponse('No daemon-witnessed binding for this terminal.', 403),
-          new Response(JSON.stringify({ ok: true }), {
-            status: 200,
-            headers: { 'set-cookie': 'ant_browser_session=session-123; Path=/api/chat-rooms/r1' }
-          }),
-          makeJsonResponse({ message: { id: 'm2', authorHandle: '@serverlaptop' } }, 201)
-        ]
-      });
-
-      const exitCode = await runner.run(['rooms', 'post', 'r1', 'hello', 'remote']);
-
-      expect(exitCode).toBe(0);
-      expect(fetchCalls).toHaveLength(3);
-      expect(fetchCalls[0].url).toBe('http://remote.test/api/chat-rooms/r1/messages');
-      expect(fetchCalls[1].url).toBe('http://remote.test/api/chat-rooms/r1/browser-session');
-      expect(fetchCalls[1].init.headers.authorization).toBe('Bearer room-token-1');
-      expect(fetchCalls[2].init.headers.cookie).toBe('ant_browser_session=session-123');
-      expect(writtenOut.join('\n')).toContain('Posted m2 as @serverlaptop into r1.');
-    });
   });
 
   describe('rooms break', () => {
@@ -570,14 +507,12 @@ describe('rooms create flag stripping', () => {
 });
 
 describe('rooms post flag stripping', () => {
-  it('strips --json from message body', async () => {
-    const { runner, fetchCalls } = setupRunner({
-      fetchReplies: [makeJsonResponse({ message: { id: 'm1' } }, 201)]
-    });
+  it('tombstones before parsing message flags', async () => {
+    const { runner, writtenErr, fetchCalls } = setupRunner();
     const exitCode = await runner.run(['rooms', 'post', 'r1', 'hello', '--json']);
-    expect(exitCode).toBe(0);
-    const body = JSON.parse(fetchCalls[0].init.body);
-    expect(body.body).toBe('hello');
+    expect(exitCode).toBe(9);
+    expect(writtenErr.join('\n')).toContain('ant rooms post: retired');
+    expect(fetchCalls).toHaveLength(0);
   });
 });
 

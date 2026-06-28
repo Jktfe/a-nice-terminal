@@ -230,10 +230,8 @@ async function handleRoomsVerb(action, args, runtime) {
       return listMembers(stripFlags(args)[0], runtime);
     case 'invite':
       return inviteAgent(stripFlags(args)[0], stripFlags(args)[1], runtime);
-    case 'post': {
-      const postArgs = stripFlags(args);
-      return postMessage(postArgs[0], postArgs.slice(1).join(' '), runtime);
-    }
+    case 'post':
+      return tombstoneRoomsPost(runtime);
     case 'break': {
       const breakArgs = stripFlags(args);
       return postBreak(breakArgs[0], breakArgs.slice(1).join(' '), runtime);
@@ -344,13 +342,11 @@ async function inviteAgent(roomId, agentHandle, runtime) {
   return 0;
 }
 
-async function postMessage(roomId, body, runtime) {
-  if (!roomId) throw new CliInputError('rooms post needs a roomId');
-  if (!body || body.trim().length === 0) throw new CliInputError('rooms post needs a non-empty message');
-  // `rooms post` is retained for old operators, but the witnessed write
-  // path lives in `chat send`: durable session first, then bearer-backed
-  // browser-session mint on daemon-witnessed 403s.
-  return handleChatVerb('send', [roomId, '--msg', body], runtime, { CliInputError });
+function tombstoneRoomsPost(runtime) {
+  runtime.writeErr('ant rooms post: retired at the identity cutover.');
+  runtime.writeErr('Use instead: ant chat send <room> --msg "<message>"');
+  runtime.writeErr('For replies: ant chat send <room> --parent-message <messageId> --stdin');
+  return 9;
 }
 
 async function postBreak(roomId, reason, runtime) {

@@ -27,7 +27,7 @@
 import { deriveHandle } from './terminalRecordsStore';
 import { baseName } from './terminalNameTag';
 import { getTerminalById, type TerminalRow } from './terminalsStore';
-import { twoCallSubmit, verifyPaneTargetState } from './pty-inject-bridge';
+import { twoCallSubmit, verifyPaneTargetState, type PaneVerifyOutcome } from './pty-inject-bridge';
 
 export type RenameInjectOutcome =
   | 'injected'
@@ -38,7 +38,7 @@ export type RenameInjectOutcome =
 
 export type RenameInjectDeps = {
   getTerminal: (terminalId: string) => TerminalRow | null | undefined;
-  verifyPane: (terminal: TerminalRow) => 'verified' | 'stale' | 'unknown';
+  verifyPane: (terminal: TerminalRow) => PaneVerifyOutcome;
   submit: (pane: string, text: string, agentKind: string | null) => void;
 };
 

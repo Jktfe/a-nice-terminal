@@ -170,18 +170,55 @@ describe('verifyPaneTargetState', () => {
     expect(verifyPaneTargetState(t)).toBe('verified');
   });
 
-  it('returns unknown for qwen panes currently accepting input as shell commands', () => {
+  it('uses terminal_records agent_kind over stale terminals.agent_kind when verifying', () => {
+    setSpawnImplForTests(fakeSpawnReturning('codex ready without a claude prompt', 0));
+    const t = registerPaneTerminal('stale-kind-verify', 'claude');
+    const db = getIdentityDb();
+    db.prepare(`INSERT INTO terminal_records (session_id, name, agent_kind, tmux_target_pane, auto_forward_chat, created_at_ms, updated_at_ms)
+      VALUES (?, ?, ?, ?, 1, ?, ?)`).run(t.id, t.name, 'codex', t.tmux_target_pane, Date.now(), Date.now());
+
+    expect(verifyPaneTargetState(t)).toBe('verified');
+    expect(getTerminalById(t.id)?.pane_status).toBe('verified');
+  });
+
+  it('returns shell-mode for qwen panes currently accepting input as shell commands', () => {
     setSpawnImplForTests(fakeSpawnReturning('x Shell Command [ANT room Agents id=r msg=m]\nbash: -c: unexpected EOF while looking for matching `]\'', 0));
     const t = registerPaneTerminal('qwen-shell-mode', 'qwen');
-    expect(verifyPaneTargetState(t)).toBe('unknown');
+    expect(verifyPaneTargetState(t)).toBe('shell-mode');
     expect(getTerminalById(t.id)?.pane_status).not.toBe('verified');
   });
 
-  it('returns unknown for qwen panes advertising shell mode before any command runs', () => {
+  it('returns shell-mode for qwen panes advertising shell mode before any command runs', () => {
     setSpawnImplForTests(fakeSpawnReturning('Working                         10.9% context used\nshell mode enabled (esc to disable)\n> ', 0));
     const t = registerPaneTerminal('qwen-shell-mode-banner', 'qwen');
-    expect(verifyPaneTargetState(t)).toBe('unknown');
+    expect(verifyPaneTargetState(t)).toBe('shell-mode');
     expect(getTerminalById(t.id)?.pane_status).not.toBe('verified');
+  });
+
+  it('returns shell-mode for copilot panes sitting at the shell prompt', () => {
+    setSpawnImplForTests(fakeSpawnReturning('Shell mode\n! ', 0));
+    const t = registerPaneTerminal('copilot-shell-mode', 'copilot');
+    expect(verifyPaneTargetState(t)).toBe('shell-mode');
+    expect(getTerminalById(t.id)?.pane_status).not.toBe('verified');
+  });
+
+  it('does not treat ordinary copilot conversation text about shell mode as shell mode', () => {
+    setSpawnImplForTests(fakeSpawnReturning('Copilot also has shell mode.\n❯ ', 0));
+    const t = registerPaneTerminal('copilot-shell-mode-discussion', 'copilot');
+    expect(verifyPaneTargetState(t)).toBe('verified');
+    expect(getTerminalById(t.id)?.pane_status).toBe('verified');
+  });
+
+  it('does not treat ordinary copilot output starting with an exclamation mark as shell mode', () => {
+    setSpawnImplForTests(fakeSpawnReturning('! Important: keep the visible CLI pane.\n❯ ', 0));
+    const t = registerPaneTerminal('copilot-exclamation-output', 'copilot');
+    expect(verifyPaneTargetState(t)).toBe('verified');
+  });
+
+  it('does not treat copilot shell-mode discussion followed by exclamation output as shell mode', () => {
+    setSpawnImplForTests(fakeSpawnReturning('Shell mode can be entered with bang.\n! Important: still normal output.\n❯ ', 0));
+    const t = registerPaneTerminal('copilot-shell-mode-exclamation-output', 'copilot');
+    expect(verifyPaneTargetState(t)).toBe('verified');
   });
 });
 
@@ -223,6 +260,21 @@ describe('twoCallSubmit', () => {
     expect(sendKeysCalls.length).toBe(2);
   });
 
+  it('uses terminal_records agent_kind over stale terminals.agent_kind when submitting', () => {
+    const t = registerPaneTerminal('stale-kind-submit', 'claude');
+    const db = getIdentityDb();
+    db.prepare(`INSERT INTO terminal_records (session_id, name, agent_kind, tmux_target_pane, auto_forward_chat, created_at_ms, updated_at_ms)
+      VALUES (?, ?, ?, ?, 1, ?, ?)`).run(t.id, t.name, 'codex', t.tmux_target_pane, Date.now(), Date.now());
+
+    const { calls, impl } = captureSpawnCalls();
+    setSpawnImplForTests(impl);
+    const scheduler = (cb: () => void) => { cb(); return 0 as any; };
+    twoCallSubmit(t.tmux_target_pane!, 'hello', t.agent_kind, () => {}, scheduler);
+
+    const sendKeysCalls = calls.filter((c) => c.args[0] === 'send-keys');
+    expect(sendKeysCalls.length).toBe(1);
+  });
+
   it('async send-keys failure routes through onScheduledFailure (not silent)', () => {
     let callIdx = 0;
     setSpawnImplForTests((bin, args) => {
@@ -237,6 +289,36 @@ describe('twoCallSubmit', () => {
     const scheduler = (cb: () => void) => { cb(); return 0 as any; };
     twoCallSubmit('%1', 'hello', 'codex', (c) => failures.push(c), scheduler);
     expect(failures.length).toBe(1);
+  });
+
+  it('runs a post-delivery probe for copilot and reports shell-mode residue', () => {
+    const calls: SpawnCall[] = [];
+    setSpawnImplForTests((bin, args, options) => {
+      calls.push({ bin, args, input: typeof options.input === 'string' ? options.input : options.input?.toString('utf8'), env: options.env });
+      if (args[0] === 'capture-pane') {
+        return { pid: 1, stdout: Buffer.from('Shell mode\n! '), stderr: Buffer.alloc(0), status: 0, signal: null, output: [] } as any;
+      }
+      return { pid: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), status: 0, signal: null, output: [] } as any;
+    });
+    const outcomes: any[] = [];
+    const scheduler = (cb: () => void) => { cb(); return 0 as any; };
+
+    twoCallSubmit('%1', 'line 1\nline 2', 'copilot', () => {}, scheduler, (outcome) => outcomes.push(outcome));
+
+    expect(calls.some((c) => c.args[0] === 'capture-pane')).toBe(true);
+    expect(outcomes).toEqual([{ kind: 'shell-mode', agentKind: 'copilot' }]);
+  });
+
+  it('does not run a post-delivery probe for non-newline-fragile agents', () => {
+    const { calls, impl } = captureSpawnCalls();
+    setSpawnImplForTests(impl);
+    const outcomes: any[] = [];
+    const scheduler = (cb: () => void) => { cb(); return 0 as any; };
+
+    twoCallSubmit('%1', 'hello', 'codex', () => {}, scheduler, (outcome) => outcomes.push(outcome));
+
+    expect(calls.some((c) => c.args[0] === 'capture-pane')).toBe(false);
+    expect(outcomes).toEqual([]);
   });
 });
 
@@ -299,6 +381,17 @@ describe('injectToTerminal end-to-end (no real tmux)', () => {
     expect(outcome.kind).toBe('marker');
     expect(outcome.reason).toBe('unknown');
     expect(markerCalls.length).toBe(1);
+  });
+
+  it('emits marker (not paste) for copilot panes in shell mode', () => {
+    setSpawnImplForTests(fakeSpawnReturning('Shell mode\n! ', 0));
+    const t = registerPaneTerminal('copilot-shell-mode-end-to-end', 'copilot');
+    const markerCalls: any[] = [];
+    const outcome = injectToTerminal(t, 'env', 'r2b', '@copilot',
+      (room, handle, reason) => markerCalls.push({ room, handle, reason }));
+    expect(outcome.kind).toBe('marker');
+    expect(outcome.reason).toBe('shell-mode');
+    expect(markerCalls).toEqual([{ room: 'r2b', handle: '@copilot', reason: 'shell-mode' }]);
   });
 
   it('emits paste (no marker) for verified claude_code pane', () => {

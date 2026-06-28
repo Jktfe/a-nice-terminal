@@ -15,6 +15,7 @@ import {
 } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { ensureNativeAbiHealthy } from './lib/native-abi-guard.mjs';
 
 /**
  * @typedef {object} SnapshotOptions
@@ -157,6 +158,11 @@ export async function startFromImmutableBuildSnapshot(options = {}) {
   process.env.HOST ??= '0.0.0.0';
   process.env.PORT ??= '6174';
   const result = prepareImmutableBuildSnapshot(options);
+  // Guard the recurring better-sqlite3 ABI footgun BEFORE importing the
+  // server: a mismatch makes the server "start" then 500 every request.
+  // Probe → rebuild-for-this-Node → refuse to serve if still broken, so
+  // launchd surfaces it loudly instead of silently. (Bit JWPK twice.)
+  ensureNativeAbiHealthy(options.repoRoot ?? process.cwd());
   const entrypoint = realpathSync(result.entrypoint);
   console.log(`[ant-start] serving immutable build snapshot ${basename(result.snapshotDir)}`);
   await import(pathToFileURL(entrypoint).href);

@@ -377,6 +377,13 @@ describe('/rooms/[roomId] load', () => {
     expect(roomPageSource).toContain('onSetFocus={handleSetFocusFromSheet}');
   });
 
+  it('keeps login form available when the availability probe has a transient failure', () => {
+    const source = readFileSync('src/routes/login/+page.svelte', 'utf8');
+    expect(source).toContain('if (response.status === 503)');
+    expect(source).toContain('loginAvailable = true;');
+    expect(source).toContain('await goto(nextDestination, { replaceState: true })');
+  });
+
   it('threads room mode and roster-based agent identity into message claims', () => {
     const roomPageSource = readFileSync('src/routes/rooms/[roomId]/+page.svelte', 'utf8');
     const messageListSource = readFileSync('src/lib/components/MessageList.svelte', 'utf8');

@@ -27,6 +27,8 @@
     "rebuild:sqlite": "npm rebuild better-sqlite3",
     "auth:cutover-check": "node scripts/check-auth-cutover.mjs",
     "seed:overnight": "node scripts/seed-overnight-plan.mjs",
+    "superpowers:drift": "node scripts/superpowers-sync.mjs --dry-run",
+    "superpowers:sync": "node scripts/superpowers-sync.mjs",
     "prebuild:cli": "node scripts/build-cli-version-constant.mjs",
     "build:cli:arm64-darwin": "bun run prebuild:cli && bun build --compile --target=bun-darwin-arm64 ./scripts/ant-cli.mjs --outfile dist/ant-aarch64-apple-darwin",
     "build:cli:x64-darwin": "bun run prebuild:cli && bun build --compile --target=bun-darwin-x64 ./scripts/ant-cli.mjs --outfile dist/ant-x86_64-apple-darwin",
